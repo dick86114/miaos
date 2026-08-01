@@ -302,6 +302,10 @@ function formatNotes(raw) {
   if (typeof raw !== 'string') {
     try { raw = String(raw); } catch { return ''; }
   }
+  // 如果内容已经包含 HTML 标签，直接渲染
+  if (/<[a-z][\s\S]*>/i.test(raw)) {
+    return raw;
+  }
   return markdownToHtml(raw);
 }
 

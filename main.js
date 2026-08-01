@@ -4,18 +4,19 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const { exec } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
 let mainWindow = null;
 let updateInfoCache = null;
+let downloadFilePath = null;
 
 // ===== 自动更新初始化 =====
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
-  // 使用 ad-hoc 签名（--sign -），跳过更新安装时的签名验证
   autoUpdater.verifyUpdateCodeSignature = false;
 
   // 默认绑定到 dick86114/miaos GitHub 仓库
@@ -27,6 +28,13 @@ function setupAutoUpdater() {
       releaseType: 'release',
     });
   } catch (_) {}
+
+  // 延迟将 verifyUpdateCodeSignature 传递到 MacUpdater 子实例
+  setTimeout(() => {
+    if (autoUpdater.updater) {
+      autoUpdater.updater.verifyUpdateCodeSignature = false;
+    }
+  }, 200);
 
   autoUpdater.on('checking-for-update', () => {
     sendUpdateStatus('checking', { info: '正在检查更新…' });
@@ -66,6 +74,8 @@ function setupAutoUpdater() {
 
   autoUpdater.on('update-downloaded', (info) => {
     updateInfoCache = info;
+    // 保存下载文件路径用于手动安装
+    if (info.path) downloadFilePath = info.path;
     sendUpdateStatus('downloaded', {
       version: info.version,
       releaseDate: info.releaseDate,
@@ -104,7 +114,7 @@ ipcMain.handle('update-download', async () => {
     return { ok: false, error: '开发环境不支持自动更新，请打包后使用' };
   }
   try {
-    await autoUpdater.downloadUpdate();
+    downloadFilePath = await autoUpdater.downloadUpdate();
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || '下载更新失败' };
@@ -113,8 +123,58 @@ ipcMain.handle('update-download', async () => {
 
 ipcMain.handle('update-quit-and-install', () => {
   try {
+    // 获取当前 .app 路径
+    const appExe = app.getPath('exe');
+    // exe 路径: /path/to/Miaos.app/Contents/MacOS/Miaos
+    // app 路径: /path/to/Miaos.app
+    const appPath = path.resolve(appExe, '../../..');
+    const appName = path.basename(appPath);
+    const parentDir = path.dirname(appPath);
+
+    // 优先使用保存的下载文件路径，回退到 autoUpdater.downloadedFile
+    const zipPath = downloadFilePath || autoUpdater.downloadedFile;
+    if (!zipPath || !fs.existsSync(zipPath)) {
+      return { ok: false, error: '下载文件不存在，请重新下载' };
+    }
+
+    // 写一个 shell 脚本来执行更新（在 app 退出后运行）
+    const scriptContent = `#!/bin/bash
+set -e
+sleep 2
+# 备份旧版本
+if [ -d "${appPath}" ]; then
+  mv "${appPath}" "${appPath}.old"
+fi
+# 解压新版本到父目录
+ditto -x -k "${zipPath}" "${parentDir}/"
+# 如果解压出来的目录名不匹配，重命名
+EXTRACTED=""
+for d in "${parentDir}"/*.app; do
+  if [ -d "$d" ] && [ "$d" != "${appPath}.old" ]; then
+    EXTRACTED="$d"
+    break
+  fi
+done
+if [ -n "$EXTRACTED" ] && [ "$EXTRACTED" != "${appPath}" ]; then
+  mv "$EXTRACTED" "${appPath}" 2>/dev/null || true
+fi
+# 删除备份
+rm -rf "${appPath}.old"
+# 移除隔离属性
+xattr -cr "${appPath}"
+# 重新启动应用
+open "${appPath}"
+# 清理临时脚本
+rm -- "$0"
+`;
+
+    const scriptPath = path.join(app.getPath('temp'), 'miaos-update-install.sh');
+    fs.writeFileSync(scriptPath, scriptContent, { mode: 0o755 });
+
+    // 执行脚本并退出应用
+    exec(`nohup bash "${scriptPath}" > /tmp/miaos-update.log 2>&1 &`);
     setImmediate(() => {
-      autoUpdater.quitAndInstall(true, true);
+      app.quit();
     });
     return { ok: true };
   } catch (e) {
