@@ -296,17 +296,103 @@ function formatSize(bytes) {
 
 function formatNotes(raw) {
   if (!raw) return '';
-  if (typeof raw === 'string') {
-    // 简单 markdown → HTML
-    return escapeHtml(raw)
-      .replace(/\n/g, '<br/>')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-  }
   if (Array.isArray(raw)) {
-    return raw.map((x) => (typeof x === 'string' ? formatNotes(x) : formatNotes(x.note || ''))).join('<br/>');
+    return raw.map((x) => (typeof x === 'string' ? formatNotes(x) : formatNotes(x.note || ''))).join('');
   }
-  try { return JSON.stringify(raw); } catch { return ''; }
+  if (typeof raw !== 'string') {
+    try { raw = String(raw); } catch { return ''; }
+  }
+  return markdownToHtml(raw);
+}
+
+// 轻量 Markdown → HTML（无需第三方库，覆盖常见语法）
+function markdownToHtml(md) {
+  const lines = escapeHtml(md).split('\n');
+  const html = [];
+  let inList = false;
+  let inCode = false;
+  let codeLang = '';
+  let codeLines = [];
+
+  const closeList = () => { if (inList) { html.push('</ul>'); inList = false; } };
+  const inline = (text) => {
+    return text
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:6px;margin:6px 0" />')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__(.+?)__/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/_(.+?)_/g, '<em>$1</em>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/~~(.+?)~~/g, '<del>$1</del>');
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // 代码块
+    if (line.trim().startsWith('```')) {
+      if (inCode) {
+        html.push(`<pre><code>${codeLines.join('\n')}</code></pre>`);
+        codeLines = [];
+        inCode = false;
+      } else {
+        closeList();
+        inCode = true;
+        codeLang = line.trim().slice(3);
+      }
+      continue;
+    }
+    if (inCode) { codeLines.push(line); continue; }
+
+    // 空行
+    if (!line.trim()) { closeList(); continue; }
+
+    // 标题
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      closeList();
+      const level = h[1].length;
+      html.push(`<h${level}>${inline(h[2])}</h${level}>`);
+      continue;
+    }
+
+    // 分隔线
+    if (/^(\*\*\*|---|___)\s*$/.test(line)) {
+      closeList();
+      html.push('<hr/>');
+      continue;
+    }
+
+    // 引用
+    if (line.startsWith('&gt; ')) {
+      closeList();
+      html.push(`<blockquote>${inline(line.slice(5))}</blockquote>`);
+      continue;
+    }
+
+    // 列表项
+    const li = line.match(/^[\s]*[-*+]\s+(.*)$/);
+    if (li) {
+      if (!inList) { html.push('<ul>'); inList = true; }
+      html.push(`<li>${inline(li[1])}</li>`);
+      continue;
+    }
+    // 数字列表
+    const ol = line.match(/^[\s]*\d+\.\s+(.*)$/);
+    if (ol) {
+      if (!inList) { html.push('<ul>'); inList = true; }
+      html.push(`<li>${inline(ol[1])}</li>`);
+      continue;
+    }
+
+    // 普通段落
+    closeList();
+    html.push(`<p>${inline(line)}</p>`);
+  }
+  if (inCode) html.push(`<pre><code>${codeLines.join('\n')}</code></pre>`);
+  closeList();
+  return html.join('');
 }
 
 function escapeHtml(s) {

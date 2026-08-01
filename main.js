@@ -15,6 +15,8 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
+  // 使用 ad-hoc 签名（--sign -），跳过更新安装时的签名验证
+  autoUpdater.verifyUpdateCodeSignature = false;
 
   // 默认绑定到 dick86114/miaos GitHub 仓库
   try {
