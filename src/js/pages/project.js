@@ -662,8 +662,13 @@ export function renderProject(container, params) {
       if (nodeCol) {
         const vid = nodeCol.getAttribute('data-version-id');
         if (vid === curVer.id) return;
+        const outerEl = root.querySelector('.pwb-timeline-outer');
+        const savedScroll = outerEl ? outerEl.scrollLeft : 0;
         setCurrentVersion(project.id, vid);
         renderWorkbench(container, getProject(project.id));
+        // 恢复时间轴横向滚动位置
+        const newOuter = container.querySelector('.pwb-timeline-outer');
+        if (newOuter && savedScroll) newOuter.scrollLeft = savedScroll;
         return;
       }
     });
