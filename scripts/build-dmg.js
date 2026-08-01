@@ -14,7 +14,9 @@ const APP_NAME = 'miaos.app';
 const APP_PATH = path.join(MAC_DIR, APP_NAME);
 const INSTALLER_SRC = path.join(ROOT, 'build/installer/安装妙生.command');
 const STAGING = path.join(RELEASE, 'dmg-staging');
-const DISPLAY_VERSION = '1.0.1';
+// 从 package.json 读取版本号，避免硬编码与实际版本不一致
+const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+const DISPLAY_VERSION = PKG.version;
 const DMG_PATH = path.join(RELEASE, `miaos-${DISPLAY_VERSION}-arm64.dmg`);
 
 function run(cmd, opts = {}) {
