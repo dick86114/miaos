@@ -26,6 +26,9 @@ jobs:
   build:
     name: Build macOS DMG
     runs-on: macos-14  # Apple Silicon (M1) runner，原生 arm64
+    # 发布 Release 需要写权限；CI 模式（push）默认只读权限即可
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,7 +36,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
