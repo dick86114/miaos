@@ -35,10 +35,12 @@
       "category": "public.app-category.graphics-design",
       "target": [
         {
+          "target": "zip",
+          "arch": ["arm64"]
+        },
+        {
           "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
+          "arch": ["arm64"]
         }
       ],
       "hardenedRuntime": false,
@@ -48,6 +50,12 @@
         "CFBundleDisplayName": "妙生",
         "CFBundleName": "miaos"
       }
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "dick86114",
+      "repo": "miaos",
+      "releaseType": "release"
     },
     "dmg": {
       "title": "妙生 ${version}",
@@ -70,5 +78,8 @@
         "height": 380
       }
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

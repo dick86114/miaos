@@ -55,6 +55,7 @@ function migrate(parsed) {
     lastSettings: parsed.lastSettings || null,
     projects: Array.isArray(parsed.projects) ? parsed.projects : [],
     textProvider: parsed.textProvider || null,
+    updateRepo: typeof parsed.updateRepo === 'string' ? parsed.updateRepo : '',
   };
 }
 
@@ -80,6 +81,7 @@ function load() {
     lastSettings: null,
     projects: [],
     textProvider: null,
+    updateRepo: 'dick86114/miaos',
   };
 }
 
@@ -759,4 +761,22 @@ export function getProjectImagesFlat(project) {
   });
   all.sort((a, b) => b.createdAt - a.createdAt);
   return all;
+}
+
+// ===== 设置相关 =====
+export function getUpdateRepo() {
+  return state.updateRepo || '';
+}
+export function saveUpdateRepo(repo) {
+  state.updateRepo = String(repo || '').trim();
+  save();
+}
+export function getSettings() {
+  const isPackaged = (window.api && window.api.updateGetCurrentVersion)
+    ? undefined
+    : false;
+  return {
+    isPackaged,
+    updateRepo: state.updateRepo || '',
+  };
 }

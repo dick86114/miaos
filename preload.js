@@ -12,4 +12,16 @@ contextBridge.exposeInMainWorld('api', {
   pickTextFile: () => ipcRenderer.invoke('pick-text-file'),
   savePastedImage: (dataUrl) => ipcRenderer.invoke('save-pasted-image', dataUrl),
   optimizePrompt: (params) => ipcRenderer.invoke('optimize-prompt', params),
+
+  // ===== 自动更新 =====
+  updateGetCurrentVersion: () => ipcRenderer.invoke('update-get-current-version'),
+  updateCheck: () => ipcRenderer.invoke('update-check'),
+  updateDownload: () => ipcRenderer.invoke('update-download'),
+  updateQuitAndInstall: () => ipcRenderer.invoke('update-quit-and-install'),
+  updateConfigure: (opts) => ipcRenderer.invoke('update-configure', opts),
+  onUpdateStatus: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('update-status', listener);
+    return () => ipcRenderer.off('update-status', listener);
+  },
 });

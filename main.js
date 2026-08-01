@@ -4,8 +4,142 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow = null;
+let updateInfoCache = null;
+
+// ===== 自动更新初始化 =====
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = false;
+  autoUpdater.allowPrerelease = false;
+
+  // 默认绑定到 dick86114/miaos GitHub 仓库
+  try {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'dick86114',
+      repo: 'miaos',
+      releaseType: 'release',
+    });
+  } catch (_) {}
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateStatus('checking', { info: '正在检查更新…' });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    updateInfoCache = info;
+    sendUpdateStatus('available', {
+      version: info.version,
+      releaseNotes: info.releaseNotes,
+      releaseDate: info.releaseDate,
+      fileSize: info.files && info.files[0] ? info.files[0].size : 0,
+    });
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    updateInfoCache = info;
+    sendUpdateStatus('not-available', {
+      version: info?.version || app.getVersion(),
+    });
+  });
+
+  autoUpdater.on('error', (err) => {
+    sendUpdateStatus('error', {
+      message: err && err.message ? err.message : '更新时发生未知错误',
+    });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateStatus('downloading', {
+      percent: Number(progress.percent.toFixed(2)),
+      bytesPerSecond: progress.bytesPerSecond,
+      totalBytes: progress.total,
+      transferredBytes: progress.transferred,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    updateInfoCache = info;
+    sendUpdateStatus('downloaded', {
+      version: info.version,
+      releaseDate: info.releaseDate,
+    });
+  });
+}
+
+function sendUpdateStatus(state, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('update-status', { state, ...payload });
+}
+
+// ===== 对外更新 API =====
+ipcMain.handle('update-get-current-version', () => {
+  return {
+    version: app.getVersion(),
+    name: '妙生',
+    isPackaged: !!app.isPackaged,
+  };
+});
+
+ipcMain.handle('update-check', async () => {
+  if (!app.isPackaged) {
+    return { ok: false, error: '开发环境不支持自动更新，请打包后使用' };
+  }
+  try {
+    await autoUpdater.checkForUpdates();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || '检查更新失败' };
+  }
+});
+
+ipcMain.handle('update-download', async () => {
+  if (!app.isPackaged) {
+    return { ok: false, error: '开发环境不支持自动更新，请打包后使用' };
+  }
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || '下载更新失败' };
+  }
+});
+
+ipcMain.handle('update-quit-and-install', () => {
+  try {
+    setImmediate(() => {
+      autoUpdater.quitAndInstall(true, true);
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || '安装更新失败' };
+  }
+});
+
+// 动态配置更新源（owner/repo），允许用户自定义 GitHub 仓库
+ipcMain.handle('update-configure', async (_event, opts) => {
+  try {
+    const { owner, repo } = opts || {};
+    if (owner && repo) {
+      autoUpdater.setFeedURL({
+        provider: 'github',
+        owner: String(owner).trim(),
+        repo: String(repo).trim(),
+        releaseType: 'release',
+      });
+    } else {
+      // 使用 package.json 中的默认 publish 配置（electron-updater 会自动读取 app-update.yml）
+      autoUpdater.setFeedURL(autoUpdater.currentVersionString ? '' : undefined);
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || '配置更新源失败' };
+  }
+});
 
 const os = require('os');
 
@@ -646,10 +780,18 @@ ipcMain.handle('optimize-prompt', async (_event, params) => {
 });
 
 app.whenReady().then(() => {
+  setupAutoUpdater();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+
+  // 窗口就绪后延迟自动检查更新（仅打包环境）
+  if (app.isPackaged) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch(() => {});
+    }, 5000);
+  }
 });
 
 app.on('window-all-closed', () => {
