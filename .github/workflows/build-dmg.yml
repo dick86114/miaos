@@ -58,12 +58,14 @@ jobs:
       - name: Build DMG
         run: npm run dist
 
-      - name: Verify artifact
+      - name: Verify artifacts
         run: |
           echo "=== 构建产物 ==="
-          ls -lh release/*.dmg
-          echo "=== 文件信息 ==="
+          ls -lh release/*.dmg release/*.zip release/*.yml 2>/dev/null || true
+          echo "=== DMG 信息 ==="
           file release/*.dmg
+          echo "=== latest-mac.yml ==="
+          cat release/latest-mac.yml || echo "❌ latest-mac.yml 不存在！自动更新将无法工作"
 
       - name: Get DMG filename
         id: dmg
@@ -108,7 +110,10 @@ jobs:
 
             - macOS 12+（Apple Silicon）
             - 首次打开若被 Gatekeeper 拦截：系统设置 → 隐私与安全性 → 仍要打开
-          files: release/*.dmg
+          files: |
+            release/*.dmg
+            release/latest-mac.yml
+            release/*-mac.zip
           draft: false
           prerelease: ${{ inputs.prerelease }}
           make_latest: true
