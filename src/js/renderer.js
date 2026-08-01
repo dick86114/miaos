@@ -48,9 +48,7 @@ function bindGlobalUpdateListener() {
     if (payload.state === 'available' && payload.version) {
       if (lastNotifiedVersion === payload.version) return;
       lastNotifiedVersion = payload.version;
-      toast(`发现新版本 v${payload.version}，前往「设置」下载安装`, 'info', 4500);
-    } else if (payload.state === 'downloaded' && payload.version) {
-      toast(`新版本 v${payload.version} 已下载，点击重启即可安装`, 'success', 5000);
+      toast(`发现新版本 v${payload.version}，前往「设置」下载`, 'info', 4500);
     }
   });
 }

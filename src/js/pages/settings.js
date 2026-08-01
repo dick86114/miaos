@@ -1,15 +1,13 @@
 // 设置页面：版本、自动更新
 import { icon } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog } from '../ui.js';
+import { mountPage, htmlToElement, toast } from '../ui.js';
 
 const UPDATE_STATE_TEXT = {
   idle: '尚未检查',
   checking: '正在检查更新…',
   available: '发现新版本',
   'not-available': '当前已是最新版本',
-  downloading: '正在下载更新…',
-  downloaded: '新版本已就绪，点击安装',
-  error: '检查或下载时出错',
+  error: '检查时出错',
 };
 
 export function renderSettings(container) {
@@ -59,24 +57,12 @@ export function renderSettings(container) {
               <div id="latest-ver" class="update-ver">—</div>
               <div id="latest-date" class="update-hint"></div>
             </div>
-            <div class="update-progress-wrap" id="progress-wrap" style="display:none;">
-              <div class="update-progress-bar">
-                <div id="progress-fill" class="update-progress-fill"></div>
-              </div>
-              <div class="update-progress-meta">
-                <span id="progress-percent">0%</span>
-                <span id="progress-speed">—</span>
-              </div>
-            </div>
             <div class="update-actions">
               <button class="btn btn-primary" id="btn-check" type="button">
                 ${icon('refresh-cw', 14)}<span>检查更新</span>
               </button>
               <button class="btn btn-primary" id="btn-download" type="button" style="display:none;">
-                ${icon('download', 14)}<span>下载更新</span>
-              </button>
-              <button class="btn btn-primary" id="btn-install" type="button" style="display:none;">
-                ${icon('power', 14)}<span>重启并安装</span>
+                ${icon('external-link', 14)}<span>前往 GitHub 下载</span>
               </button>
             </div>
           </div>
@@ -137,26 +123,22 @@ export function renderSettings(container) {
     state.updatePayload = payload;
 
     const chip = root.querySelector('#update-state-chip');
-    const progressWrap = root.querySelector('#progress-wrap');
     const errorEl = root.querySelector('#update-error');
     const notesEl = root.querySelector('#update-notes');
     const btnCheck = root.querySelector('#btn-check');
     const btnDownload = root.querySelector('#btn-download');
-    const btnInstall = root.querySelector('#btn-install');
     const latestVer = root.querySelector('#latest-ver');
     const latestDate = root.querySelector('#latest-date');
 
     chip.textContent = UPDATE_STATE_TEXT[s] || s || UPDATE_STATE_TEXT.idle;
     chip.className = 'tag tag-soft';
 
-    // 默认隐藏下载进度 / 错误 / 说明
+    // 默认隐藏错误 / 说明
     errorEl.style.display = 'none';
     notesEl.style.display = 'none';
-    progressWrap.style.display = 'none';
 
     btnCheck.style.display = 'inline-flex';
     btnDownload.style.display = 'none';
-    btnInstall.style.display = 'none';
     resetBtn(btnCheck);
 
     switch (s) {
@@ -184,32 +166,6 @@ export function renderSettings(container) {
         latestDate.textContent = '当前已是最新版本';
         chip.className = 'tag tag-soft';
         break;
-      case 'downloading': {
-        progressWrap.style.display = 'block';
-        const percent = Number(payload.percent || 0);
-        root.querySelector('#progress-fill').style.width = percent + '%';
-        root.querySelector('#progress-percent').textContent = percent.toFixed(1) + '%';
-        const speed = payload.bytesPerSecond ? formatSize(payload.bytesPerSecond) + '/s' : '—';
-        root.querySelector('#progress-speed').textContent = speed;
-        setBtnLoading(btnCheck, '下载中…');
-        btnCheck.style.display = 'none';
-        btnDownload.style.display = 'inline-flex';
-        setBtnLoading(btnDownload, '下载中…');
-        btnDownload.disabled = true;
-        chip.className = 'tag tag-soft';
-        break;
-      }
-      case 'downloaded': {
-        const ver = payload.version || '新版本';
-        latestVer.textContent = `v${ver} · 已下载`;
-        latestDate.textContent = payload.releaseDate ? '发布时间：' + formatDate(payload.releaseDate) : '';
-        btnCheck.style.display = 'none';
-        btnDownload.style.display = 'none';
-        btnInstall.style.display = 'inline-flex';
-        chip.className = 'tag tag-primary';
-        toast('新版本已下载完成，可重启并安装', 'success');
-        break;
-      }
       case 'error': {
         errorEl.style.display = 'flex';
         root.querySelector('#update-error-msg').textContent = payload.message || '未知错误';
@@ -237,36 +193,8 @@ export function renderSettings(container) {
     });
 
     root.querySelector('#btn-download').addEventListener('click', async () => {
-      if (!window.api || !window.api.updateDownload) { toast('运行环境异常', 'error'); return; }
-      const btn = root.querySelector('#btn-download');
-      setBtnLoading(btn, '下载中…');
-      btn.disabled = true;
-      try {
-        const res = await window.api.updateDownload();
-        if (res && res.ok === false) {
-          handleUpdateEvent({ state: 'error', message: res.error });
-        }
-      } catch (e) {
-        handleUpdateEvent({ state: 'error', message: e.message || '下载失败' });
-      } finally {
-        btn.disabled = false;
-        resetBtn(btn);
-      }
-    });
-
-    root.querySelector('#btn-install').addEventListener('click', async () => {
-      if (!confirmDialog('将重启妙生并安装新版本，是否继续？')) return;
-      if (!window.api || !window.api.updateQuitAndInstall) { toast('运行环境异常', 'error'); return; }
-      const btn = root.querySelector('#btn-install');
-      setBtnLoading(btn, '重启中…');
-      btn.disabled = true;
-      try {
-        await window.api.updateQuitAndInstall();
-      } catch (e) {
-        toast('重启安装失败：' + e.message, 'error');
-        btn.disabled = false;
-        resetBtn(btn);
-      }
+      if (!window.api || !window.api.openReleasePage) { toast('运行环境异常', 'error'); return; }
+      await window.api.openReleasePage();
     });
   }
 }
@@ -283,15 +211,6 @@ function formatDate(ts) {
   } catch {
     return '';
   }
-}
-
-function formatSize(bytes) {
-  if (!bytes || bytes < 1024) return bytes + ' B';
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let v = bytes / 1024;
-  let u = 0;
-  while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
-  return v.toFixed(1) + ' ' + units[u];
 }
 
 function formatNotes(raw) {
