@@ -1,13 +1,26 @@
-name: Build & Release DMG
+name: Build & Release
 
-# 触发条件：
-# 1. 推送 v* 格式的 tag（如 v1.0.0）→ 构建并发布 GitHub Release
-# 2. 手动触发（workflow_dispatch）→ 仅构建，上传 artifact 供下载
+# 触发方式：
+# 1. push 到 main 分支 → 仅构建验证，上传 artifact（不发布 Release）
+# 2. 手动触发 → 填写版本号与更新内容 → 构建并发布 GitHub Release
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不含 v 前缀，如 1.0.2）'
+        required: true
+        type: string
+      release_notes:
+        description: '更新内容（多行，支持 Markdown）'
+        required: true
+        type: string
+      prerelease:
+        description: '是否为预发布版本'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -26,6 +39,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Override version (manual release)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            console.log('版本号已更新为: ' + pkg.version);
+          "
+
       - name: Build DMG
         run: npm run dist
 
@@ -36,25 +62,41 @@ jobs:
           echo "=== 文件信息 ==="
           file release/*.dmg
 
-      - name: Upload artifact
+      - name: Get DMG filename
+        id: dmg
+        run: |
+          DMG_FILE=$(ls release/*.dmg | head -1)
+          DMG_NAME=$(basename "$DMG_FILE")
+          echo "path=$DMG_FILE" >> $GITHUB_OUTPUT
+          echo "name=$DMG_NAME" >> $GITHUB_OUTPUT
+
+      # ===== CI 模式（push 触发）：仅上传 artifact 供下载测试 =====
+      - name: Upload artifact (CI)
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: miaos-dmg
+          name: miaos-dmg-ci
           path: release/*.dmg
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14
 
+      # ===== Release 模式（手动触发）：创建 GitHub Release =====
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          name: 妙生 ${{ github.ref_name }}
+          tag_name: v${{ inputs.version }}
+          name: 妙生 ${{ inputs.version }}
           body: |
-            ## 妙生 miaos ${{ github.ref_name }}
+            ## 妙生 miaos ${{ inputs.version }}
+
+            ${{ inputs.release_notes }}
+
+            ---
 
             ### 安装方法
 
-            1. 下载下方的 `miaos-*.dmg` 文件
+            1. 下载下方的 `${{ steps.dmg.outputs.name }}` 文件
             2. 双击挂载 DMG
             3. 双击 DMG 窗口中的「安装妙生.command」脚本
             4. 在终端中按提示完成安装（脚本会自动复制到 `/Applications` 并执行 `xattr -cr` 解除安全限制）
@@ -65,6 +107,7 @@ jobs:
             - 首次打开若被 Gatekeeper 拦截：系统设置 → 隐私与安全性 → 仍要打开
           files: release/*.dmg
           draft: false
-          prerelease: false
+          prerelease: ${{ inputs.prerelease }}
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
