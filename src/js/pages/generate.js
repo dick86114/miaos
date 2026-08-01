@@ -12,6 +12,7 @@ import {
   imageToDataUrl,
   optimizePrompt,
   getTextProvider,
+  formatDateTime,
 } from '../store.js';
 import * as queue from '../queue.js';
 import { navigate } from '../router.js';
@@ -576,13 +577,29 @@ export function renderGenerate(container) {
   }
 
   function openLightbox(t) {
+    const providerText = t.providerName || '未知供应商';
+    const modelText = t.modelId || '未知模型';
     const overlay = htmlToElement(`
       <div class="lightbox-overlay" id="lightbox">
         <button type="button" class="lightbox-close" id="lightbox-close">${icon('x', 20)}</button>
         <div class="lightbox-content">
           <img src="${t.result.image}" alt="生成结果" class="lightbox-image" />
+          <div class="lightbox-info">
+            <div class="lightbox-info-row">
+              <span class="lightbox-info-label">模型</span>
+              <span class="lightbox-info-value">${escapeHtml(providerText)} / ${escapeHtml(modelText)}</span>
+            </div>
+            <div class="lightbox-info-row">
+              <span class="lightbox-info-label">参数</span>
+              <span class="lightbox-info-value">${t.ratio} · ${escapeHtml(t.quality)} · ${ratioToSize(t.ratio)} · ${formatDateTime(t.createdAt)}</span>
+            </div>
+            <div class="lightbox-info-row lightbox-prompt-row">
+              <span class="lightbox-info-label">提示词</span>
+              <span class="lightbox-info-value lightbox-prompt-text">${escapeHtml(t.prompt)}</span>
+            </div>
+          </div>
           <div class="lightbox-meta">
-            <span>${t.ratio} · ${escapeHtml(t.quality)} · ${ratioToSize(t.ratio)}</span>
+            <div style="flex:1"></div>
             <button type="button" class="btn btn-secondary btn-sm" id="lb-download">${icon('download', 14)}<span>保存</span></button>
             <button type="button" class="btn btn-ghost btn-sm" id="lb-copy">${icon('copy', 14)}<span>复制提示词</span></button>
           </div>
