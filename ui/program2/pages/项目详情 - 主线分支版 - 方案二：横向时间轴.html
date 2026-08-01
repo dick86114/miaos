@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目详情 - 横向时间轴版</title>
+    <style id="theme-vars">
+:root {
+  /* Base palette — cool neutral + single indigo brand */
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f0f0f3;
+  --surface-3: #e8e8ed;
+  --ink: #111827;
+  --ink-2: #4b5563;
+  --ink-3: #9ca3af;
+  --line: #e5e7eb;
+  --brand: #4f46e5;
+  --brand-600: #4338ca;
+  --brand-700: #3730a3;
+  --brand-ink: #ffffff;
+  --brand-soft: rgba(79, 70, 229, 0.08);
+
+  /* State colors */
+  --state-success: #10b981;
+  --state-warning: #f59e0b;
+  --state-error: #ef4444;
+  --state-info: #3b82f6;
+
+  /* Radius scale */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* Shadows */
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.03);
+  --shadow-2: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+  --shadow-3: 0 24px 60px -20px rgba(15, 23, 42, 0.22);
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Semantic aliases for head contract */
+  --app-background: var(--bg);
+  --app-foreground: var(--ink);
+  --app-card: var(--surface);
+  --app-card-foreground: var(--ink);
+  --app-popover: var(--surface);
+  --app-popover-foreground: var(--ink);
+  --app-primary: var(--brand);
+  --app-primary-foreground: var(--brand-ink);
+  --app-muted: var(--surface-2);
+  --app-muted-foreground: var(--ink-2);
+  --app-border: var(--line);
+  --app-input: var(--line);
+  --app-ring: var(--brand);
+  --app-radius-small: var(--r-sm);
+  --app-radius-medium: var(--r-md);
+  --app-radius-large: var(--r-lg);
+}
+
+/* macOS-like light mode defaults */
+html.light,
+html {
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--app-background);
+    --color-foreground: var(--app-foreground);
+    --color-card: var(--app-card);
+    --color-card-foreground: var(--app-card-foreground);
+    --color-popover: var(--app-popover);
+    --color-popover-foreground: var(--app-popover-foreground);
+    --color-primary: var(--app-primary);
+    --color-primary-foreground: var(--app-primary-foreground);
+    --color-muted: var(--app-muted);
+    --color-muted-foreground: var(--app-muted-foreground);
+    --color-border: var(--app-border);
+    --color-input: var(--app-input);
+    --color-ring: var(--app-ring);
+    --radius-sm: var(--app-radius-small);
+    --radius-md: var(--app-radius-medium);
+    --radius-lg: var(--app-radius-large);
+  }
+  @layer base {
+    body { background: var(--app-background); color: var(--app-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--app-background); }
+      .text-background { color: var(--app-background); }
+      .border-background { border-color: var(--app-background); }
+      .ring-background { --tw-ring-color: var(--app-background); }
+      .bg-foreground { background-color: var(--app-foreground); }
+      .text-foreground { color: var(--app-foreground); }
+      .border-foreground { border-color: var(--app-foreground); }
+      .ring-foreground { --tw-ring-color: var(--app-foreground); }
+      .bg-card { background-color: var(--app-card); }
+      .text-card { color: var(--app-card); }
+      .border-card { border-color: var(--app-card); }
+      .ring-card { --tw-ring-color: var(--app-card); }
+      .bg-card-foreground { background-color: var(--app-card-foreground); }
+      .text-card-foreground { color: var(--app-card-foreground); }
+      .border-card-foreground { border-color: var(--app-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--app-card-foreground); }
+      .bg-popover { background-color: var(--app-popover); }
+      .text-popover { color: var(--app-popover); }
+      .border-popover { border-color: var(--app-popover); }
+      .ring-popover { --tw-ring-color: var(--app-popover); }
+      .bg-popover-foreground { background-color: var(--app-popover-foreground); }
+      .text-popover-foreground { color: var(--app-popover-foreground); }
+      .border-popover-foreground { border-color: var(--app-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--app-popover-foreground); }
+      .bg-primary { background-color: var(--app-primary); }
+      .text-primary { color: var(--app-primary); }
+      .border-primary { border-color: var(--app-primary); }
+      .ring-primary { --tw-ring-color: var(--app-primary); }
+      .bg-primary-foreground { background-color: var(--app-primary-foreground); }
+      .text-primary-foreground { color: var(--app-primary-foreground); }
+      .border-primary-foreground { border-color: var(--app-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--app-primary-foreground); }
+      .bg-muted { background-color: var(--app-muted); }
+      .text-muted { color: var(--app-muted); }
+      .border-muted { border-color: var(--app-muted); }
+      .ring-muted { --tw-ring-color: var(--app-muted); }
+      .bg-muted-foreground { background-color: var(--app-muted-foreground); }
+      .text-muted-foreground { color: var(--app-muted-foreground); }
+      .border-muted-foreground { border-color: var(--app-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--app-muted-foreground); }
+      .bg-border { background-color: var(--app-border); }
+      .text-border { color: var(--app-border); }
+      .border-border { border-color: var(--app-border); }
+      .ring-border { --tw-ring-color: var(--app-border); }
+      .bg-input { background-color: var(--app-input); }
+      .text-input { color: var(--app-input); }
+      .border-input { border-color: var(--app-input); }
+      .ring-input { --tw-ring-color: var(--app-input); }
+      .bg-ring { background-color: var(--app-ring); }
+      .text-ring { color: var(--app-ring); }
+      .border-ring { border-color: var(--app-ring); }
+      .ring-ring { --tw-ring-color: var(--app-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <style id="critical-layout">
+      /* === Shell layout === */
+      .app-frame { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+      .title-bar { height: 40px; flex-shrink: 0; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--surface); -webkit-app-region: drag; }
+      .traffic-lights { display: flex; gap: 8px; }
+      .traffic-light { width: 12px; height: 12px; border-radius: 50%; }
+      .traffic-light.close { background: #ff5f57; }
+      .traffic-light.minimize { background: #febc2e; }
+      .traffic-light.maximize { background: #28c840; }
+      .title-bar-text { margin-left: 12px; font-size: 13px; color: var(--ink-2); font-weight: 500; }
+      .body-frame { display: flex; flex: 1; overflow: hidden; }
+      .sidebar { width: 200px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 16px 12px; }
+      .sidebar-logo { display: flex; align-items: center; gap: 8px; padding: 0 8px 16px; font-size: 15px; font-weight: 600; color: var(--ink); }
+      .sidebar-nav { display: flex; flex-direction: column; gap: 4px; }
+      .sidebar-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-md); font-size: 14px; color: var(--ink-2); text-decoration: none; transition: background 0.15s ease; }
+      .sidebar-item:hover { background: var(--surface-2); color: var(--ink); }
+      .sidebar-item[data-active="true"] { background: var(--brand-soft); color: var(--brand); }
+      .main-content { flex: 1; overflow: auto; background: var(--bg); padding: 24px; }
+
+      /* === Page: 项目详情 - 横向时间轴版 === */
+      .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); margin-bottom: 16px; }
+      .breadcrumb a { color: var(--ink-2); text-decoration: none; transition: color 0.15s ease; }
+      .breadcrumb a:hover { color: var(--brand); }
+      .breadcrumb-sep { color: var(--ink-3); }
+      .breadcrumb-current { color: var(--ink); font-weight: 500; }
+
+      .project-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+      .project-title { font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+      .project-desc { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+      .project-actions { display: flex; gap: 8px; }
+
+      .detail-layout { display: flex; flex-direction: column; gap: 20px; }
+
+      /* === 时间轴 === */
+      .timeline-section { display: flex; flex-direction: column; gap: 12px; }
+      .timeline-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .timeline-title { font-size: 14px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+      .timeline-title i { width: 16px; height: 16px; color: var(--ink-2); }
+      .timeline-hint { font-size: 12px; color: var(--ink-3); }
+      .timeline-outer { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 24px; overflow-x: auto; }
+
+      /* 时间轴轨道：使用 grid 保证等宽对齐 */
+      .timeline-track {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: 220px;
+        gap: 0;
+        position: relative;
+        min-width: max-content;
+        align-items: start;
+      }
+
+      /* 节点列 */
+      .timeline-node-col {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 0 16px;
+        min-height: 100%;
+      }
+      .timeline-node-col:first-child { padding-left: 0; }
+      .timeline-node-col:last-child { padding-right: 0; }
+
+      /* 列间垂直基准线（从节点中心向下贯穿，作为主线视觉引导） */
+      .timeline-node-col::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 21px;
+        bottom: 0;
+        width: 1px;
+        background: linear-gradient(180deg, var(--line) 0%, transparent 100%);
+        transform: translateX(-50%);
+        z-index: 0;
+        opacity: 0.6;
+      }
+      .timeline-node-col[data-active="true"]::before { background: linear-gradient(180deg, rgba(79, 70, 229, 0.35) 0%, transparent 100%); }
+
+      /* 节点间水平连接线 */
+      .timeline-node-col::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        right: -50%;
+        top: 21px;
+        height: 2px;
+        background: var(--line);
+        z-index: 0;
+      }
+      .timeline-node-col:last-child::after { display: none; }
+      .timeline-node-col[data-active="true"]::after { background: linear-gradient(90deg, var(--brand) 0%, var(--line) 100%); }
+      .timeline-node-col[data-active="true"] ~ .timeline-node-col::after { background: var(--line); }
+
+      /* 节点标记 */
+      .timeline-node { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; cursor: pointer; }
+      .timeline-marker { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface); border: 2px solid var(--line); color: var(--ink-2); transition: all 0.15s ease; }
+      .timeline-marker i { width: 18px; height: 18px; }
+      .timeline-node-col[data-active="true"] .timeline-marker { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); box-shadow: 0 0 0 4px var(--brand-soft); }
+      .timeline-node:hover .timeline-marker { border-color: var(--brand); color: var(--brand); }
+      .timeline-node:hover .timeline-title-text { color: var(--brand); }
+
+      .timeline-labels { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+      .timeline-title-text { font-size: 13px; font-weight: 600; color: var(--ink); text-align: center; transition: color 0.15s ease; }
+      .timeline-meta { font-size: 11px; color: var(--ink-3); text-align: center; }
+      .timeline-count { font-size: 11px; color: var(--ink-3); padding: 1px 7px; background: var(--surface-2); border-radius: var(--r-pill); }
+      .timeline-node-col[data-active="true"] .timeline-title-text { color: var(--brand); }
+      .timeline-node-col[data-active="true"] .timeline-count { background: rgba(79, 70, 229, 0.15); color: var(--brand); }
+
+      /* 分支列表：位于节点下方，垂直堆叠 */
+      .branch-list { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: 18px; position: relative; z-index: 1; }
+      .branch-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px 10px 8px 14px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        cursor: pointer;
+        transition: all 0.15s ease;
+        min-height: 54px;
+        justify-content: center;
+      }
+      .branch-card::before {
+        content: '';
+        position: absolute;
+        left: 5px;
+        top: 12px;
+        bottom: 12px;
+        width: 3px;
+        background: var(--brand);
+        border-radius: var(--r-pill);
+        opacity: 0.35;
+      }
+      .branch-card:hover { background: var(--brand-soft); border-color: rgba(79, 70, 229, 0.25); }
+      .branch-card:hover::before { opacity: 0.6; }
+      .branch-card-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+      .branch-name { font-size: 12px; font-weight: 500; color: var(--ink); display: flex; align-items: center; gap: 4px; }
+      .branch-name i { width: 12px; height: 12px; color: var(--ink-3); }
+      .branch-count { font-size: 10px; color: var(--ink-3); padding: 1px 5px; background: var(--surface); border-radius: var(--r-pill); }
+      .branch-source { font-size: 11px; color: var(--ink-3); }
+
+      /* === 详情面板 === */
+      .detail-panel { display: flex; flex-direction: column; gap: 16px; }
+      .detail-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .detail-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .detail-name { font-size: 18px; font-weight: 600; color: var(--ink); }
+      .type-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--brand); padding: 3px 10px; background: var(--brand-soft); border-radius: var(--r-pill); }
+      .type-badge.branch { color: var(--state-info); background: rgba(59, 130, 246, 0.08); }
+      .type-badge i { width: 12px; height: 12px; }
+      .source-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); padding: 3px 10px; background: var(--surface-2); border-radius: var(--r-pill); }
+      .source-badge i { width: 12px; height: 12px; }
+      .detail-time { font-size: 12px; color: var(--ink-3); }
+
+      .prompt-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px; box-shadow: var(--shadow-1); display: flex; flex-direction: column; gap: 14px; }
+      .prompt-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .prompt-label-text { font-size: 13px; font-weight: 600; color: var(--ink); }
+      .prompt-hint { font-size: 12px; color: var(--ink-3); display: flex; align-items: center; gap: 4px; }
+      .prompt-hint i { width: 12px; height: 12px; }
+      .prompt-textarea { width: 100%; min-height: 72px; resize: vertical; border: 1px solid var(--line); border-radius: var(--r-md); padding: 12px; font-size: 14px; line-height: 1.55; color: var(--ink); background: var(--surface); outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease; font-family: var(--font-sans); }
+      .prompt-textarea::placeholder { color: var(--ink-3); }
+      .prompt-textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+      .options-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+      .option-group { display: flex; align-items: center; gap: 8px; }
+      .option-label { font-size: 13px; color: var(--ink-2); font-weight: 500; }
+      .model-select, .quality-select { height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink); font-size: 13px; outline: none; transition: border-color 0.15s ease; }
+      .model-select:focus, .quality-select:focus { border-color: var(--brand); }
+      .ratio-group { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--surface); }
+      .ratio-btn { height: 32px; padding: 0 12px; border: none; background: transparent; color: var(--ink-2); font-size: 13px; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; border-right: 1px solid var(--line); }
+      .ratio-btn:last-child { border-right: none; }
+      .ratio-btn:hover { background: var(--surface-2); color: var(--ink); }
+      .ratio-btn[data-active="true"] { background: var(--brand-soft); color: var(--brand); font-weight: 500; }
+
+      .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border-radius: var(--r-md); font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease; border: 1px solid transparent; text-decoration: none; }
+      .btn-primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+      .btn-primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
+      .btn-primary:active { background: var(--brand-700); transform: translateY(1px); }
+      .btn-ghost { background: transparent; color: var(--ink-2); border-color: var(--line); }
+      .btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
+      .action-row { display: flex; gap: 12px; }
+
+      .gallery-section { display: flex; flex-direction: column; gap: 12px; }
+      .gallery-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .gallery-title { font-size: 14px; font-weight: 600; color: var(--ink); }
+      .gallery-count { font-size: 12px; color: var(--ink-3); }
+      .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+      .gallery-item { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; text-decoration: none; color: inherit; transition: box-shadow 0.2s ease, transform 0.2s ease; cursor: pointer; position: relative; }
+      .gallery-item:hover { box-shadow: var(--shadow-2); transform: translateY(-2px); }
+      .gallery-item img { width: 100%; height: 110px; object-fit: cover; display: block; }
+      .gallery-item-meta { padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+      .gallery-item-time { font-size: 11px; color: var(--ink-3); }
+      .branch-badge { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--brand); padding: 2px 6px; background: var(--surface); border-radius: var(--r-pill); box-shadow: var(--shadow-1); border: 1px solid rgba(79, 70, 229, 0.2); }
+      .branch-badge i { width: 10px; height: 10px; }
+    </style>
+</head>
+<body class="h-screen overflow-hidden font-sans antialiased">
+  <div class="app-frame" data-viewport-mode="app-shell">
+    <!-- 标题栏 -->
+    <div class="title-bar">
+      <div class="traffic-lights">
+        <span class="traffic-light close"></span>
+        <span class="traffic-light minimize"></span>
+        <span class="traffic-light maximize"></span>
+      </div>
+      <span class="title-bar-text">macOS 生图工具</span>
+    </div>
+
+    <div class="body-frame">
+      <!-- 侧边栏 -->
+      <aside class="sidebar">
+        <div class="sidebar-logo">
+          <i data-lucide="aperture" style="width:18px;height:18px;color:var(--brand)"></i>
+          <span>Promptree</span>
+        </div>
+        <nav class="sidebar-nav">
+          <a href="#" class="sidebar-item" data-nav-key="generate">
+            <i data-lucide="sparkles" style="width:16px;height:16px"></i>
+            <span>生图</span>
+          </a>
+          <a href="#" class="sidebar-item" data-nav-key="projects" data-active="true">
+            <i data-lucide="folder" style="width:16px;height:16px"></i>
+            <span>项目</span>
+          </a>
+          <a href="#" class="sidebar-item" data-nav-key="history">
+            <i data-lucide="image" style="width:16px;height:16px"></i>
+            <span>历史</span>
+          </a>
+          <a href="#" class="sidebar-item" data-nav-key="models">
+            <i data-lucide="cpu" style="width:16px;height:16px"></i>
+            <span>模型</span>
+          </a>
+        </nav>
+      </aside>
+
+      <!-- 主内容 -->
+      <main class="main-content overflow-y-auto" data-scroll-region="primary">
+        <!-- 面包屑 -->
+        <div class="breadcrumb">
+          <a href="#">项目</a>
+          <i data-lucide="chevron-right" style="width:14px;height:14px" class="breadcrumb-sep"></i>
+          <span class="breadcrumb-current">产品 Logo 设计</span>
+        </div>
+
+        <!-- 项目头部 -->
+        <div class="project-header">
+          <div>
+            <h1 class="project-title">产品 Logo 设计</h1>
+            <p class="project-desc">按时间顺序横向浏览每次提示词探索与图生图迭代，节点越靠右表示越新的实验</p>
+          </div>
+          <div class="project-actions">
+            <button type="button" class="btn btn-ghost">
+              <i data-lucide="settings-2" style="width:16px;height:16px"></i>
+              <span>项目设置</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 上下布局：时间轴 + 详情 -->
+        <div class="detail-layout">
+          <!-- 横向时间轴 -->
+          <div class="timeline-section">
+            <div class="timeline-header">
+              <div class="timeline-title">
+                <i data-lucide="arrow-right-left"></i>
+                探索时间轴
+              </div>
+              <span class="timeline-hint">7 条主线 · 20 个分支 · 共 65 张生成图</span>
+            </div>
+            <div class="timeline-outer">
+              <div class="timeline-track">
+
+                <!-- 主线1：极简几何风格（当前选中） -->
+                <div class="timeline-node-col" data-active="true">
+                  <div class="timeline-node">
+                    <div class="timeline-marker">
+                      <i data-lucide="minus"></i>
+                    </div>
+                    <div class="timeline-labels">
+                      <span class="timeline-title-text">极简几何风格</span>
+                      <span class="timeline-meta">SDXL 1.0 · 2 小时前</span>
+                      <span class="timeline-count">12 张</span>
+                    </div>
+                  </div>
+                  <div class="branch-list">
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>调整配色</span>
+                        <span class="branch-count">3 张</span>
+                      </div>
+                      <span class="branch-source">基于 图2</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>简化线条</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图2</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>加粗轮廓</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图5</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>圆角变体</span>
+                        <span class="branch-count">3 张</span>
+                      </div>
+                      <span class="branch-source">基于 图7</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 主线2：渐变流体风格 -->
+                <div class="timeline-node-col">
+                  <div class="timeline-node">
+                    <div class="timeline-marker">
+                      <i data-lucide="minus"></i>
+                    </div>
+                    <div class="timeline-labels">
+                      <span class="timeline-title-text">渐变流体风格</span>
+                      <span class="timeline-meta">Midjourney V6 · 昨天</span>
+                      <span class="timeline-count">9 张</span>
+                    </div>
+                  </div>
+                  <div class="branch-list">
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>增加纹理</span>
+                        <span class="branch-count">3 张</span>
+                      </div>
+                      <span class="branch-source">基于 图1</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>暗色背景</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图3</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>高饱和版</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图5</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 主线3：手绘水墨风格 -->
+                <div class="timeline-node-col">
+                  <div class="timeline-node">
+                    <div class="timeline-marker">
+                      <i data-lucide="minus"></i>
+                    </div>
+                    <div class="timeline-labels">
+                      <span class="timeline-title-text">手绘水墨风格</span>
+                      <span class="timeline-meta">FLUX.1 · 3 天前</span>
+                      <span class="timeline-count">7 张</span>
+                    </div>
+                  </div>
+                  <div class="branch-list">
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>加重笔触</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图2</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>金色点缀</span>
+                        <span class="branch-count">3 张</span>
+                      </div>
+                      <span class="branch-source">基于 图4</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 主线4：像素复古风格 -->
+                <div class="timeline-node-col">
+                  <div class="timeline-node">
+                    <div class="timeline-marker">
+                      <i data-lucide="minus"></i>
+                    </div>
+                    <div class="timeline-labels">
+                      <span class="timeline-title-text">像素复古风格</span>
+                      <span class="timeline-meta">DALL·E 3 · 4 天前</span>
+                      <span class="timeline-count">11 张</span>
+                    </div>
+                  </div>
+                  <div class="branch-list">
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>8-bit 阴影</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图1</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>霓虹描边</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图3</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>低多边形变体</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图6</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 主线5：立体金属风格 -->
+                <div class="timeline-node-col">
+                  <div class="timeline-node">
+                    <div class="timeline-marker">
+                      <i data-lucide="minus"></i>
+                    </div>
+                    <div class="timeline-labels">
+                      <span class="timeline-title-text">立体金属风格</span>
+                      <span class="timeline-meta">Stable Diffusion 3 · 5 天前</span>
+                      <span class="timeline-count">8 张</span>
+                    </div>
+                  </div>
+                  <div class="branch-list">
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>磨砂质感</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图2</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>镜面反光</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图4</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>拉丝金属</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图6</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 主线6：霓虹赛博风格 -->
+                <div class="timeline-node-col">
+                  <div class="timeline-node">
+                    <div class="timeline-marker">
+                      <i data-lucide="minus"></i>
+                    </div>
+                    <div class="timeline-labels">
+                      <span class="timeline-title-text">霓虹赛博风格</span>
+                      <span class="timeline-meta">Midjourney V6 · 6 天前</span>
+                      <span class="timeline-count">10 张</span>
+                    </div>
+                  </div>
+                  <div class="branch-list">
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>故障艺术</span>
+                        <span class="branch-count">3 张</span>
+                      </div>
+                      <span class="branch-source">基于 图2</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>全息渐变</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图4</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>发光描边</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图7</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 主线7：自然生态风格 -->
+                <div class="timeline-node-col">
+                  <div class="timeline-node">
+                    <div class="timeline-marker">
+                      <i data-lucide="minus"></i>
+                    </div>
+                    <div class="timeline-labels">
+                      <span class="timeline-title-text">自然生态风格</span>
+                      <span class="timeline-meta">FLUX.1 · 1 周前</span>
+                      <span class="timeline-count">8 张</span>
+                    </div>
+                  </div>
+                  <div class="branch-list">
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>植物纹理</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图3</span>
+                    </div>
+                    <div class="branch-card">
+                      <div class="branch-card-top">
+                        <span class="branch-name"><i data-lucide="git-branch"></i>水流形态</span>
+                        <span class="branch-count">2 张</span>
+                      </div>
+                      <span class="branch-source">基于 图5</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- 详情面板 -->
+          <div class="detail-panel">
+            <!-- 详情头 -->
+            <div class="detail-header">
+              <div class="detail-title-row">
+                <span class="detail-name">极简几何风格</span>
+                <span class="type-badge">
+                  <i data-lucide="layers"></i>
+                  主线
+                </span>
+                <span class="source-badge">
+                  <i data-lucide="clock"></i>
+                  2 小时前
+                </span>
+              </div>
+              <span class="detail-time">12 张图片 · 4 个分支 · 10 张派生图</span>
+            </div>
+
+            <!-- 提示词卡片 -->
+            <div class="prompt-card">
+              <div class="prompt-label">
+                <span class="prompt-label-text">提示词</span>
+                <span class="prompt-hint">
+                  <i data-lucide="info"></i>
+                  修改提示词将创建新主线
+                </span>
+              </div>
+              <textarea class="prompt-textarea">极简几何图形，靛蓝单色，扁平化品牌标识，正方形构图，适合科技公司 logo，留白充足</textarea>
+            </div>
+
+            <!-- 参数行 + 操作行 -->
+            <div class="prompt-card" style="padding:16px 20px">
+              <div class="options-row">
+                <div class="option-group">
+                  <span class="option-label">模型</span>
+                  <select class="model-select">
+                    <option>OpenAI DALL·E 3</option>
+                    <option>Midjourney V6</option>
+                    <option selected>Stable Diffusion XL</option>
+                    <option>FLUX.1</option>
+                  </select>
+                </div>
+                <div class="option-group">
+                  <span class="option-label">比例</span>
+                  <div class="ratio-group">
+                    <button class="ratio-btn" data-active="true">1:1</button>
+                    <button class="ratio-btn">4:3</button>
+                    <button class="ratio-btn">16:9</button>
+                    <button class="ratio-btn">9:16</button>
+                  </div>
+                </div>
+                <div class="option-group">
+                  <span class="option-label">质量</span>
+                  <select class="quality-select">
+                    <option>标准</option>
+                    <option selected>高清</option>
+                    <option>超高清</option>
+                  </select>
+                </div>
+              </div>
+              <div class="action-row">
+                <button class="btn btn-primary">
+                  <i data-lucide="sparkles" style="width:16px;height:16px"></i>
+                  <span>生成图片</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 图片画廊 -->
+            <div class="gallery-section">
+              <div class="gallery-header">
+                <span class="gallery-title">生成结果</span>
+                <span class="gallery-count">12 张图片 · 图2、图5、图7 已派生分支</span>
+              </div>
+              <div class="gallery-grid">
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_0_yi19x4.jpg" alt="生成结果 1" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">2 小时前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_1_yi19x4.jpg" alt="生成结果 2" />
+                  <span class="branch-badge">
+                    <i data-lucide="git-branch"></i>
+                    3 分支
+                  </span>
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">2 小时前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_2_yi19x4.jpg" alt="生成结果 3" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">2 小时前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_3_yi19x4.jpg" alt="生成结果 4" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">1 小时前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_0_yi19x4.jpg" alt="生成结果 5" />
+                  <span class="branch-badge">
+                    <i data-lucide="git-branch"></i>
+                    1 分支
+                  </span>
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">1 小时前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_1_yi19x4.jpg" alt="生成结果 6" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">50 分钟前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_2_yi19x4.jpg" alt="生成结果 7" />
+                  <span class="branch-badge">
+                    <i data-lucide="git-branch"></i>
+                    3 分支
+                  </span>
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">30 分钟前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_3_yi19x4.jpg" alt="生成结果 8" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">10 分钟前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_0_yi19x4.jpg" alt="生成结果 9" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">8 分钟前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_2_yi19x4.jpg" alt="生成结果 10" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">6 分钟前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_1_yi19x4.jpg" alt="生成结果 11" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">4 分钟前</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+                <a href="#" class="gallery-item">
+                  <img src="../assets/image_3_yi19x4.jpg" alt="生成结果 12" />
+                  <div class="gallery-item-meta">
+                    <span class="gallery-item-time">刚刚</span>
+                    <i data-lucide="maximize-2" style="width:12px;height:12px;color:var(--ink-3)"></i>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

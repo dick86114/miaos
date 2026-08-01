@@ -1,0 +1,79 @@
+/* ===== 妙生 miaos 主题变量（来自设计稿） ===== */
+:root {
+  /* 基础调色板 — 冷中性 + 单一靛蓝品牌色 */
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f0f0f3;
+  --surface-3: #e8e8ed;
+  --ink: #111827;
+  --ink-2: #4b5563;
+  --ink-3: #9ca3af;
+  --line: #e5e7eb;
+  --brand: #4f46e5;
+  --brand-600: #4338ca;
+  --brand-700: #3730a3;
+  --brand-ink: #ffffff;
+  --brand-soft: rgba(79, 70, 229, 0.08);
+
+  /* 状态色 */
+  --state-success: #10b981;
+  --state-warning: #f59e0b;
+  --state-error: #ef4444;
+  --state-info: #3b82f6;
+
+  /* 圆角刻度 */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* 阴影 */
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.03);
+  --shadow-2: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+  --shadow-3: 0 24px 60px -20px rgba(15, 23, 42, 0.22);
+
+  /* 字体 */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* 语义别名 */
+  --app-background: var(--bg);
+  --app-foreground: var(--ink);
+  --app-card: var(--surface);
+  --app-card-foreground: var(--ink);
+  --app-popover: var(--surface);
+  --app-popover-foreground: var(--ink);
+  --app-primary: var(--brand);
+  --app-primary-foreground: var(--brand-ink);
+  --app-muted: var(--surface-2);
+  --app-muted-foreground: var(--ink-2);
+  --app-border: var(--line);
+  --app-input: var(--line);
+  --app-ring: var(--brand);
+  --app-radius-small: var(--r-sm);
+  --app-radius-medium: var(--r-md);
+  --app-radius-large: var(--r-lg);
+}
+
+html,
+body {
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-mono { font-family: var(--font-mono); }
+
+/* 隐藏滚动条工具类 */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* lucide 图标默认对齐 */
+[data-lucide] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="light" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目</title>
+    <style id="theme-vars">
+:root {
+  /* Base palette — cool neutral + single indigo brand */
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-2: #f0f0f3;
+  --surface-3: #e8e8ed;
+  --ink: #111827;
+  --ink-2: #4b5563;
+  --ink-3: #9ca3af;
+  --line: #e5e7eb;
+  --brand: #4f46e5;
+  --brand-600: #4338ca;
+  --brand-700: #3730a3;
+  --brand-ink: #ffffff;
+  --brand-soft: rgba(79, 70, 229, 0.08);
+
+  /* State colors */
+  --state-success: #10b981;
+  --state-warning: #f59e0b;
+  --state-error: #ef4444;
+  --state-info: #3b82f6;
+
+  /* Radius scale */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* Shadows */
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.03);
+  --shadow-2: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+  --shadow-3: 0 24px 60px -20px rgba(15, 23, 42, 0.22);
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Semantic aliases for head contract */
+  --app-background: var(--bg);
+  --app-foreground: var(--ink);
+  --app-card: var(--surface);
+  --app-card-foreground: var(--ink);
+  --app-popover: var(--surface);
+  --app-popover-foreground: var(--ink);
+  --app-primary: var(--brand);
+  --app-primary-foreground: var(--brand-ink);
+  --app-muted: var(--surface-2);
+  --app-muted-foreground: var(--ink-2);
+  --app-border: var(--line);
+  --app-input: var(--line);
+  --app-ring: var(--brand);
+  --app-radius-small: var(--r-sm);
+  --app-radius-medium: var(--r-md);
+  --app-radius-large: var(--r-lg);
+}
+
+/* macOS-like light mode defaults */
+html.light,
+html {
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1/dist/index.global.js"></script>
+    <script src="https://unpkg.com/lucide@1.8.0/dist/umd/lucide.min.js"></script>
+    <style type="text/tailwindcss">
+  @theme inline {
+    --color-background: var(--app-background);
+    --color-foreground: var(--app-foreground);
+    --color-card: var(--app-card);
+    --color-card-foreground: var(--app-card-foreground);
+    --color-popover: var(--app-popover);
+    --color-popover-foreground: var(--app-popover-foreground);
+    --color-primary: var(--app-primary);
+    --color-primary-foreground: var(--app-primary-foreground);
+    --color-muted: var(--app-muted);
+    --color-muted-foreground: var(--app-muted-foreground);
+    --color-border: var(--app-border);
+    --color-input: var(--app-input);
+    --color-ring: var(--app-ring);
+    --radius-sm: var(--app-radius-small);
+    --radius-md: var(--app-radius-medium);
+    --radius-lg: var(--app-radius-large);
+  }
+  @layer base {
+    body { background: var(--app-background); color: var(--app-foreground); }
+    td, th { @apply break-words; word-break: break-all; word-break: auto-phrase; }
+    th { @apply whitespace-nowrap; }
+  }
+    </style>
+    <style id="semantic-token-fallback">
+      .bg-background { background-color: var(--app-background); }
+      .text-background { color: var(--app-background); }
+      .border-background { border-color: var(--app-background); }
+      .ring-background { --tw-ring-color: var(--app-background); }
+      .bg-foreground { background-color: var(--app-foreground); }
+      .text-foreground { color: var(--app-foreground); }
+      .border-foreground { border-color: var(--app-foreground); }
+      .ring-foreground { --tw-ring-color: var(--app-foreground); }
+      .bg-card { background-color: var(--app-card); }
+      .text-card { color: var(--app-card); }
+      .border-card { border-color: var(--app-card); }
+      .ring-card { --tw-ring-color: var(--app-card); }
+      .bg-card-foreground { background-color: var(--app-card-foreground); }
+      .text-card-foreground { color: var(--app-card-foreground); }
+      .border-card-foreground { border-color: var(--app-card-foreground); }
+      .ring-card-foreground { --tw-ring-color: var(--app-card-foreground); }
+      .bg-popover { background-color: var(--app-popover); }
+      .text-popover { color: var(--app-popover); }
+      .border-popover { border-color: var(--app-popover); }
+      .ring-popover { --tw-ring-color: var(--app-popover); }
+      .bg-popover-foreground { background-color: var(--app-popover-foreground); }
+      .text-popover-foreground { color: var(--app-popover-foreground); }
+      .border-popover-foreground { border-color: var(--app-popover-foreground); }
+      .ring-popover-foreground { --tw-ring-color: var(--app-popover-foreground); }
+      .bg-primary { background-color: var(--app-primary); }
+      .text-primary { color: var(--app-primary); }
+      .border-primary { border-color: var(--app-primary); }
+      .ring-primary { --tw-ring-color: var(--app-primary); }
+      .bg-primary-foreground { background-color: var(--app-primary-foreground); }
+      .text-primary-foreground { color: var(--app-primary-foreground); }
+      .border-primary-foreground { border-color: var(--app-primary-foreground); }
+      .ring-primary-foreground { --tw-ring-color: var(--app-primary-foreground); }
+      .bg-muted { background-color: var(--app-muted); }
+      .text-muted { color: var(--app-muted); }
+      .border-muted { border-color: var(--app-muted); }
+      .ring-muted { --tw-ring-color: var(--app-muted); }
+      .bg-muted-foreground { background-color: var(--app-muted-foreground); }
+      .text-muted-foreground { color: var(--app-muted-foreground); }
+      .border-muted-foreground { border-color: var(--app-muted-foreground); }
+      .ring-muted-foreground { --tw-ring-color: var(--app-muted-foreground); }
+      .bg-border { background-color: var(--app-border); }
+      .text-border { color: var(--app-border); }
+      .border-border { border-color: var(--app-border); }
+      .ring-border { --tw-ring-color: var(--app-border); }
+      .bg-input { background-color: var(--app-input); }
+      .text-input { color: var(--app-input); }
+      .border-input { border-color: var(--app-input); }
+      .ring-input { --tw-ring-color: var(--app-input); }
+      .bg-ring { background-color: var(--app-ring); }
+      .text-ring { color: var(--app-ring); }
+      .border-ring { border-color: var(--app-ring); }
+      .ring-ring { --tw-ring-color: var(--app-ring); }
+    </style>
+    <style>
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      [data-icon] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-mask-size: contain;
+        mask-size: contain;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-position: center;
+        mask-position: center;
+        background-color: currentColor;
+      }
+    </style>
+    <style id="shell-layout">
+.app-frame { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.title-bar { height: 40px; flex-shrink: 0; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--surface); -webkit-app-region: drag; }
+.traffic-lights { display: flex; gap: 8px; }
+.traffic-light { width: 12px; height: 12px; border-radius: 50%; }
+.traffic-light.close { background: #ff5f57; }
+.traffic-light.minimize { background: #febc2e; }
+.traffic-light.maximize { background: #28c840; }
+.title-bar-text { margin-left: 12px; font-size: 13px; color: var(--ink-2); font-weight: 500; }
+.body-frame { display: flex; flex: 1; overflow: hidden; }
+.sidebar { width: 200px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 16px 12px; }
+.sidebar-logo { display: flex; align-items: center; gap: 8px; padding: 0 8px 16px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.sidebar-nav { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-md); font-size: 14px; color: var(--ink-2); text-decoration: none; transition: background 0.15s ease; }
+.sidebar-item:hover { background: var(--surface-2); color: var(--ink); }
+.sidebar-item[data-active="true"] { background: var(--brand-soft); color: var(--brand); }
+.main-content { flex: 1; overflow: auto; background: var(--bg); padding: 24px; }
+    </style>
+    <style id="page-projects">
+.projects-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.projects-title { font-size: 22px; font-weight: 600; color: var(--ink); letter-spacing: -0.01em; }
+.projects-subtitle { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+.projects-toolbar { display: flex; align-items: center; gap: 12px; }
+.search-box { position: relative; display: flex; align-items: center; }
+.search-box i { position: absolute; left: 10px; color: var(--ink-3); }
+.search-input { width: 200px; height: 32px; padding: 0 12px 0 34px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink); font-size: 13px; outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.search-input::placeholder { color: var(--ink-3); }
+.search-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px; border-radius: var(--r-md); font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease; border: 1px solid transparent; text-decoration: none; }
+.btn-primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+.btn-primary:hover { background: var(--brand-600); border-color: var(--brand-600); }
+.btn-primary:active { background: var(--brand-700); transform: translateY(1px); }
+.btn-ghost { background: transparent; color: var(--ink-2); border-color: var(--line); }
+.btn-ghost:hover { background: var(--surface-2); color: var(--ink); }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.project-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; text-decoration: none; color: inherit; transition: box-shadow 0.2s ease, transform 0.2s ease; cursor: pointer; }
+.project-card:hover { box-shadow: var(--shadow-2); transform: translateY(-2px); }
+.project-cover { width: 100%; height: 140px; object-fit: cover; display: block; background: var(--surface-2); }
+.project-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.project-name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.project-desc { font-size: 13px; color: var(--ink-2); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.project-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.meta-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); padding: 2px 8px; background: var(--surface-2); border-radius: var(--r-pill); }
+.meta-badge i { width: 12px; height: 12px; }
+.meta-time { font-size: 12px; color: var(--ink-3); margin-left: auto; }
+    </style>
+</head>
+<body class="h-screen overflow-hidden font-sans antialiased">
+  <div class="app-frame" data-viewport-mode="app-shell">
+    <div class="title-bar">
+      <div class="traffic-lights">
+        <span class="traffic-light close"></span>
+        <span class="traffic-light minimize"></span>
+        <span class="traffic-light maximize"></span>
+      </div>
+      <span class="title-bar-text">macOS 生图工具</span>
+    </div>
+    <div class="body-frame">
+      <aside class="sidebar">
+        <div class="sidebar-logo">
+          <i data-lucide="aperture" style="width:18px;height:18px;color:var(--brand)"></i>
+          <span>Promptree</span>
+        </div>
+        <nav class="sidebar-nav">
+          <a href="#" class="sidebar-item" data-nav-key="generate" data-dom-id="nav-generate">
+            <i data-lucide="sparkles" style="width:16px;height:16px"></i>
+            <span>生图</span>
+          </a>
+          <a href="#" class="sidebar-item" data-nav-key="projects" data-active="true" data-dom-id="nav-projects">
+            <i data-lucide="folder" style="width:16px;height:16px"></i>
+            <span>项目</span>
+          </a>
+          <a href="#" class="sidebar-item" data-nav-key="history" data-dom-id="nav-history">
+            <i data-lucide="image" style="width:16px;height:16px"></i>
+            <span>历史</span>
+          </a>
+          <a href="#" class="sidebar-item" data-nav-key="models" data-dom-id="nav-models">
+            <i data-lucide="cpu" style="width:16px;height:16px"></i>
+            <span>模型</span>
+          </a>
+        </nav>
+      </aside>
+      <main class="main-content overflow-y-auto" data-scroll-region="primary">
+        <div class="projects-header">
+          <div>
+            <h1 class="projects-title">项目</h1>
+            <p class="projects-subtitle">为同一件事持续创作，每个项目维护独立的提示词版本树</p>
+          </div>
+          <div class="projects-toolbar">
+            <div class="search-box">
+              <i data-lucide="search" style="width:14px;height:14px"></i>
+              <input type="text" class="search-input" placeholder="搜索项目…" />
+            </div>
+            <button type="button" class="btn btn-primary">
+              <i data-lucide="plus" style="width:16px;height:16px"></i>
+              <span>新建项目</span>
+            </button>
+          </div>
+        </div>
+        <div class="project-grid">
+          <a href="#" class="project-card" data-dom-id="link-project-detail">
+            <img src="../assets/image_0_yi19x4.jpg" alt="极简风景系列" class="project-cover" />
+            <div class="project-body">
+              <span class="project-name">极简风景系列</span>
+              <p class="project-desc">探索极简主义风景画，晨光、湖泊、雾气的冷色调实验</p>
+              <div class="project-meta">
+                <span class="meta-badge"><i data-lucide="git-branch"></i>4 版本</span>
+                <span class="meta-badge"><i data-lucide="image"></i>10 张图</span>
+                <span class="meta-badge"><i data-lucide="cpu"></i>SDXL 1.0</span>
+                <span class="meta-time">2 小时前</span>
+              </div>
+            </div>
+          </a>
+          <a href="#" class="project-card">
+            <img src="../assets/image_1_yi19x4.jpg" alt="赛博朋克角色" class="project-cover" />
+            <div class="project-body">
+              <span class="project-name">赛博朋克角色</span>
+              <p class="project-desc">未来感人物肖像系列，霓虹光影与赛博美学</p>
+              <div class="project-meta">
+                <span class="meta-badge"><i data-lucide="git-branch"></i>3 版本</span>
+                <span class="meta-badge"><i data-lucide="image"></i>7 张图</span>
+                <span class="meta-badge"><i data-lucide="cpu"></i>Midjourney V6</span>
+                <span class="meta-time">昨天</span>
+              </div>
+            </div>
+          </a>
+          <a href="#" class="project-card">
+            <img src="../assets/image_2_yi19x4.jpg" alt="电商产品主图" class="project-cover" />
+            <div class="project-body">
+              <span class="project-name">电商产品主图</span>
+              <p class="project-desc">白底极简产品渲染，柔和阴影与高端质感</p>
+              <div class="project-meta">
+                <span class="meta-badge"><i data-lucide="git-branch"></i>2 版本</span>
+                <span class="meta-badge"><i data-lucide="image"></i>5 张图</span>
+                <span class="meta-badge"><i data-lucide="cpu"></i>ProductDiffusion</span>
+                <span class="meta-time">3 天前</span>
+              </div>
+            </div>
+          </a>
+          <a href="#" class="project-card">
+            <img src="../assets/image_3_yi19x4.jpg" alt="抽象艺术海报" class="project-cover" />
+            <div class="project-body">
+              <span class="project-name">抽象艺术海报</span>
+              <p class="project-desc">几何流体与色彩渐变的艺术实验</p>
+              <div class="project-meta">
+                <span class="meta-badge"><i data-lucide="git-branch"></i>5 版本</span>
+                <span class="meta-badge"><i data-lucide="image"></i>12 张图</span>
+                <span class="meta-badge"><i data-lucide="cpu"></i>Kandinsky XL</span>
+                <span class="meta-time">1 周前</span>
+              </div>
+            </div>
+          </a>
+          <a href="#" class="project-card">
+            <img src="../assets/image_0_yi19x4.jpg" alt="城市天际线" class="project-cover" />
+            <div class="project-body">
+              <span class="project-name">城市天际线</span>
+              <p class="project-desc">不同时段城市轮廓的极简表达</p>
+              <div class="project-meta">
+                <span class="meta-badge"><i data-lucide="git-branch"></i>2 版本</span>
+                <span class="meta-badge"><i data-lucide="image"></i>4 张图</span>
+                <span class="meta-badge"><i data-lucide="cpu"></i>SDXL 1.0</span>
+                <span class="meta-time">1 周前</span>
+              </div>
+            </div>
+          </a>
+          <a href="#" class="project-card">
+            <img src="../assets/image_1_yi19x4.jpg" alt="水墨人物" class="project-cover" />
+            <div class="project-body">
+              <span class="project-name">水墨人物</span>
+              <p class="project-desc">传统水墨风格与现代人物结合</p>
+              <div class="project-meta">
+                <span class="meta-badge"><i data-lucide="git-branch"></i>1 版本</span>
+                <span class="meta-badge"><i data-lucide="image"></i>3 张图</span>
+                <span class="meta-badge"><i data-lucide="cpu"></i>FLUX.1</span>
+                <span class="meta-time">2 周前</span>
+              </div>
+            </div>
+          </a>
+        </div>
+      </main>
+    </div>
+  </div>
+  <script>lucide.createIcons();</script>
+</body>
+</html>

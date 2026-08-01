@@ -1,0 +1,74 @@
+{
+  "name": "miaos",
+  "version": "1.0.1",
+  "description": "妙生 miaos — macOS 生图工具",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --enable-logging",
+    "build:dir": "electron-builder --mac dir && node scripts/postbuild.js release/mac-arm64/miaos.app",
+    "dist": "node scripts/build-dmg.js",
+    "dist:zip": "electron-builder --mac dir && node scripts/postbuild.js release/mac-arm64/miaos.app && cd release/mac-arm64 && zip -r ../miaos-${npm_package_version}-arm64.zip miaos.app"
+  },
+  "author": "妙生",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "miaos",
+    "productName": "miaos",
+    "copyright": "Copyright © 2026 妙生",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.graphics-design",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "identity": null,
+      "extendInfo": {
+        "CFBundleDisplayName": "妙生",
+        "CFBundleName": "miaos"
+      }
+    },
+    "dmg": {
+      "title": "妙生 ${version}",
+      "icon": "build/icon.icns",
+      "iconSize": 128,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
+  }
+}

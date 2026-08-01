@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
+  <title>妙生 miaos</title>
+  <link rel="icon" type="image/png" href="assets/logo.png" />
+  <link rel="stylesheet" href="css/theme.css" />
+  <link rel="stylesheet" href="css/shell.css" />
+  <link rel="stylesheet" href="css/pages.css" />
+</head>
+<body>
+  <div class="app-frame">
+    <!-- 标题栏：可拖拽区，左侧为原生交通灯 -->
+    <div class="title-bar">
+      <span class="title-bar-text">妙生 miaos · macOS 生图工具</span>
+      <span class="title-bar-spacer"></span>
+    </div>
+    <div class="body-frame">
+      <!-- 侧边栏 -->
+      <aside class="sidebar">
+        <div class="sidebar-logo">
+          <img src="assets/logo.png" alt="妙生" class="logo-img" />
+          <span>妙生</span>
+        </div>
+        <nav class="sidebar-nav">
+          <a href="#/generate" class="sidebar-item" data-nav-key="generate" data-active="true">
+            <i data-lucide="sparkles" data-size="16"></i>
+            <span class="nav-label">生图</span>
+          </a>
+          <a href="#/projects" class="sidebar-item" data-nav-key="projects">
+            <i data-lucide="folder" data-size="16"></i>
+            <span class="nav-label">项目</span>
+          </a>
+          <a href="#/history" class="sidebar-item" data-nav-key="history">
+            <i data-lucide="image" data-size="16"></i>
+            <span class="nav-label">历史</span>
+          </a>
+          <a href="#/models" class="sidebar-item" data-nav-key="models">
+            <i data-lucide="server" data-size="16"></i>
+            <span class="nav-label">供应商</span>
+          </a>
+        </nav>
+        <div class="sidebar-footer">
+          v1.0 · 本地运行<br/>⌘+Enter 快速生成
+        </div>
+      </aside>
+      <!-- 主内容区 -->
+      <main class="main-content" id="main-content"></main>
+    </div>
+  </div>
+  <script type="module" src="js/renderer.js"></script>
+</body>
+</html>
