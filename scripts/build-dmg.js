@@ -43,10 +43,10 @@ if (fs.existsSync(DMG_PATH)) fs.rmSync(DMG_PATH);
   if (fs.existsSync(p)) fs.rmSync(p);
 });
 
-// Build: dir (for DMG) + zip (for auto-update)
+// Build: dir (for DMG) + zip (for auto-update)，--publish never 避免 electron-builder 尝试上传到 GitHub（需要 GH_TOKEN）
 step('📦 构建应用 (electron-builder: dir + zip)');
 process.chdir(ROOT);
-run('npx electron-builder --mac dir zip --arm64', { cwd: ROOT });
+run('npx electron-builder --mac dir zip --arm64 --publish never', { cwd: ROOT });
 
 // Sign
 step('✍️  代码签名');
