@@ -14,7 +14,7 @@ function init() {
     item.addEventListener('click', (e) => {
       e.preventDefault();
       const key = item.getAttribute('data-nav-key');
-      const routeMap = { generate: '/generate', projects: '/projects', history: '/history', models: '/models', settings: '/settings' };
+      const routeMap = { generate: '/generate', projects: '/projects', history: '/history', settings: '/settings' };
       if (routeMap[key]) navigate(routeMap[key]);
     });
   });

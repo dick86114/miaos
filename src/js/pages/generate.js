@@ -13,6 +13,7 @@ import {
   optimizePrompt,
   getTextProvider,
   formatDateTime,
+  getDefaults,
 } from '../store.js';
 import * as queue from '../queue.js';
 import { navigate } from '../router.js';
@@ -22,12 +23,12 @@ const QUALITIES = ['标准', '高清', '超高清'];
 
 export function renderGenerate(container) {
   const providers = getProviders();
-  const def = getDefaultProvider();
+  const defaults = getDefaults();
   const last = getLastSettings();
 
   const initialPrompt = (last && last.prompt) || '';
-  const initialProviderId = (last && last.providerId) || (def && def.id) || (providers[0] && providers[0].id) || '';
-  const initialModelId = (last && last.modelId) || '';
+  const initialProviderId = (last && last.providerId) || defaults.defaultImageProvider || (providers[0] && providers[0].id) || '';
+  const initialModelId = (last && last.modelId) || defaults.defaultImageModel || '';
   const initialRatio = (last && last.ratio) || '1:1';
   const initialQuality = (last && last.quality) || '高清';
 
@@ -126,10 +127,10 @@ export function renderGenerate(container) {
   }
 
   function buildModelDropdownHtml() {
-    const pList = providers.filter((p) => p.models.some((m) => m.enabled));
+    const pList = providers.filter((p) => p.imageModels.some((m) => m.enabled));
     let html = '';
     for (const p of pList) {
-      const models = p.models.filter((m) => m.enabled);
+      const models = p.imageModels.filter((m) => m.enabled);
       html += `<div style="font-size:11px;color:var(--ink-3);padding:4px 10px 2px;">${escapeHtml(p.name)}</div>`;
       for (const m of models) {
         const active = m.id === currentModelId && p.id === currentProviderId;
@@ -139,7 +140,12 @@ export function renderGenerate(container) {
         </div>`;
       }
     }
-    return html || '<div style="padding:8px 10px;color:var(--ink-3);font-size:12px;">暂无可用模型</div>';
+    if (!html) {
+      html = `<div style="padding:12px 10px;color:var(--ink-3);font-size:12px;text-align:center;">
+        暂无可用生图模型<br/><a href="#/settings" style="color:var(--brand);text-decoration:none;">前往设置 → 模型供应商配置</a>
+      </div>`;
+    }
+    return html;
   }
 
   // ===== 比例下拉 =====
@@ -324,12 +330,19 @@ export function renderGenerate(container) {
     if (!prompt) { toast('请先输入提示词', 'error'); promptInput.focus(); return; }
     const tp = getTextProvider();
     if (!tp || !tp.endpoint || !tp.model) {
-      toast('请先在「供应商配置」页配置文本模型', 'error');
+      toast('请先在「设置 → 模型供应商」中配置文本模型', 'error');
       return;
     }
-    const originalHtml = btnOptimize.innerHTML;
+    // 进入优化状态：按钮旋转、输入框只读+波浪动画
     btnOptimize.disabled = true;
-    btnOptimize.innerHTML = icon('loader', 14);
+    btnOptimize.classList.add('is-optimizing');
+    promptInput.readOnly = true;
+    promptInput.classList.add('is-optimizing');
+    // 添加波浪进度条
+    const composerCard = root.querySelector('.composer-card');
+    const waveBar = document.createElement('div');
+    waveBar.className = 'composer-wave-bar';
+    if (composerCard) composerCard.appendChild(waveBar);
     try {
       const optimized = await optimizePrompt(prompt);
       promptInput.value = optimized;
@@ -338,7 +351,10 @@ export function renderGenerate(container) {
       toast('优化失败：' + err.message, 'error');
     } finally {
       btnOptimize.disabled = false;
-      btnOptimize.innerHTML = originalHtml;
+      btnOptimize.classList.remove('is-optimizing');
+      promptInput.readOnly = false;
+      promptInput.classList.remove('is-optimizing');
+      if (waveBar) waveBar.remove();
     }
   });
 
@@ -365,7 +381,7 @@ export function renderGenerate(container) {
       return;
     }
     if (!currentProviderId) {
-      toast('请先在「供应商」页配置供应商', 'error');
+      toast('请先在「设置 → 模型供应商」中配置供应商', 'error');
       return;
     }
     if (!currentModelId) {

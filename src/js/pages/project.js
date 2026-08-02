@@ -23,6 +23,7 @@ import {
   getImageBranchCount,
   optimizePrompt,
   getTextProvider,
+  getDefaults,
 } from '../store.js';
 import { navigate } from '../router.js';
 import * as queue from '../queue.js';
@@ -335,8 +336,19 @@ export function renderProject(container, params) {
     // 初始化比例和质量
     let currentRatio = curVer.images[0] ? curVer.images[0].ratio : '1:1';
     let currentQuality = curVer.images[0] ? curVer.images[0].quality : '高清';
-    let currentModelId = curVer.modelId || '';
-    let currentProviderId = curVer.providerId || '';
+    // 如果当前版本已有模型选择，使用它；否则使用默认模型
+    const defaults = getDefaults();
+    let currentModelId = curVer.modelId || defaults.defaultImageModel || '';
+    let currentProviderId = curVer.providerId || defaults.defaultImageProvider || '';
+    // 如果默认模型也没有，找第一个可用的
+    if (!currentModelId || !currentProviderId) {
+      const firstProvider = providers.find((p) => p.imageModels.some((m) => m.enabled));
+      if (firstProvider) {
+        currentProviderId = currentProviderId || firstProvider.id;
+        const firstModel = firstProvider.imageModels.find((m) => m.enabled);
+        currentModelId = currentModelId || (firstModel ? firstModel.id : '');
+      }
+    }
 
     // ===== Chip 下拉 =====
     const modelChip = root.querySelector('#model-chip');
@@ -354,10 +366,10 @@ export function renderProject(container, params) {
     buildModelChipValue();
 
     function buildModelDropdownHtml() {
-      const pList = providers.filter((p) => p.models.some((m) => m.enabled));
+      const pList = providers.filter((p) => p.imageModels.some((m) => m.enabled));
       let html = '';
       for (const p of pList) {
-        const models = p.models.filter((m) => m.enabled);
+        const models = p.imageModels.filter((m) => m.enabled);
         html += `<div style="font-size:11px;color:var(--ink-3);padding:4px 10px 2px;">${escapeHtml(p.name)}</div>`;
         for (const m of models) {
           const active = m.id === currentModelId;
@@ -506,12 +518,19 @@ export function renderProject(container, params) {
         if (!prompt) { toast('请先输入提示词', 'error'); promptInput.focus(); return; }
         const tp = getTextProvider();
         if (!tp || !tp.endpoint || !tp.model) {
-          toast('请先在「供应商配置」页配置文本模型', 'error');
+          toast('请先在「设置 → 模型供应商」中配置文本模型', 'error');
           return;
         }
-        const originalHtml = btnOptimize.innerHTML;
+        // 进入优化状态：按钮旋转、输入框只读+波浪动画
         btnOptimize.disabled = true;
-        btnOptimize.innerHTML = icon('loader', 14);
+        btnOptimize.classList.add('is-optimizing');
+        promptInput.readOnly = true;
+        promptInput.classList.add('is-optimizing');
+        // 添加波浪进度条
+        const composerCard = root.querySelector('.composer-card');
+        const waveBar = document.createElement('div');
+        waveBar.className = 'composer-wave-bar';
+        if (composerCard) composerCard.appendChild(waveBar);
         try {
           const optimized = await optimizePrompt(prompt);
           promptInput.value = optimized;
@@ -520,7 +539,10 @@ export function renderProject(container, params) {
           toast('优化失败：' + err.message, 'error');
         } finally {
           btnOptimize.disabled = false;
-          btnOptimize.innerHTML = originalHtml;
+          btnOptimize.classList.remove('is-optimizing');
+          promptInput.readOnly = false;
+          promptInput.classList.remove('is-optimizing');
+          if (waveBar) waveBar.remove();
         }
       });
     }
@@ -865,7 +887,7 @@ function openDeriveDialog(projectId, parentVersionId, container, renderWorkbench
 // ===== 工具函数 =====
 function buildModelToProviderMap(providers) {
   const map = new Map();
-  providers.forEach((p) => p.models.filter((m) => m.enabled).forEach((m) => map.set(m.id, p)));
+  providers.forEach((p) => p.imageModels.filter((m) => m.enabled).forEach((m) => map.set(m.id, p)));
   return map;
 }
 async function downloadImage(src, id) {

@@ -1,10 +1,9 @@
 // 极简 hash 路由
-// 路由格式：#/generate  #/projects  #/project/:id  #/history  #/models  #/detail/:id  #/settings
+// 路由格式：#/generate  #/projects  #/project/:id  #/history  #/settings  #/detail/:id
 import { renderGenerate } from './pages/generate.js';
 import { renderProjects } from './pages/projects.js';
 import { renderProject } from './pages/project.js';
 import { renderHistory } from './pages/history.js';
-import { renderModels } from './pages/models.js';
 import { renderDetail } from './pages/detail.js';
 import { renderSettings } from './pages/settings.js';
 
@@ -13,7 +12,6 @@ const ROUTES = [
   { pattern: /^\/projects\/?$/, render: renderProjects },
   { pattern: /^\/project\/([^/]+)\/?$/, render: renderProject },
   { pattern: /^\/history\/?$/, render: renderHistory },
-  { pattern: /^\/models\/?$/, render: renderModels },
   { pattern: /^\/settings\/?$/, render: renderSettings },
   { pattern: /^\/detail\/([^/]+)\/?$/, render: renderDetail },
 ];
@@ -57,7 +55,6 @@ function dispatch() {
   let activeKey = 'generate';
   if (path.startsWith('/projects') || path.startsWith('/project')) activeKey = 'projects';
   else if (path.startsWith('/history')) activeKey = 'history';
-  else if (path.startsWith('/models')) activeKey = 'models';
   else if (path.startsWith('/settings')) activeKey = 'settings';
   else if (path.startsWith('/detail')) activeKey = 'history'; // 详情页高亮"历史"
   updateNav(activeKey);

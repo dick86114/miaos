@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   showInFolder: (filePath) => ipcRenderer.invoke('show-in-folder', filePath),
   platform: process.platform,
   testConnection: (provider) => ipcRenderer.invoke('test-connection', provider),
-  fetchModels: (provider) => ipcRenderer.invoke('fetch-models', provider),
+  fetchModels: (provider, category) => ipcRenderer.invoke('fetch-models', provider, category),
   generateImage: (params) => ipcRenderer.invoke('generate-image', params),
   pickImageFile: () => ipcRenderer.invoke('pick-image-file'),
   pickTextFile: () => ipcRenderer.invoke('pick-text-file'),

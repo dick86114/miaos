@@ -18,6 +18,8 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
+  // ad-hoc 签名应用跳过代码签名校验，避免更新检查失败
+  autoUpdater.verifyUpdateCodeSignature = false;
 
   // 默认绑定到 dick86114/miaos GitHub 仓库
   try {
@@ -277,7 +279,11 @@ function requestJson({ url, method = 'POST', headers = {}, body, timeoutMs = 600
       });
     });
 
-    req.on('error', (e) => reject(e));
+    req.on('error', (e) => {
+      const err = new Error(e.message || e.code || '网络请求失败');
+      err.code = e.code;
+      reject(err);
+    });
     req.on('timeout', () => {
       req.destroy();
       reject(new Error('请求超时'));
@@ -291,6 +297,165 @@ function requestJson({ url, method = 'POST', headers = {}, body, timeoutMs = 600
     req.end();
   });
 }
+
+// ===== 轻量 HTTP 探测：返回状态码和响应体（用于提取错误信息） =====
+function probeEndpoint(url, { method = 'GET', headers = {}, body, timeoutMs = 8000 } = {}) {
+  return new Promise((resolve, reject) => {
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+    } catch (e) {
+      reject(new Error('无效的 API 地址：' + e.message));
+      return;
+    }
+    const lib = parsedUrl.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
+      method,
+      headers: { ...headers },
+      timeout: timeoutMs,
+    };
+    const req = lib.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        let json = null;
+        try { json = data ? JSON.parse(data) : null; } catch (_) {}
+        resolve({ status: res.statusCode, data: json, raw: data });
+      });
+    });
+    req.on('error', (e) => {
+      const err = new Error(e.message || e.code || '网络请求失败');
+      err.code = e.code;
+      reject(err);
+    });
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('连接超时，请检查网络或 API 地址'));
+    });
+    if (body) {
+      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+      req.setHeader('Content-Type', 'application/json');
+      req.setHeader('Content-Length', Buffer.byteLength(bodyStr));
+      req.write(bodyStr);
+    }
+    req.end();
+  });
+}
+
+// ===== 从 HTTP 响应中提取错误消息 =====
+function extractErrorMessage(result) {
+  if (!result) return '';
+  const d = result.data;
+  if (d) {
+    if (d.error && typeof d.error === 'object') return d.error.message || JSON.stringify(d.error);
+    if (d.error && typeof d.error === 'string') return d.error;
+    if (d.message) return d.message;
+    if (d.detail) return typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail);
+    if (d.msg) return d.msg;
+  }
+  if (result.raw) return result.raw.slice(0, 200);
+  return '';
+}
+
+// ===== 测试供应商连接（只有 API 调用成功才算通过，否则一律失败） =====
+ipcMain.handle('test-connection', async (_event, provider) => {
+  if (!provider || !provider.endpoint) throw new Error('请填写 API 地址');
+
+  const headers = {};
+  if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+
+  const ptype = (provider.type || provider.provider || '').toLowerCase();
+
+  // ---- Grsai：发 POST 请求验证，只有成功响应或明确的认证/参数错误才说明端点可达 ----
+  if (ptype === 'grsai') {
+    // 发送最简单的请求，Grsai 对各种情况都会快速返回 JSON
+    // 网络不通、地址错误才会超时或连接失败
+    const body = {
+      model: 'gpt-image-2',
+      prompt: 'test',
+    };
+    try {
+      const result = await probeEndpoint(provider.endpoint, { method: 'POST', headers, body, timeoutMs: 10000 });
+      const d = result.data;
+      const errMsg = extractErrorMessage(result);
+      
+      // HTTP 2xx，且返回了任务ID或成功/运行中状态 → 完全成功
+      if (result.status >= 200 && result.status < 300) {
+        if (d && (d.status === 'succeeded' || d.status === 'running' || d.id)) {
+          return { ok: true, status: result.status };
+        }
+        // 2xx 但格式异常
+        return { ok: true, status: result.status };
+      }
+      
+      // 非 2xx 状态码，根据错误信息判断原因
+      const errorMsg = (d && d.error ? d.error : errMsg || '').toLowerCase();
+      
+      // 404 → 地址错误
+      if (result.status === 404) {
+        throw new Error(`API 地址不存在（HTTP 404）：请检查 endpoint 是否正确`);
+      }
+      
+      // API Key 相关错误
+      if (errorMsg.includes('apikey') || errorMsg.includes('api key') || errorMsg.includes('key is empty')) {
+        if (!provider.apiKey) {
+          throw new Error('API 地址可达，但未填写 API Key');
+        }
+        throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
+      }
+      
+      // 模型相关错误（说明端点和key都正确，只是模型参数问题）
+      if (errorMsg.includes('model')) {
+        return { ok: true, status: result.status, warning: `连接成功：${errMsg || '端点和认证有效'}` };
+      }
+      
+      // 401/403 → 认证失败
+      if (result.status === 401 || result.status === 403) {
+        throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
+      }
+      
+      // 其他 Grsai 返回的 JSON 错误 → 端点可达，返回具体错误
+      if (d && d.error) {
+        throw new Error(`请求失败（HTTP ${result.status}）：${errMsg}`);
+      }
+      
+      // 其他非 JSON 响应
+      throw new Error(`连接失败（HTTP ${result.status}）：${errMsg || '未知错误'}`);
+    } catch (e) {
+      // 网络错误、超时等
+      if (e.message.includes('timeout') || e.message.includes('超时') || e.code === 'ETIMEDOUT' || e.code === 'ENOTFOUND' || e.code === 'ECONNREFUSED') {
+        throw new Error('连接超时或无法访问，请检查网络或 API 地址是否正确');
+      }
+      throw new Error(e.message || '连接失败');
+    }
+  }
+
+  // ---- OpenAI 兼容（agnes-ai / deepseek / openai / custom）----
+  // 调用 /models 端点，只有 2xx 才算成功
+  const modelsUrl = buildModelsUrl(provider.endpoint);
+  try {
+    const result = await probeEndpoint(modelsUrl, { method: 'GET', headers, timeoutMs: 8000 });
+    if (result.status >= 200 && result.status < 300) {
+      return { ok: true, status: result.status };
+    }
+    const errMsg = extractErrorMessage(result);
+    if (result.status === 401 || result.status === 403) {
+      throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
+    }
+    if (result.status === 404) {
+      throw new Error(`API 地址不存在（HTTP 404）：${errMsg || '请检查 endpoint 是否正确，应包含 /v1 路径'}`);
+    }
+    if (result.status === 400) {
+      throw new Error(`请求被拒绝（HTTP 400）：${errMsg || '参数错误'}`);
+    }
+    throw new Error(`连接失败（HTTP ${result.status}）：${errMsg || '未知错误'}`);
+  } catch (e) {
+    throw new Error(e.message || '连接失败');
+  }
+});
 
 // ===== 读取本地图片为 dataURL（图生图参考图） =====
 async function readLocalImageAsDataUrl(imageRef) {
@@ -354,60 +519,33 @@ function saveGeneratedImage(input, id) {
   throw new Error('无法识别的图片返回格式');
 }
 
-// ===== 测试供应商连接 =====
-ipcMain.handle('test-connection', async (_event, provider) => {
-  if (!provider || !provider.endpoint) throw new Error('请填写 API 地址');
-
-  const headers = {};
-  if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
-
-  const ptype = (provider.type || provider.provider || '').toLowerCase();
-
-  if (ptype === 'grsai') {
-    try {
-      await requestJson({
-        url: provider.endpoint,
-        method: 'POST',
-        headers,
-        body: {
-          model: 'gpt-image-2',
-          prompt: 'test',
-          images: [],
-          aspectRatio: '1:1',
-          replyType: 'json',
-        },
-        timeoutMs: 30000,
-      });
-      return { ok: true, status: 200 };
-    } catch (e) {
-      throw new Error(e.message || '连接失败');
-    }
-  }
-
-  // OpenAI 兼容：尝试调用 /v1/models
+// ===== 从用户填写的 endpoint 推导出 /models 列表 URL =====
+function buildModelsUrl(endpoint) {
+  let u;
   try {
-    let modelsUrl;
-    try {
-      const u = new URL(provider.endpoint);
-      u.pathname = u.pathname.replace(/\/(images\/generations|generate|chat\/completions|completions)\/?$/i, '/models');
-      if (!u.pathname.endsWith('/models')) {
-        u.pathname = u.pathname.replace(/\/+$/, '') + '/v1/models';
-      }
-      modelsUrl = u.toString();
-    } catch {
-      modelsUrl = provider.endpoint.replace(/\/+$/, '') + '/v1/models';
-    }
-    await requestJson({
-      url: modelsUrl,
-      method: 'GET',
-      headers,
-      timeoutMs: 15000,
-    });
-    return { ok: true, status: 200 };
-  } catch (e) {
-    throw new Error(e.message || '连接失败');
+    u = new URL(endpoint);
+  } catch {
+    return endpoint.replace(/\/+$/, '') + '/models';
   }
-});
+  let path = u.pathname.replace(/\/+$/, ''); // 去掉尾部斜杠
+  // 如果路径以具体 API 端点结尾，替换为 /models
+  path = path.replace(/\/(images\/generations|generate|chat\/completions|completions|videos|responses)$/i, '/models');
+  // 如果路径不以 /models 结尾
+  if (!path.endsWith('/models')) {
+    // 如果路径已经包含 /v1，直接追加 /models
+    if (/\/v1$/i.test(path)) {
+      path = path + '/models';
+    } else if (/\/v\d+$/i.test(path)) {
+      // 其他版本号如 /v2
+      path = path + '/models';
+    } else {
+      // 没有 /v1，追加 /v1/models
+      path = path + '/v1/models';
+    }
+  }
+  u.pathname = path;
+  return u.toString();
+}
 
 // ===== Grsai 异步结果轮询 =====
 async function pollGrsaiResult({ model, id }) {
@@ -500,17 +638,27 @@ async function generateWithGrsai({ prompt, model, ratio, sourceImage }) {
 }
 
 // ===== OpenAI 兼容生图 =====
-async function generateWithOpenAI({ prompt, model, size }) {
+async function generateWithOpenAI({ prompt, model, size, providerType }) {
   const headers = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
 
-  const body = {
-    model: model.model,
-    prompt,
-    n: 1,
-    size: size || '1024x1024',
-    response_format: 'b64_json',
-  };
+  // agnes-ai: response_format 需放在 extra_body 内部
+  const isAgnes = (providerType || '').toLowerCase() === 'agnes-ai';
+  const body = isAgnes
+    ? {
+        model: model.model,
+        prompt,
+        n: 1,
+        size: size || '1024x1024',
+        return_base64: true,
+      }
+    : {
+        model: model.model,
+        prompt,
+        n: 1,
+        size: size || '1024x1024',
+        response_format: 'b64_json',
+      };
 
   let result;
   try {
@@ -522,19 +670,62 @@ async function generateWithOpenAI({ prompt, model, size }) {
       timeoutMs: 120000,
     });
   } catch (e) {
-    if (e.message && /response_format|b64/i.test(e.message)) {
-      delete body.response_format;
+    if (e.message && /response_format|b64|return_base64/i.test(e.message)) {
+      // 去掉格式相关字段重试
+      const retryBody = { model: model.model, prompt, n: 1, size: size || '1024x1024' };
       result = await requestJson({
         url: model.endpoint,
         method: 'POST',
         headers,
-        body,
+        body: retryBody,
         timeoutMs: 120000,
       });
     } else {
       throw e;
     }
   }
+
+  const data = result && result.data;
+  const item = data && data.data && data.data[0];
+  if (!item) throw new Error('API 返回格式不正确：未找到图片数据');
+
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  let source = null;
+  if (item.b64_json) {
+    const prefix = /^data:image\//.test(item.b64_json) ? '' : 'data:image/png;base64,';
+    source = prefix + item.b64_json;
+  } else if (item.url) {
+    source = item.url;
+  } else {
+    throw new Error('API 返回中未找到 b64_json 或 url 字段');
+  }
+
+  const filePath = await saveGeneratedImage(source, id);
+  return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
+}
+
+// ===== Agnes-ai 图生图 =====
+async function generateWithAgnesImage({ prompt, model, size, sourceImage }) {
+  const headers = {};
+  if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+
+  const body = {
+    model: model.model,
+    prompt,
+    size: size || '1024x1024',
+    extra_body: {
+      image: [sourceImage],
+      response_format: 'b64_json',
+    },
+  };
+
+  const result = await requestJson({
+    url: model.endpoint,
+    method: 'POST',
+    headers,
+    body,
+    timeoutMs: 120000,
+  });
 
   const data = result && result.data;
   const item = data && data.data && data.data[0];
@@ -569,64 +760,91 @@ const KNOWN_MODELS = {
     { id: 'nano-banana-pro-cl', name: 'nano-banana-pro-cl' },
     { id: 'nano-banana-pro-vip', name: 'nano-banana-pro-vip' },
   ],
+  'agnes-ai': {
+    image: [
+      { id: 'agnes-image-2.0-flash', name: 'Agnes Image 2.0 Flash' },
+      { id: 'agnes-image-2.1-flash', name: 'Agnes Image 2.1 Flash' },
+    ],
+    text: [
+      { id: 'agnes-2.0-flash', name: 'Agnes 2.0 Flash' },
+      { id: 'agnes-2.5-flash', name: 'Agnes 2.5 Flash' },
+      { id: 'agnes-2.5-pro', name: 'Agnes 2.5 Pro' },
+      { id: 'agnes-2.5-pro-alpha', name: 'Agnes 2.5 Pro Alpha' },
+    ],
+    video: [
+      { id: 'agnes-video-v2.0', name: 'Agnes Video V2.0' },
+    ],
+  },
+  deepseek: {
+    text: [
+      { id: 'deepseek-chat', name: 'DeepSeek Chat (V3)' },
+      { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner (R1)' },
+    ],
+  },
 };
 
 // ===== 获取供应商下可用模型列表 =====
-ipcMain.handle('fetch-models', async (_event, provider) => {
+ipcMain.handle('fetch-models', async (_event, provider, category) => {
   const { type, endpoint, apiKey } = provider || {};
   if (!type) throw new Error('缺少供应商类型');
+  if (!endpoint) throw new Error('请先填写 API 地址');
 
   const ptype = String(type).toLowerCase();
+  const cat = String(category || 'image').toLowerCase();
 
-  // Grsai：返回已知模型列表
+  // Grsai：没有 /models 端点，返回内置已知生图模型列表
   if (ptype === 'grsai') {
-    return { ok: true, models: KNOWN_MODELS.grsai };
+    if (cat === 'image') return { ok: true, models: KNOWN_MODELS.grsai };
+    return { ok: true, models: [] };
   }
 
-  // OpenAI 兼容：尝试调用 /v1/models
-  if (ptype === 'openai' || ptype === 'openai 兼容') {
-    if (!endpoint) throw new Error('请先填写 API 地址');
-    try {
-      // 从 generate 端点推导 models 端点
-      let modelsUrl;
-      try {
-        const u = new URL(endpoint);
-        // 如果路径包含 /images/generations 或 /generate，替换为 /models
-        u.pathname = u.pathname.replace(/\/(images\/generations|generate|chat\/completions|completions)\/?$/i, '/models');
-        if (!u.pathname.endsWith('/models')) {
-          u.pathname = u.pathname.replace(/\/+$/, '') + '/v1/models';
-        }
-        modelsUrl = u.toString();
-      } catch {
-        modelsUrl = endpoint.replace(/\/+$/, '') + '/v1/models';
-      }
+  // 其他所有类型（agnes-ai / deepseek / openai / custom）：
+  // 统一调用 /models 端点获取真实模型列表，失败就报错
+  const modelsUrl = buildModelsUrl(endpoint);
+  const headers = {};
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-      const headers = {};
-      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+  let result;
+  try {
+    result = await probeEndpoint(modelsUrl, { method: 'GET', headers, timeoutMs: 15000 });
+  } catch (e) {
+    throw new Error('获取模型失败：' + (e.message || '网络请求失败'));
+  }
 
-      const result = await requestJson({
-        url: modelsUrl,
-        method: 'GET',
-        headers,
-        timeoutMs: 15000,
-      });
-
-      const data = result.data;
-      if (data && data.data && Array.isArray(data.data)) {
-        const models = data.data
-          .filter((m) => m && m.id)
-          .map((m) => ({ id: m.id, name: m.id }));
-        return { ok: true, models };
-      }
-      return { ok: true, models: [] };
-    } catch (e) {
-      // 获取失败时返回空，用户可以手动添加
-      return { ok: false, error: e.message, models: [] };
+  if (result.status < 200 || result.status >= 300) {
+    const errMsg = extractErrorMessage(result);
+    if (result.status === 401 || result.status === 403) {
+      throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
     }
+    if (result.status === 404) {
+      throw new Error(`模型列表接口不存在（HTTP 404）：请检查 API 地址是否包含 /v1 路径`);
+    }
+    throw new Error(`获取模型失败（HTTP ${result.status}）：${errMsg || '未知错误'}`);
   }
 
-  // custom：不自动获取，返回空
-  return { ok: true, models: [] };
+  const data = result.data;
+  if (!data || !data.data || !Array.isArray(data.data)) {
+    throw new Error('API 返回格式异常：未找到 data 数组');
+  }
+
+  let models = data.data
+    .filter((m) => m && m.id)
+    .map((m) => ({ id: m.id, name: m.id }));
+
+  // 按分类过滤
+  if (cat === 'image') {
+    models = models.filter((m) => m.id.includes('image'));
+  } else if (cat === 'video') {
+    models = models.filter((m) => m.id.includes('video'));
+  } else if (cat === 'text') {
+    models = models.filter((m) => !m.id.includes('image') && !m.id.includes('video'));
+  }
+
+  if (models.length === 0) {
+    throw new Error(`API 返回的模型列表中没有${cat === 'image' ? '生图' : cat === 'text' ? '文本' : '视频'}类模型，可尝试手动添加`);
+  }
+
+  return { ok: true, models };
 });
 
 // ===== 真正调用模型生图（按 provider 分流） =====
@@ -636,7 +854,7 @@ ipcMain.handle('generate-image', async (_event, params) => {
   if (!endpoint) throw new Error('请先配置供应商 API 地址');
   if (!modelName) throw new Error('请选择模型');
 
-  const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
+  const ptype = String(provider || '').toLowerCase();
 
   // 读取参考图为 base64 dataURL（图生图）
   let sourceImageDataUrl = null;
@@ -648,14 +866,40 @@ ipcMain.handle('generate-image', async (_event, params) => {
     }
   }
 
-  const ptype = String(provider || '').toLowerCase();
   if (ptype === 'grsai') {
+    const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
     return await generateWithGrsai({ prompt, model, ratio, sourceImage: sourceImageDataUrl });
   }
-  if (sourceImageDataUrl) {
-    throw new Error('当前供应商暂不支持图生图（仅 Grsai 支持），请在子版本中改用 Grsai 供应商');
+
+  // agnes-ai / OpenAI 兼容：构造 images/generations 端点
+  let imageEndpoint = endpoint;
+  if (ptype === 'agnes-ai') {
+    // agnes-ai: base URL (如 https://apihub.agnes-ai.com/v1) → /v1/images/generations
+    imageEndpoint = endpoint.replace(/\/+$/, '');
+    if (!/\/images\/generations$/i.test(imageEndpoint)) {
+      imageEndpoint = imageEndpoint + '/images/generations';
+    }
+  } else if (ptype === 'openai' || ptype === 'openai 兼容' || ptype === 'custom') {
+    // OpenAI 兼容：如果 endpoint 不含 /images/generations，自动追加
+    imageEndpoint = endpoint.replace(/\/+$/, '');
+    if (!/\/images\/generations$/i.test(imageEndpoint)) {
+      // 如果已包含 /v1，只追加 /images/generations
+      if (/\/v\d+$/i.test(imageEndpoint)) {
+        imageEndpoint = imageEndpoint + '/images/generations';
+      } else {
+        imageEndpoint = imageEndpoint + '/v1/images/generations';
+      }
+    }
   }
-  return await generateWithOpenAI({ prompt, model, size });
+
+  const model = { endpoint: imageEndpoint, apiKey, model: modelName, provider: provider || '' };
+
+  if (sourceImageDataUrl && ptype !== 'grsai') {
+    // agnes-ai 支持图生图，通过 extra_body.image 传入
+    return await generateWithAgnesImage({ prompt, model, size, sourceImage: sourceImageDataUrl });
+  }
+
+  return await generateWithOpenAI({ prompt, model, size, providerType: ptype });
 });
 
 // ===== 保存粘贴的图片到临时文件 =====
