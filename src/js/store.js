@@ -530,6 +530,42 @@ export async function optimizePrompt(prompt, language = 'zh') {
   return result.optimized;
 }
 
+// ===== 总结提示词为 5-10 字短标题（用于时间轴节点名称） =====
+export async function summarizePrompt({ prompt, ratio, quality, imageModel, isImageToImage }) {
+  const tm = getDefaultTextModel();
+  if (!tm) {
+    console.warn('[AutoSummary] 无默认文本模型，跳过摘要。请在设置中配置文本模型');
+    return null;
+  }
+  if (!window.api || !window.api.summarizePrompt) {
+    console.warn('[AutoSummary] window.api.summarizePrompt 不可用');
+    return null;
+  }
+  if (!prompt || !prompt.trim()) return null;
+  try {
+    console.log('[AutoSummary] 调用文本模型:', tm.providerName, tm.modelId);
+    const result = await window.api.summarizePrompt({
+      endpoint: tm.providerEndpoint,
+      apiKey: tm.providerApiKey,
+      model: tm.modelId,
+      prompt,
+      ratio,
+      quality,
+      imageModel,
+      isImageToImage: !!isImageToImage,
+    });
+    console.log('[AutoSummary] 原始返回:', JSON.stringify(result));
+    if (result && result.title && typeof result.title === 'string' && result.title.trim().length >= 3) {
+      return result.title.trim();
+    }
+    console.warn('[AutoSummary] 标题为空或过短，使用默认名称');
+    return null;
+  } catch (err) {
+    console.error('[AutoSummary] 摘要请求异常:', err.message);
+    return null;
+  }
+}
+
 export function ratioToSize(ratio) {
   const map = { '1:1': '1024x1024', '4:3': '1024x768', '16:9': '1024x576', '9:16': '576x1024' };
   return map[ratio] || '1024x1024';
@@ -689,7 +725,7 @@ export function createVersion(projectId, parentId, parentImageId, { name, prompt
   return cloneProject(p);
 }
 
-export function updateVersionFields(versionId, { name, prompt, modelId, providerId, providerName }) {
+export function updateVersionFields(versionId, { name, prompt, modelId, providerId, providerName, autoNameDone }) {
   const p = state.projects.find((proj) => proj.versions.some((v) => v.id === versionId));
   if (!p) return null;
   const v = p.versions.find((x) => x.id === versionId);
@@ -699,6 +735,7 @@ export function updateVersionFields(versionId, { name, prompt, modelId, provider
   if (modelId !== undefined) v.modelId = modelId;
   if (providerId !== undefined) v.providerId = providerId;
   if (providerName !== undefined) v.providerName = providerName;
+  if (autoNameDone !== undefined) v.autoNameDone = !!autoNameDone;
   p.updatedAt = Date.now();
   save();
   return cloneProject(p);
@@ -743,7 +780,9 @@ export async function generateSmart(projectId, versionId, { prompt, modelId, rat
   if (v.parentId === null) {
     const curSourceImg = v.sourceImage || '';
     const changed = trimmedPrompt !== v.prompt.trim() || modelId !== v.modelId || (sourceImage || '') !== curSourceImg;
-    if (changed) {
+    // 仅当主线已有图片时，修改提示词/模型/参考图才自动新建主线（保护历史）；
+    // 空白主线（手动新建的）直接在原地更新并生成第一张图
+    if (changed && v.images.length > 0) {
       const provider = state.providers.find((pr) => pr.imageModels.some((m) => m.id === modelId && m.enabled));
       const newVer = {
         id: uid('ver'),
@@ -808,6 +847,12 @@ export async function generateSmart(projectId, versionId, { prompt, modelId, rat
     id: uid('img'),
     image: result.fileUrl || result.imagePath,
     ratio, quality,
+    // 保存生成时的元数据，确保图片详情独立于版本（版本后续可能被修改）
+    prompt: target.prompt.trim(),
+    providerId: target.providerId,
+    providerName: target.providerName,
+    modelId: target.modelId,
+    isImageToImage: !!(target.parentId && target.parentImageId) || !!target.sourceImage,
     createdAt: Date.now(),
   };
   target.images.unshift(img);

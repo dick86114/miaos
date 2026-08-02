@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   pickTextFile: () => ipcRenderer.invoke('pick-text-file'),
   savePastedImage: (dataUrl) => ipcRenderer.invoke('save-pasted-image', dataUrl),
   optimizePrompt: (params) => ipcRenderer.invoke('optimize-prompt', params),
+  summarizePrompt: (params) => ipcRenderer.invoke('summarize-prompt', params),
 
   // ===== 自动更新（仅检测，跳转 GitHub 下载） =====
   updateGetCurrentVersion: () => ipcRenderer.invoke('update-get-current-version'),

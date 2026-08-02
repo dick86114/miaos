@@ -22,6 +22,7 @@ import {
   updateVersionFields,
   getImageBranchCount,
   optimizePrompt,
+  summarizePrompt,
   getTextProvider,
   getDefaults,
 } from '../store.js';
@@ -134,19 +135,39 @@ export function renderProject(container, params) {
       const branchBadge = branchCount > 0
         ? `<span class="pwb-gallery-branch-badge">${icon('git-branch', 10)}${branchCount} 分支</span>`
         : '';
+      // 优先使用图片自身保存的元数据，回退到版本级别（兼容旧数据）
+      const imgModelId = img.modelId || curVer.modelId || '';
+      const imgProviderName = img.providerName || curVer.providerName || '';
+      const imgRatio = img.ratio || '';
+      const imgQuality = img.quality || '';
+      const imgIsI2I = img.isImageToImage != null
+        ? !!img.isImageToImage
+        : !!(curVer.parentId && curVer.parentImageId);
+      // 左上角标签：仅图生图标记（模型名在底部 meta 区显示）
+      const i2iTag = imgIsI2I ? `<span class="gallery-item-tag i2i">${icon('git-branch', 10)}图生图</span>` : '';
+      const metaTags = i2iTag ? `<div class="gallery-item-tags">${i2iTag}</div>` : '';
+      // 底部参数行：供应商 · 模型 · 比例 · 质量 · 时间
+      const modelLine = imgModelId ? `<span class="gallery-item-meta-model" title="${escapeHtml(imgProviderName)}">${escapeHtml(imgModelId)}</span>` : '';
+      const paramsLine = (imgRatio || imgQuality) ? `<span class="gallery-item-meta-params">${escapeHtml(imgRatio)} · ${escapeHtml(imgQuality)}</span>` : '';
+      const timeLine = `<span class="gallery-item-meta-time">${formatRelativeTime(img.createdAt)}</span>`;
       return `
         <div class="gallery-item pwb-gallery-item" data-image-id="${img.id}">
-          <img src="${img.image}" alt="生成结果" loading="lazy" />
-          ${branchBadge}
-          <div class="gallery-item-meta">
-            <span class="gallery-item-time">${formatRelativeTime(img.createdAt)}</span>
-            <div class="gallery-item-actions">
-              <button type="button" class="icon-btn" data-act="zoom" data-image-id="${img.id}" title="查看大图">${icon('maximize-2', 13)}</button>
-              <button type="button" class="icon-btn" data-act="derive" data-image-id="${img.id}" title="基于此图派生分支">${icon('git-branch', 13)}</button>
-              <button type="button" class="icon-btn" data-act="cover" data-image-id="${img.id}" title="设为项目封面">${icon('pin', 13)}</button>
-              <button type="button" class="icon-btn" data-act="download" data-image-id="${img.id}" title="保存到本地">${icon('download', 13)}</button>
-              <button type="button" class="icon-btn danger" data-act="delete" data-image-id="${img.id}" title="删除">${icon('trash-2', 13)}</button>
+          <div class="gallery-item-img-wrap">
+            <img src="${img.image}" alt="生成结果" loading="lazy" />
+            ${branchBadge}
+            ${metaTags}
+            <div class="gallery-item-hover-actions">
+              <button type="button" class="icon-btn" data-act="zoom" data-image-id="${img.id}" title="查看大图">${icon('maximize-2', 14)}</button>
+              <button type="button" class="icon-btn" data-act="derive" data-image-id="${img.id}" title="基于此图派生分支">${icon('git-branch', 14)}</button>
+              <button type="button" class="icon-btn" data-act="cover" data-image-id="${img.id}" title="设为项目封面">${icon('pin', 14)}</button>
+              <button type="button" class="icon-btn" data-act="download" data-image-id="${img.id}" title="保存到本地">${icon('download', 14)}</button>
+              <button type="button" class="icon-btn danger" data-act="delete" data-image-id="${img.id}" title="删除">${icon('trash-2', 14)}</button>
             </div>
+          </div>
+          <div class="gallery-item-meta">
+            ${modelLine}
+            ${paramsLine}
+            ${timeLine}
           </div>
         </div>`;
     }
@@ -611,7 +632,7 @@ export function renderProject(container, params) {
       const provider = modelToProvider.get(editedModelId);
       if (!provider) { toast('所选模型不可用', 'error'); return; }
 
-      const willCreateRoot = curVer.parentId === null &&
+      const willCreateRoot = curVer.parentId === null && curVer.images.length > 0 &&
         (editedPrompt !== curVer.prompt.trim() || editedModelId !== curVer.modelId || sourceImagePath !== (curVer.sourceImage || ''));
 
       updateVersionFields(curVer.id, {
@@ -798,6 +819,41 @@ export function renderProject(container, params) {
         outerEl.innerHTML = buildTimelineHtml(fresh, v.id);
         renderIcons(outerEl);
       }
+
+      // 自动生成节点标题：该版本刚生成了第一张图（images.length === 1）
+      // 且未标记 autoNameDone，且第一张图有保存的 prompt 元数据
+      const firstImg = v.images[0];
+      if (v.images.length === 1 && !v.autoNameDone && firstImg) {
+        updateVersionFields(v.id, { autoNameDone: true }); // 先打标记，避免并发重复请求
+        const promptToUse = firstImg.prompt || v.prompt;
+        if (promptToUse && promptToUse.trim()) {
+          console.log('[AutoSummary] 触发自动标题生成，提示词:', promptToUse.slice(0, 30));
+          summarizePrompt({
+            prompt: promptToUse,
+            ratio: firstImg.ratio,
+            quality: firstImg.quality,
+            imageModel: firstImg.modelId || v.modelId,
+            isImageToImage: firstImg.isImageToImage != null
+              ? !!firstImg.isImageToImage
+              : !!(v.parentId && v.parentImageId) || !!v.sourceImage,
+          }).then((title) => {
+            console.log('[AutoSummary] 摘要结果:', title);
+            if (title) {
+              updateVersionFields(v.id, { name: title });
+              // 只刷新时间轴标题，不重渲染整个页面
+              const titleEl = document.querySelector(`.pwb-label-title[data-root-name="${v.id}"]`);
+              if (titleEl) {
+                titleEl.textContent = title;
+                console.log('[AutoSummary] 时间轴标题已更新为:', title);
+              }
+            }
+          }).catch((err) => {
+            console.error('[AutoSummary] 摘要失败:', err);
+          });
+        } else {
+          console.log('[AutoSummary] 跳过：提示词为空');
+        }
+      }
     }
     const unsubscribe = queue.subscribe(refreshGallery);
     const observer = new MutationObserver(() => {
@@ -899,9 +955,15 @@ async function downloadImage(src, id) {
   } catch (e) { toast('保存失败：' + e.message, 'error'); }
 }
 function openLightbox(img, version) {
+  // 优先使用图片自身保存的元数据，回退到版本级别（兼容旧数据）
+  const promptText = img.prompt || version.prompt || '';
+  const providerText = img.providerName || version.providerName || version.providerId || '未知供应商';
+  const modelText = img.modelId || version.modelId || '未知模型';
   const typeLabel = version.parentId ? '分支' : '主线';
-  const providerText = version.providerName || version.providerId || '未知供应商';
-  const modelText = version.modelId || '未知模型';
+  const isI2I = img.isImageToImage != null
+    ? !!img.isImageToImage
+    : !!(version.parentId && version.parentImageId);
+  const i2iBadge = isI2I ? `<span class="pwb-type-badge branch" style="transform:scale(0.9);transform-origin:left">${icon('git-branch', 12)}图生图</span>` : '';
   const overlay = htmlToElement(`
     <div class="lightbox-overlay" id="lightbox">
       <button type="button" class="lightbox-close" id="lightbox-close">${icon('x', 20)}</button>
@@ -918,11 +980,11 @@ function openLightbox(img, version) {
           </div>
           <div class="lightbox-info-row">
             <span class="lightbox-info-label">参数</span>
-            <span class="lightbox-info-value">${img.ratio} · ${escapeHtml(img.quality)} · ${ratioToSize(img.ratio)} · ${formatDateTime(img.createdAt)}</span>
+            <span class="lightbox-info-value">${img.ratio} · ${escapeHtml(img.quality)} · ${ratioToSize(img.ratio)} · ${i2iBadge ? '图生图 · ' : ''}${formatDateTime(img.createdAt)}</span>
           </div>
           <div class="lightbox-info-row lightbox-prompt-row">
             <span class="lightbox-info-label">提示词</span>
-            <span class="lightbox-info-value lightbox-prompt-text">${escapeHtml(version.prompt)}</span>
+            <span class="lightbox-info-value lightbox-prompt-text">${escapeHtml(promptText)}</span>
           </div>
         </div>
         <div class="lightbox-meta">
@@ -943,7 +1005,7 @@ function openLightbox(img, version) {
   });
   overlay.querySelector('#lb-download').addEventListener('click', () => downloadImage(img.image, img.id));
   overlay.querySelector('#lb-copy').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(version.prompt); toast('提示词已复制', 'success'); }
+    try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
     catch { toast('复制失败', 'error'); }
   });
 }

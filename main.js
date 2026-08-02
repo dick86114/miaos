@@ -995,6 +995,79 @@ ipcMain.handle('optimize-prompt', async (_event, params) => {
   return { optimized: content.trim() };
 });
 
+// ===== 总结生图标题（5-10字，用于时间轴节点标题） =====
+ipcMain.handle('summarize-prompt', async (_event, params) => {
+  const { endpoint, apiKey, model, prompt, ratio, quality, imageModel, isImageToImage } = params;
+  if (!endpoint) throw new Error('请先在设置中配置文本模型 API 地址');
+  if (!model) throw new Error('请先在设置中配置文本模型名称');
+  if (!prompt || !prompt.trim()) throw new Error('提示词为空');
+
+  let chatUrl = endpoint;
+  if (!/\/chat\/completions\/?$/.test(chatUrl)) {
+    chatUrl = chatUrl.replace(/\/+$/, '') + '/chat/completions';
+  }
+
+  const headers = {};
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+  const i2iDesc = isImageToImage ? '该图基于参考图图生图生成' : '';
+  const extraInfo = [
+    ratio ? `比例：${ratio}` : '',
+    quality ? `质量：${quality}` : '',
+    imageModel ? `生图模型：${imageModel}` : '',
+    i2iDesc,
+  ].filter(Boolean).join('，');
+
+  const systemPrompt = `你是一个生图创作节点的标题助手。根据用户提供的生图提示词和参数信息，给出一个${prompt.includes('dog') || prompt.includes('狗') ? '简短' : ''}高度概括的中文标题，用于在时间轴上快速识别该节点的创作内容。严格要求：1) 5-10 个中文字符；2) 纯文字，不含标点或特殊符号；3) 不要解释，直接给出结果；4) 重点概括主体+关键元素+画面氛围。`;
+
+  const userContent = extraInfo
+    ? `提示词：${prompt.trim()}\n附加信息：${extraInfo}\n请输出该节点的标题（5-10字）。`
+    : `提示词：${prompt.trim()}\n请输出该节点的标题（5-10字）。`;
+
+  const res = await requestJson({
+    url: chatUrl,
+    method: 'POST',
+    headers,
+    body: {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ],
+      temperature: 0.3,
+      max_tokens: 512,
+    },
+    timeoutMs: 20000,
+  });
+
+  console.log('[Summarize] 原始响应:', JSON.stringify(res).slice(0, 800));
+
+  // 兼容多种响应格式：data.choices[0] 或 choices[0]
+  let choice = null;
+  if (res.data && res.data.choices && res.data.choices[0]) {
+    choice = res.data.choices[0];
+  } else if (res.choices && res.choices[0]) {
+    choice = res.choices[0];
+  }
+
+  let content = '';
+  if (choice && choice.message) {
+    content = (choice.message.content || '').trim();
+  }
+
+  if (!content) {
+    console.warn('[Summarize] content 为空，跳过摘要，使用默认名称');
+    return { title: null }; // 返回 null，调用方回退到默认名称
+  }
+
+  // 清洗：去除换行、引号、前后空格、标点
+  const cleaned = content.trim().replace(/[\n\r"'""''`]/g, '').replace(/[.。！!？?、,，]$/, '');
+  // 严格截断为 10 字以内
+  const title = cleaned.length > 10 ? cleaned.slice(0, 10) : cleaned;
+  console.log('[Summarize] 提取标题:', title);
+  return { title };
+});
+
 app.whenReady().then(() => {
   setupAutoUpdater();
   createWindow();
