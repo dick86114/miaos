@@ -118,10 +118,10 @@ function projectCardHtml(p) {
 
 // 新建项目对话框
 function openCreateDialog(container, onCreated) {
-  const providers = getProviders().filter((p) => p.models.some((m) => m.enabled));
+  const providers = getProviders().filter((p) => p.imageModels.some((m) => m.enabled));
   if (providers.length === 0) {
-    toast('请先在「供应商」页配置并启用模型', 'error');
-    navigate('/models');
+    toast('请先在「设置 → 模型提供商」中配置并启用图像模型', 'error');
+    navigate('/settings');
     return;
   }
   const def = getDefaultProvider();
