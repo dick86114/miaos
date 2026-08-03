@@ -567,6 +567,94 @@ test('自身残留 lock 的事务 rollback 仅凭 transaction owner token 可恢
   }
 });
 
+test('供应商 endpoint 含 userinfo 时新增、编辑、迁移、连接和模型读取均拒绝且不发请求', async () => {
+  const homePath = createTempHome('miaos-provider-userinfo-');
+  const invalidEndpoints = [
+    'https://user@example.com/v1',
+    'https://:sk-review-secret@example.com/v1',
+    'https://user%3Aname:sk%2Dreview%2Dsecret@example.com/v1',
+  ];
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    for (const endpoint of invalidEndpoints) {
+      const metadata = { ...createGrsaiMetadata(endpoint), id: 'p_userinfo' };
+      const added = await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_userinfo', 'test-key', metadata);
+      assert.equal(added.ok, false);
+      assert.equal(added.code, 'IPC_VALIDATION_FAILED');
+      assert.doesNotMatch(JSON.stringify(added), /user@example|sk-review-secret|user%3Aname/i);
+
+      const migrated = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+        providerId: 'p_userinfo', apiKey: 'test-key', metadata,
+      }]);
+      assert.equal(migrated.ok, false);
+      assert.equal(migrated.code, 'IPC_VALIDATION_FAILED');
+      assert.doesNotMatch(JSON.stringify(migrated), /user@example|sk-review-secret|user%3Aname/i);
+
+      const beforeConnection = calls.networkRequests.length;
+      const connected = await calls.ipcHandlers['test-connection'](trustedEvent(), {
+        endpoint, type: 'grsai', apiKeyOverride: 'test-key',
+      });
+      assert.equal(connected.ok, false);
+      assert.equal(connected.code, 'IPC_VALIDATION_FAILED');
+      assert.doesNotMatch(JSON.stringify(connected), /user@example|sk-review-secret|user%3Aname/i);
+      assert.equal(calls.networkRequests.length, beforeConnection);
+
+      const beforeModels = calls.networkRequests.length;
+      const models = await calls.ipcHandlers['fetch-models'](trustedEvent(), {
+        endpoint, type: 'openai', apiKeyOverride: 'test-key',
+      }, 'image');
+      assert.equal(models.ok, false);
+      assert.equal(models.code, 'IPC_VALIDATION_FAILED');
+      assert.doesNotMatch(JSON.stringify(models), /user@example|sk-review-secret|user%3Aname/i);
+      assert.equal(calls.networkRequests.length, beforeModels);
+    }
+
+    const validMetadata = { ...createGrsaiMetadata('https://canonical.example/generate'), id: 'p_edit' };
+    const saved = await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_edit', 'test-key', validMetadata);
+    assert.deepEqual(saved, { ok: true });
+    const edited = await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_edit', 'test-key', {
+      ...validMetadata,
+      endpoint: 'https://:sk-review-secret@example.com/generate',
+    });
+    assert.equal(edited.ok, false);
+    assert.equal(edited.code, 'IPC_VALIDATION_FAILED');
+    assert.doesNotMatch(JSON.stringify(edited), /sk-review-secret/);
+
+    const stored = path.join(homePath, '.miaos', 'secrets.json');
+    const rawVault = fs.readFileSync(stored, 'utf8');
+    assert.match(rawVault, /https:\/\/canonical\.example\/generate/);
+    assert.doesNotMatch(rawVault, /sk-review-secret|user%3Aname|user@example/i);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('已保存供应商的可信 metadata 含 userinfo 时拒绝读取且不发送请求', async () => {
+  const homePath = createTempHome('miaos-provider-userinfo-trusted-');
+  const endpoint = 'https://user:sk-review-secret@example.com/generate';
+  try {
+    const dataDir = path.join(homePath, '.miaos');
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'secrets.json'), JSON.stringify({
+      version: 1,
+      secrets: { p_grsai: Buffer.from('encrypted:test-key').toString('base64') },
+      providers: { p_grsai: createGrsaiMetadata(endpoint) },
+    }));
+
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    for (const channel of ['test-connection', 'fetch-models']) {
+      const result = channel === 'fetch-models'
+        ? await calls.ipcHandlers[channel](trustedEvent(), { providerId: 'p_grsai' }, 'image')
+        : await calls.ipcHandlers[channel](trustedEvent(), { providerId: 'p_grsai' });
+      assert.equal(result.ok, false);
+      assert.doesNotMatch(JSON.stringify(result), /user:sk-review-secret|sk-review-secret/);
+      assert.equal(calls.networkRequests.length, 0);
+    }
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
 test('已保存供应商的所有请求路径都通过 providerId 从 vault 读取密钥', async () => {
   const homePath = createTempHome('miaos-provider-secret-all-requests-');
   try {

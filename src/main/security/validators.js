@@ -44,6 +44,10 @@ function validateHttpUrl(value) {
     throw validationError('API 地址格式不正确');
   }
 
+  if (parsed.username || parsed.password) {
+    throw validationError('API 地址不能包含用户信息');
+  }
+
   if (parsed.protocol === 'https:') return parsed.toString();
   if (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
     return parsed.toString();

@@ -38,6 +38,23 @@ test('仅本地地址允许使用 HTTP', () => {
   assert.throws(() => validateHttpUrl('http://api.example.com/v1'), /HTTPS/);
 });
 
+test('API 地址拒绝包含凭据的 userinfo，且不回显其中内容', () => {
+  const endpoints = [
+    'https://user@example.com/v1',
+    'https://:sk-review-secret@example.com/v1',
+    'https://user%3Aname:sk%2Dreview%2Dsecret@example.com/v1',
+  ];
+
+  for (const endpoint of endpoints) {
+    assert.throws(() => validateHttpUrl(endpoint), (error) => {
+      assert.equal(error.code, 'IPC_VALIDATION_FAILED');
+      assert.match(error.message, /不能包含用户信息/);
+      assert.doesNotMatch(error.message, /sk-review-secret|user%3Aname|user:/i);
+      return true;
+    });
+  }
+});
+
 test('字符串校验限制长度和枚举值', () => {
   assert.equal(validateString('高清', { field: '质量', maxLength: 200, allowedValues: ['标准', '高清', '超高清'] }), '高清');
   assert.throws(() => validateString('', { field: '提示词', minLength: 1, maxLength: 100000 }), /不能为空/);

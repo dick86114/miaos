@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const path = require('path');
 const { assertProviderId } = require('./provider-id');
+const { validateHttpUrl } = require('./security/validators');
 
 const LOCK_RETRY_COUNT = 5;
 const LOCK_RETRY_MS = 10;
@@ -456,7 +457,16 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
       || Object.prototype.hasOwnProperty.call(metadata, 'apiKey')) {
       throw createVaultError('SECRET_VAULT_CORRUPTED', '供应商元数据格式不正确');
     }
-    return cloneMetadata(metadata);
+
+    const normalized = cloneMetadata(metadata);
+    if (Object.prototype.hasOwnProperty.call(normalized, 'endpoint')) {
+      try {
+        normalized.endpoint = validateHttpUrl(normalized.endpoint);
+      } catch (_) {
+        throw createVaultError('SECRET_VAULT_CORRUPTED', '供应商元数据中的 API 地址不安全');
+      }
+    }
+    return normalized;
   }
 
   function applyEntries(entries, { ownerToken = crypto.randomUUID() } = {}) {
@@ -590,7 +600,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   function getProviderMetadata(providerId) {
     assertProviderId(providerId);
     const metadata = readDocument().providers[providerId];
-    return metadata ? cloneMetadata(metadata) : null;
+    return metadata ? validateMetadata(metadata) : null;
   }
 
   return {

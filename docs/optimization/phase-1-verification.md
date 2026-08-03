@@ -43,7 +43,7 @@
 
 - 主仓库 `/Users/dickies/Documents/workspaces/miaos` 的用户未提交 `AGENTS.md` 已仅只读核查，未修改、未暂存、未提交。
 - 已取消跟踪历史过程产物 `.superpowers/sdd/2026-08-03-miaos-foundation-security/task-4-brief-report.md`；正式计划与 `docs/` 内容保留。
-- `release/` 和 `.superpowers/` 均被忽略；提交前的精确 Git 卫生检查已确认没有 `.DS_Store`、release、日志、`.env` 或过程产物进入跟踪范围。
+- `release/` 与 `.superpowers/sdd/` 下的过程产物已被忽略；提交前的精确 Git 卫生检查已确认没有 `.DS_Store`、release、日志、`.env` 或过程产物进入跟踪范围。
 
 ## 已知限制
 

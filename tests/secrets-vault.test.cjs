@@ -370,6 +370,21 @@ test('lock 释放失败不会被吞掉，已写入状态以明确不确定错误
   }
 });
 
+test('供应商 metadata 拒绝包含 userinfo 的 endpoint，且不会落盘凭据', () => {
+  const { filePath, vault } = createVault();
+  const endpoint = 'https://user:sk-review-secret@example.com/v1';
+
+  assert.throws(() => vault.setMany([{
+    providerId: 'p_test',
+    metadata: { id: 'p_test', endpoint },
+  }]), (error) => {
+    assert.equal(error.code, 'SECRET_VAULT_CORRUPTED');
+    assert.doesNotMatch(error.message, /sk-review-secret|user:/);
+    return true;
+  });
+  assert.equal(existsSync(filePath), false);
+});
+
 test('safeStorage 不可用时纯 metadata 更新和无密钥读取仍可用', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-public-'));
   const filePath = path.join(dir, 'secrets.json');
