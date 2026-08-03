@@ -63,7 +63,7 @@ function validateRepoSlug(value) {
   return slug;
 }
 
-function validateDataUrl(value, { decodeImageBuffer } = {}) {
+async function validateDataUrl(value, { decodeImageBuffer } = {}) {
   const dataUrl = validateString(value, { field: '图片数据', minLength: 1, maxLength: Math.ceil(MAX_DATA_URL_BYTES * 4 / 3) + 128 });
   const match = DATA_URL_PATTERN.exec(dataUrl);
   if (!match) {
@@ -98,7 +98,7 @@ function validateDataUrl(value, { decodeImageBuffer } = {}) {
     throw validationError('图片解码器不可用');
   }
   try {
-    decodeImageBuffer(buffer, { mime: detectedMime });
+    await decodeImageBuffer(buffer, { mime: detectedMime, allowSipsFallback: true });
   } catch (error) {
     throw validationError(error && error.message ? error.message : '图片内容不是可解码的有效图片');
   }

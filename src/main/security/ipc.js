@@ -28,7 +28,7 @@ function registerSecureHandler({ ipcMain, channel, getMainWindow, validate, hand
     }
 
     try {
-      if (validate) validate(...args);
+      if (validate) await validate(...args);
     } catch (error) {
       return createPublicError(error, 'IPC_VALIDATION_FAILED');
     }

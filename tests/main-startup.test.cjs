@@ -249,6 +249,12 @@ function getRequestBody(calls, index = -1) {
   return JSON.parse(Buffer.concat(request.chunks).toString('utf8'));
 }
 
+function assertPngSourceImage(calls, index = -1) {
+  const sourceImage = getRequestBody(calls, index).images[0];
+  assert.match(sourceImage, /^data:image\/png;base64,/);
+  assert.equal(Buffer.from(sourceImage.split(',')[1], 'base64').subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+}
+
 test('无权限时显示数据目录错误并阻断启动', async () => {
   const homePath = createTempHome('miaos-home-denied-');
   try {
@@ -495,20 +501,20 @@ test('真实 generate handler 允许 generated、选择器授权、粘贴授权�
     fs.writeFileSync(bmpImage, BMP_BYTES);
     const bmpResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(bmpImage));
     assert.equal(bmpResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [dataUrl('image/bmp', BMP_BYTES)]);
+    assertPngSourceImage(calls);
 
     const topDownBmpImage = path.join(generatedDir, 'top-down.bmp');
     fs.writeFileSync(topDownBmpImage, TOP_DOWN_BMP_BYTES);
     const topDownBmpResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(topDownBmpImage));
     assert.equal(topDownBmpResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [dataUrl('image/bmp', TOP_DOWN_BMP_BYTES)]);
+    assertPngSourceImage(calls);
   } finally {
     cleanupTempHome(homePath);
   }
 });
 
-test('真实 generate handler 对 nativeImage 不支持的 WebP 明确拒绝且不请求网络', async () => {
-  const homePath = createTempHome('miaos-webp-unsupported-');
+test('真实 generate handler 恢复真实 WebP，转换为 PNG 后进入下游且拒绝 zero-VP8', async () => {
+  const homePath = createTempHome('miaos-webp-supported-');
   const pickedWebpPath = path.join(homePath, 'picked.webp');
   fs.writeFileSync(pickedWebpPath, WEBP_BYTES);
   try {
@@ -520,24 +526,26 @@ test('真实 generate handler 对 nativeImage 不支持的 WebP 明确拒绝且�
       trustedEvent(),
       createGenerateParams(dataUrl('image/webp', WEBP_BYTES)),
     );
-    assert.equal(directResult.code, 'IPC_VALIDATION_FAILED');
-    assert.match(directResult.error, /WebP/);
-    assert.equal(calls.networkRequests.length, 0);
+    assert.equal(directResult.code, 'IPC_HANDLER_FAILED');
+    assertPngSourceImage(calls);
 
     const generatedDir = path.join(homePath, '.miaos', 'generated');
     fs.mkdirSync(generatedDir, { recursive: true });
     const webpPath = path.join(generatedDir, 'real.webp');
     fs.writeFileSync(webpPath, WEBP_BYTES);
     const fileResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(webpPath));
-    assert.equal(fileResult.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
-    assert.match(fileResult.error, /WebP/);
-    assert.equal(calls.networkRequests.length, 0);
+    assert.equal(fileResult.code, 'IPC_HANDLER_FAILED');
+    assertPngSourceImage(calls);
 
     const pickedResult = await calls.ipcHandlers['pick-image-file'](trustedEvent());
-    assert.equal(pickedResult.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
-    assert.match(pickedResult.error, /WebP/);
-    assert.equal(calls.openDialogOptions.length, 1);
-    assert.deepEqual(calls.openDialogOptions[0].filters[0].extensions, ['png', 'jpg', 'jpeg', 'bmp']);
+    assert.deepEqual(pickedResult, { canceled: false, filePath: fs.realpathSync(pickedWebpPath) });
+    assert.deepEqual(calls.openDialogOptions[0].filters[0].extensions, ['png', 'jpg', 'jpeg', 'webp', 'bmp']);
+
+    const zeroVp8Path = path.join(generatedDir, 'zero-vp8.webp');
+    fs.writeFileSync(zeroVp8Path, FAKE_IMAGE_BYTES.zeroVp8Webp);
+    const rejectedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(zeroVp8Path));
+    assert.equal(rejectedResult.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+    assert.equal(calls.networkRequests.length, 2);
   } finally {
     cleanupTempHome(homePath);
   }

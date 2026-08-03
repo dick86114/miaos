@@ -21,7 +21,7 @@ const decodeImageBuffer = createImageDecoder({
   platform: 'linux',
 });
 
-function validateImageDataUrl(value) {
+async function validateImageDataUrl(value) {
   return validateDataUrl(value, { decodeImageBuffer });
 }
 
@@ -45,31 +45,31 @@ test('字符串校验限制长度和枚举值', () => {
   assert.throws(() => validateString('4:3', { field: '比例', allowedValues: ['1:1'] }), /不支持/);
 });
 
-test('图片 data URL 仅允许完整且 MIME 一致的受支持图片，并按解码后体积限制', () => {
+test('图片 data URL 仅允许完整且 MIME 一致的受支持图片，并按解码后体积限制', async () => {
   const png = dataUrl('image/png', REAL_IMAGE_BYTES.png);
   const jpeg = dataUrl('image/jpeg', REAL_IMAGE_BYTES.jpeg);
   const progressiveJpeg = dataUrl('image/jpeg', REAL_IMAGE_BYTES.progressiveJpeg);
   const adam7Png = dataUrl('image/png', REAL_IMAGE_BYTES.adam7Png);
   const webp = dataUrl('image/webp', REAL_IMAGE_BYTES.webp);
-  assert.equal(validateImageDataUrl(png), png);
-  assert.equal(validateImageDataUrl(jpeg), jpeg);
-  assert.equal(validateImageDataUrl(progressiveJpeg), progressiveJpeg);
-  assert.equal(validateImageDataUrl(adam7Png), adam7Png);
-  assert.throws(() => validateImageDataUrl(webp), /WebP/);
-  assert.throws(() => validateImageDataUrl('data:image/png;base64,'), /不能为空|有效/);
-  assert.throws(() => validateImageDataUrl('data:image/png;base64,aGVsbG8='), /完整|有效/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/jpeg', REAL_IMAGE_BYTES.png)), /MIME/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.png)), /有效/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.jpeg)), /有效/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.webp)), /WebP/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.missingPltePng)), /有效/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.invalidSofSosJpeg)), /有效/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.zeroVp8Webp)), /WebP/);
-  assert.throws(() => validateImageDataUrl(dataUrl('image/bmp', REAL_IMAGE_BYTES.bmp)), /图片.*允许/);
-  assert.throws(() => validateImageDataUrl('data:image/gif;base64,aGVsbG8='), /图片.*允许/);
-  assert.throws(() => validateImageDataUrl('data:image/png;base64,%%%'), /base64/);
+  assert.equal(await validateImageDataUrl(png), png);
+  assert.equal(await validateImageDataUrl(jpeg), jpeg);
+  assert.equal(await validateImageDataUrl(progressiveJpeg), progressiveJpeg);
+  assert.equal(await validateImageDataUrl(adam7Png), adam7Png);
+  await assert.rejects(() => validateImageDataUrl(webp), /WebP/);
+  await assert.rejects(() => validateImageDataUrl('data:image/png;base64,'), /不能为空|有效/);
+  await assert.rejects(() => validateImageDataUrl('data:image/png;base64,aGVsbG8='), /完整|有效/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/jpeg', REAL_IMAGE_BYTES.png)), /MIME/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.png)), /有效/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.jpeg)), /有效/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.webp)), /WebP/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.missingPltePng)), /有效/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.invalidSofSosJpeg)), /有效/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.zeroVp8Webp)), /WebP/);
+  await assert.rejects(() => validateImageDataUrl(dataUrl('image/bmp', REAL_IMAGE_BYTES.bmp)), /图片.*允许/);
+  await assert.rejects(() => validateImageDataUrl('data:image/gif;base64,aGVsbG8='), /图片.*允许/);
+  await assert.rejects(() => validateImageDataUrl('data:image/png;base64,%%%'), /base64/);
   const tooLarge = `data:image/png;base64,${Buffer.alloc(50 * 1024 * 1024 + 1).toString('base64')}`;
-  assert.throws(() => validateImageDataUrl(tooLarge), /50 MiB/);
+  await assert.rejects(() => validateImageDataUrl(tooLarge), /50 MiB/);
 });
 
 test('下载文件名移除路径字符并限制长度', () => {

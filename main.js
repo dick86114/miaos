@@ -280,7 +280,7 @@ function validateOptionalCategory(category) {
   validateString(category, { field: '模型分类', allowedValues: ['image', 'text', 'video'], trim: true });
 }
 
-function validateGenerateParams(params) {
+async function validateGenerateParams(params) {
   validateObject(params, '生图参数');
   validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
   validateString(params.provider, { field: '供应商类型', minLength: 1, maxLength: 200, trim: true });
@@ -296,7 +296,7 @@ function validateGenerateParams(params) {
     throw new Error('参考图路径必须是文本');
   }
   if (typeof params.sourceImage === 'string' && params.sourceImage.startsWith('data:')) {
-    validateDataUrl(params.sourceImage, { decodeImageBuffer });
+    await validateDataUrl(params.sourceImage, { decodeImageBuffer });
   }
 }
 
@@ -328,7 +328,7 @@ registerSecureHandler({
   ipcMain,
   channel: 'save-image',
   getMainWindow: () => mainWindow,
-  validate: (dataUrl, suggestedName) => { validateDataUrl(dataUrl, { decodeImageBuffer }); validateSuggestedName(suggestedName); },
+  validate: async (dataUrl, suggestedName) => { await validateDataUrl(dataUrl, { decodeImageBuffer }); validateSuggestedName(suggestedName); },
   handle: async (_event, dataUrl, suggestedName) => {
   try {
     const safeSuggestedName = validateSuggestedName(suggestedName);
@@ -353,7 +353,7 @@ registerSecureHandler({
       buffer = fs.readFileSync(dataUrl);
     }
     fs.writeFileSync(filePath, buffer);
-    return { ok: true, filePath: imageFileAccess.authorizePastedImage(filePath) };
+    return { ok: true, filePath: await imageFileAccess.authorizePastedImage(filePath) };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -992,7 +992,7 @@ registerSecureHandler({
   ipcMain,
   channel: 'generate-image',
   getMainWindow: () => mainWindow,
-  validate: (params) => { validateGenerateParams(params); },
+  validate: async (params) => { await validateGenerateParams(params); },
   handle: async (_event, params) => {
   const { prompt, provider, modelName, ratio, quality, size, endpoint, apiKey, sourceImage } = params;
   if (!prompt) throw new Error('提示词不能为空');
@@ -1049,7 +1049,7 @@ registerSecureHandler({
   ipcMain,
   channel: 'save-pasted-image',
   getMainWindow: () => mainWindow,
-  validate: (dataUrl) => { validateDataUrl(dataUrl, { decodeImageBuffer }); },
+  validate: async (dataUrl) => { await validateDataUrl(dataUrl, { decodeImageBuffer }); },
   handle: async (_event, dataUrl) => {
   try {
     const match = /^data:(image\/(\w+));base64,(.*)$/.exec(dataUrl);
@@ -1061,7 +1061,7 @@ registerSecureHandler({
     const fileName = `pasted-${Date.now()}.${ext}`;
     const filePath = path.join(tmpDir, fileName);
     fs.writeFileSync(filePath, buffer);
-    return { ok: true, filePath: imageFileAccess.authorizePastedImage(filePath) };
+    return { ok: true, filePath: await imageFileAccess.authorizePastedImage(filePath) };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -1078,10 +1078,10 @@ registerSecureHandler({
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择参考图片',
     properties: ['openFile'],
-    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'bmp'] }],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
   });
   if (result.canceled || !result.filePaths.length) return { canceled: true };
-  const filePath = imageFileAccess.authorizePickedImage(result.filePaths[0]);
+  const filePath = await imageFileAccess.authorizePickedImage(result.filePaths[0]);
   return { canceled: false, filePath };
   },
 });

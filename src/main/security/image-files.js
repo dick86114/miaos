@@ -111,7 +111,7 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath, decodeImageB
       && left.mtimeMs === right.mtimeMs;
   }
 
-  function readRegularFileSafely(filePath, { expectedIdentity } = {}) {
+  async function readRegularFileSafely(filePath, { expectedIdentity } = {}) {
     const beforeOpenStat = lstatRegularFile(filePath, { sourceImage: true });
     const constants = fsImpl.constants || {};
     const flags = (constants.O_RDONLY || 0) | (constants.O_NOFOLLOW || 0);
@@ -155,7 +155,10 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath, decodeImageB
         throw createFileError('参考图不是受支持的 PNG、JPEG、WebP 或 BMP 图片', 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
       }
       try {
-        decodeImageBuffer(buffer, { mime, allowBmpFileFallback: true });
+        const decoded = await decodeImageBuffer(buffer, { mime, allowBmpFileFallback: true });
+        if (decoded && decoded.decoder === 'sips' && Buffer.isBuffer(decoded.buffer)) {
+          return { buffer: decoded.buffer, identity, mime: decoded.mime || 'image/png' };
+        }
       } catch (error) {
         throw createFileError(
           error && error.message ? error.message : '参考图内容不是可解码的有效图片',
@@ -168,11 +171,11 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath, decodeImageB
     }
   }
 
-  function authorizeFile(value) {
+  async function authorizeFile(value) {
     const candidatePath = pathImpl.resolve(normalizePathReference(value));
     lstatRegularFile(candidatePath, { sourceImage: true });
     const canonicalPath = fsImpl.realpathSync(candidatePath);
-    const { identity } = readRegularFileSafely(canonicalPath);
+    const { identity } = await readRegularFileSafely(canonicalPath);
     authorizedPaths.set(canonicalPath, identity);
     return canonicalPath;
   }
@@ -193,13 +196,21 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath, decodeImageB
     return { canonicalPath, identity };
   }
 
-  function readSourceImageAsDataUrl(value) {
+  async function readSourceImageAsDataUrl(value) {
     if (typeof value === 'string' && value.startsWith('data:')) {
-      return validateDataUrl(value, { decodeImageBuffer });
+      await validateDataUrl(value, { decodeImageBuffer });
+      const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]*={0,2})$/.exec(value);
+      const mime = match[1];
+      const buffer = Buffer.from(match[2], 'base64');
+      const decoded = await decodeImageBuffer(buffer, { mime, allowSipsFallback: true });
+      if (decoded && decoded.decoder === 'sips' && Buffer.isBuffer(decoded.buffer)) {
+        return `data:${decoded.mime || 'image/png'};base64,${decoded.buffer.toString('base64')}`;
+      }
+      return value;
     }
 
     const { canonicalPath, identity } = resolveAuthorizedSourceFile(value);
-    const { buffer, mime } = readRegularFileSafely(canonicalPath, { expectedIdentity: identity });
+    const { buffer, mime } = await readRegularFileSafely(canonicalPath, { expectedIdentity: identity });
     return `data:${mime};base64,${buffer.toString('base64')}`;
   }
 

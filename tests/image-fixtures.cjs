@@ -1,3 +1,5 @@
+const PNG_SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex');
+
 const REAL_IMAGE_BASE64 = {
   png: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAX+XDSwAAAABJRU5ErkJggg==',
   pngReplacement: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==',
@@ -56,9 +58,15 @@ function createNativeImageMock() {
   return {
     createFromBuffer(buffer) {
       const decodable = supported.some((fixture) => fixture.equals(buffer));
+      const sipsPng = buffer.length >= 100
+        && buffer.subarray(0, 8).equals(PNG_SIGNATURE)
+        && buffer.readUInt32BE(16) > 0
+        && buffer.readUInt32BE(20) > 0;
       return {
-        isEmpty() { return !decodable; },
-        getSize() { return decodable ? { width: 1, height: 1 } : { width: 0, height: 0 }; },
+        isEmpty() { return !decodable && !sipsPng; },
+        getSize() {
+          return decodable || sipsPng ? { width: 1, height: 1 } : { width: 0, height: 0 };
+        },
       };
     },
   };
