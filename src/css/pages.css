@@ -254,15 +254,24 @@
   content: '';
   position: absolute;
   top: 0;
-  left: -40%;
+  left: 0;
   width: 40%;
   height: 100%;
   background: linear-gradient(90deg, transparent, var(--brand), transparent);
+  transform: translateX(-100%);
   animation: wave-slide var(--motion-wave) var(--motion-ease) infinite;
 }
 @keyframes wave-slide {
-  0% { left: -40%; }
-  100% { left: 100%; }
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+/* 减少动态效果时保留可见的进度提示，不让波浪停在容器外。 */
+@media (prefers-reduced-motion: reduce) {
+  .composer-wave-bar::before {
+    animation: none !important;
+    transform: translateX(0);
+  }
 }
 
 /* 参考图预览 chip */
