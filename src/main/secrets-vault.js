@@ -40,7 +40,8 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     || typeof fsImpl.writeFileSync !== 'function' || typeof fsImpl.openSync !== 'function'
     || typeof fsImpl.fsyncSync !== 'function' || typeof fsImpl.closeSync !== 'function'
     || typeof fsImpl.renameSync !== 'function' || typeof fsImpl.unlinkSync !== 'function'
-    || typeof fsImpl.mkdirSync !== 'function' || typeof fsImpl.statSync !== 'function') {
+    || typeof fsImpl.mkdirSync !== 'function' || typeof fsImpl.statSync !== 'function'
+    || typeof fsImpl.rmSync !== 'function') {
     throw new TypeError('文件系统服务不可用');
   }
 
@@ -83,26 +84,50 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库已损坏，请重新保存密钥');
   }
 
+  function lockOwnerPath(lockPath) {
+    return path.join(lockPath, 'owner.json');
+  }
+
+  function lockReadError(error) {
+    if (error && error.code === 'ENOENT') return null;
+    throw createVaultError('SECRET_VAULT_LOCK_READ_FAILED', '密钥仓库锁读取失败，请稍后重试');
+  }
+
   function readLockState(lockPath) {
     let stat;
-    let raw;
     try {
       stat = fsImpl.statSync(lockPath);
-      raw = fsImpl.readFileSync(lockPath, 'utf8');
-    } catch (_) {
-      return null;
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return null;
+      return lockReadError(error);
     }
-    let info = null;
+
+    const isDirectory = typeof stat.isDirectory === 'function' ? stat.isDirectory() : true;
+    const statePath = isDirectory ? lockOwnerPath(lockPath) : lockPath;
+    let raw = null;
     try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.ownerToken === 'string' && typeof parsed.pid === 'number' && typeof parsed.createdAt === 'number') {
-        info = parsed;
-      }
-    } catch (_) {}
+      raw = fsImpl.readFileSync(statePath, 'utf8');
+    } catch (error) {
+      if (!isDirectory && error && error.code === 'ENOENT') return null;
+      if (error && error.code === 'ENOENT') raw = null;
+      else return lockReadError(error);
+    }
+
+    let info = null;
+    if (raw !== null) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.ownerToken === 'string' && typeof parsed.pid === 'number'
+          && typeof parsed.createdAt === 'number') {
+          info = parsed;
+        }
+      } catch (_) {}
+    }
     return {
       raw,
       info,
-      signature: `${stat.dev}:${stat.ino}:${stat.mtimeMs}:${stat.size}:${raw}`,
+      isDirectory,
+      signature: `${stat.dev}:${stat.ino}:${stat.mtimeMs}:${stat.size}:${isDirectory}:${raw || ''}`,
       mtimeMs: stat.mtimeMs,
     };
   }
@@ -131,40 +156,124 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     return Date.now() - lock.mtimeMs > LOCK_STALE_TTL_MS;
   }
 
+  function quarantinePathFor(lockPath, ownerToken) {
+    const ownerHash = crypto.createHash('sha256').update(String(ownerToken)).digest('hex').slice(0, 16);
+    return `${lockPath}.quarantine-${ownerHash}-${crypto.randomBytes(8).toString('hex')}`;
+  }
+
+  function restoreQuarantine(quarantinePath, lockPath) {
+    const current = readLockState(lockPath);
+    if (current) return false;
+    try {
+      fsImpl.renameSync(quarantinePath, lockPath);
+      return true;
+    } catch (error) {
+      if (error && error.code === 'EEXIST') return false;
+      throw error;
+    }
+  }
+
+  function moveAndRemoveLock(lockPath, expected, ownerToken) {
+    const current = readLockState(lockPath);
+    if (!current) return { status: 'gone' };
+    if (current.signature !== expected.signature
+      || (expected.info && current.info?.ownerToken !== ownerToken)) {
+      return { status: 'replaced' };
+    }
+
+    const quarantinePath = quarantinePathFor(lockPath, ownerToken);
+    try {
+      fsImpl.renameSync(lockPath, quarantinePath);
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return { status: 'gone' };
+      throw error;
+    }
+
+    const quarantined = readLockState(quarantinePath);
+    if (!quarantined || quarantined.signature !== expected.signature
+      || (expected.info && quarantined.info?.ownerToken !== ownerToken)) {
+      restoreQuarantine(quarantinePath, lockPath);
+      return { status: 'replaced' };
+    }
+
+    // 只删除已经原子移入 owner-specific quarantine、且再次验证过 inode/owner 的对象；
+    // 不会对原始可替换路径直接 recursive remove。
+    try {
+      fsImpl.rmSync(quarantinePath, { recursive: true, force: false });
+      return { status: 'removed' };
+    } catch (error) {
+      try { restoreQuarantine(quarantinePath, lockPath); } catch (_) {}
+      throw error;
+    }
+  }
+
   function reclaimLock(lockPath, expected, ownerToken) {
     if (!canReclaimLock(expected, ownerToken)) return false;
     if (!isSameLock(lockPath, expected)) return false;
+    let result;
     try {
-      fsImpl.unlinkSync(lockPath);
-      return true;
-    } catch (_) {
-      throw createVaultError('SECRET_VAULT_LOCK_RECLAIM_FAILED', '密钥仓库锁回收失败，请稍后重试');
+      result = moveAndRemoveLock(lockPath, expected, expected.info?.ownerToken || ownerToken);
+    } catch (error) {
+      if (error && error.code === 'SECRET_VAULT_LOCK_READ_FAILED') throw error;
+      throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库正被其他进程使用，请稍后重试');
+    }
+    return result.status === 'removed' || result.status === 'gone';
+  }
+
+  function writeLockOwner(lockPath, ownerToken) {
+    const ownerPath = lockOwnerPath(lockPath);
+    const tempPath = `${ownerPath}.tmp-${crypto.randomBytes(8).toString('hex')}`;
+    let fd = null;
+    try {
+      fd = fsImpl.openSync(tempPath, 'wx', 0o600);
+      fsImpl.writeFileSync(tempPath, JSON.stringify({ ownerToken, pid: process.pid, createdAt: Date.now() }), 'utf8');
+      fsImpl.fsyncSync(fd);
+      fsImpl.closeSync(fd);
+      fd = null;
+      fsImpl.renameSync(tempPath, ownerPath);
+    } catch (error) {
+      if (fd !== null) {
+        try { fsImpl.closeSync(fd); } catch (_) {}
+      }
+      throw error;
     }
   }
 
   function acquireLock(ownerToken) {
     const lockPath = `${filePath}.lock`;
     for (let attempt = 0; attempt <= LOCK_RETRY_COUNT; attempt += 1) {
-      let fd = null;
+      let createdLock = false;
       try {
-        fd = fsImpl.openSync(lockPath, 'wx', 0o600);
-        fsImpl.writeFileSync(fd, JSON.stringify({ ownerToken, pid: process.pid, createdAt: Date.now() }), 'utf8');
+        fsImpl.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+        fsImpl.mkdirSync(lockPath, { mode: 0o700 });
+        createdLock = true;
+        writeLockOwner(lockPath, ownerToken);
+        const fd = fsImpl.openSync(lockPath, 'r');
         fsImpl.fsyncSync(fd);
         const snapshot = readLockState(lockPath);
-        if (!snapshot || snapshot.info?.ownerToken !== ownerToken) throw new Error('lock owner 写入失败');
+        if (!snapshot || snapshot.info?.ownerToken !== ownerToken) {
+          try { fsImpl.closeSync(fd); } catch (_) {}
+          throw createVaultError('SECRET_VAULT_LOCK_FAILED', '密钥仓库锁 owner 写入失败');
+        }
         return { lockPath, fd, ownerToken, snapshot };
       } catch (error) {
-        if (fd !== null) {
-          try { fsImpl.closeSync(fd); } catch (_) {}
-          const own = readLockState(lockPath);
-          if (own?.info?.ownerToken === ownerToken) {
-            try { fsImpl.unlinkSync(lockPath); } catch (_) {}
-          }
+        if (createdLock) {
+          try {
+            const partial = readLockState(lockPath);
+            if (partial) moveAndRemoveLock(lockPath, partial, ownerToken);
+          } catch (_) {}
         }
-        if (!error || error.code !== 'EEXIST') throw createVaultError('SECRET_VAULT_LOCK_FAILED', '密钥仓库锁创建失败');
+        if (error && error.code !== 'EEXIST') {
+          if (error.code === 'SECRET_VAULT_LOCK_READ_FAILED') throw error;
+          throw createVaultError('SECRET_VAULT_LOCK_FAILED', '密钥仓库锁创建失败');
+        }
+
         const existing = readLockState(lockPath);
+        if (!existing) continue;
         if (reclaimLock(lockPath, existing, ownerToken)) continue;
-        if (attempt === LOCK_RETRY_COUNT) throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库正被其他进程使用，请稍后重试');
+        if (attempt === LOCK_RETRY_COUNT) {
+          throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库正被其他进程使用，请稍后重试');
+        }
         waitForLockRetry();
       }
     }
@@ -174,15 +283,24 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   function releaseLock(lock) {
     const failures = [];
     try { fsImpl.closeSync(lock.fd); } catch (_) { failures.push('close'); }
-    const current = readLockState(lock.lockPath);
-    if (current) {
-      if (current.info?.ownerToken !== lock.ownerToken || !isSameLock(lock.lockPath, current)) {
+
+    let current;
+    try {
+      current = readLockState(lock.lockPath);
+      if (!current || current.info?.ownerToken !== lock.ownerToken
+        || current.signature !== lock.snapshot.signature) {
         failures.push('owner');
       } else {
-        try { fsImpl.unlinkSync(lock.lockPath); } catch (_) { failures.push('unlink'); }
+        const result = moveAndRemoveLock(lock.lockPath, current, lock.ownerToken);
+        if (result.status !== 'removed') failures.push('owner');
       }
+    } catch (error) {
+      failures.push(error && error.code === 'SECRET_VAULT_LOCK_READ_FAILED' ? 'read' : 'remove');
     }
-    if (failures.length > 0) throw createVaultError('SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED', '密钥仓库已写入，但锁释放状态不确定');
+
+    if (failures.length > 0) {
+      throw createVaultError('SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED', '密钥仓库已写入，但锁释放状态不确定');
+    }
   }
 
   function writeDocument(document) {

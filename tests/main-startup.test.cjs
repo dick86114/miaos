@@ -447,9 +447,9 @@ test('自身残留 lock 的事务 rollback 仅凭 transaction owner token 可恢
   let failRelease = true;
   const fsImpl = {
     ...fs,
-    unlinkSync(target) {
-      if (failRelease && String(target).endsWith('secrets.json.lock')) throw Object.assign(new Error('残留 lock'), { code: 'EACCES' });
-      return fs.unlinkSync(target);
+    rmSync(target, options) {
+      if (failRelease && String(target).includes('.lock.quarantine-')) throw Object.assign(new Error('残留 lock'), { code: 'EACCES' });
+      return fs.rmSync(target, options);
     },
   };
   try {
