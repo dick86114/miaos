@@ -909,7 +909,7 @@ git commit -m "security: 恢复 Electron 安全运行时默认值"
 - Consumes: Task 1–8 的测试、构建和手动验证结果。
 - Produces: 可审计的第一阶段验证记录，以及进入“架构治理计划”的门禁结论。
 
-- [ ] **Step 1: 运行自动化验证**
+- [x] **Step 1: 运行自动化验证**
 
 Run:
 
@@ -937,7 +937,7 @@ Expected: 全部返回 0；`release/` 中 DMG、ZIP、YML 和 `.app` 版本一�
 9. 损坏当前状态后从备份恢复。
 10. 非法 IPC、危险 URL 和恶意更新日志被拒绝。
 
-- [ ] **Step 3: 编写验证记录**
+- [x] **Step 3: 编写验证记录**
 
 `docs/optimization/phase-1-verification.md` 必须包含：
 
@@ -968,13 +968,13 @@ Expected: 全部返回 0；`release/` 中 DMG、ZIP、YML 和 `.app` 版本一�
 
 执行时必须填写真实值，不允许保留空白或模板占位。
 
-- [ ] **Step 4: 检查提交范围**
+- [x] **Step 4: 检查提交范围**
 
 Run: `git status --short && git log --oneline -12`
 
 Expected: `AGENTS.md` 仍保持用户原有未提交状态；没有 `.DS_Store`、`release/`、日志或密钥文件进入 Git。
 
-- [ ] **Step 5: 提交验收记录**
+- [x] **Step 5: 提交验收记录**
 
 ```bash
 git add docs/optimization/phase-1-verification.md docs/superpowers/plans/2026-08-03-miaos-foundation-security.md
