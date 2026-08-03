@@ -6,6 +6,14 @@ const http = require('http');
 const { URL } = require('url');
 const { autoUpdater } = require('electron-updater');
 const { resolveAppDataPath } = require('./src/main/app-data');
+const {
+  validateString,
+  validateHttpUrl,
+  validateRepoSlug,
+  validateDataUrl,
+  validateSuggestedName,
+} = require('./src/main/security/validators');
+const { registerSecureHandler } = require('./src/main/security/ipc');
 
 let mainWindow = null;
 let updateInfoCache = null;
@@ -65,15 +73,26 @@ function sendUpdateStatus(state, payload) {
 }
 
 // ===== 对外更新 API =====
-ipcMain.handle('update-get-current-version', () => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'update-get-current-version',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: () => {
   return {
     version: app.getVersion(),
     name: '妙生',
     isPackaged: !!app.isPackaged,
   };
+  },
 });
 
-ipcMain.handle('update-check', async () => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'update-check',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => {
   if (!app.isPackaged) {
     return { ok: false, error: '开发环境不支持自动更新，请打包后使用' };
   }
@@ -83,20 +102,38 @@ ipcMain.handle('update-check', async () => {
   } catch (e) {
     return { ok: false, error: e.message || '检查更新失败' };
   }
+  },
 });
 
 // 打开 GitHub Release 页面，由用户手动下载安装
-ipcMain.handle('update-open-release-page', async () => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'update-open-release-page',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => {
   try {
     await shell.openExternal(RELEASE_URL);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || '打开页面失败' };
   }
+  },
 });
 
 // 动态配置更新源（owner/repo），允许用户自定义 GitHub 仓库
-ipcMain.handle('update-configure', async (_event, opts) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'update-configure',
+  getMainWindow: () => mainWindow,
+  validate: (opts) => {
+    if (opts === undefined || opts === null) return;
+    if (!opts || typeof opts !== 'object' || Array.isArray(opts)) throw new Error('更新配置格式不正确');
+    const { owner, repo } = opts;
+    if (!owner && !repo) return;
+    validateRepoSlug(`${validateString(owner, { field: '仓库 owner', minLength: 1, maxLength: 200, trim: true })}/${validateString(repo, { field: '仓库 repo', minLength: 1, maxLength: 200, trim: true })}`);
+  },
+  handle: async (_event, opts) => {
   try {
     const { owner, repo } = opts || {};
     if (owner && repo) {
@@ -114,6 +151,7 @@ ipcMain.handle('update-configure', async (_event, opts) => {
   } catch (e) {
     return { ok: false, error: e.message || '配置更新源失败' };
   }
+  },
 });
 
 // 使用独立的应用数据目录。若目录不可写，立即阻止启动，避免静默降级到临时目录导致数据丢失。
@@ -204,12 +242,101 @@ function createWindow() {
   });
 }
 
+
+function validateObject(value, field) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${field}格式不正确`);
+  }
+  return value;
+}
+
+function validateOptionalString(value, field, options = {}) {
+  if (value === undefined || value === null || value === '') return;
+  return validateString(value, { field, ...options });
+}
+
+function validateProvider(provider) {
+  validateObject(provider, '供应商');
+  validateHttpUrl(provider.endpoint);
+  validateOptionalString(provider.type, '供应商类型', { maxLength: 200, trim: true });
+  validateOptionalString(provider.provider, '供应商类型', { maxLength: 200, trim: true });
+  validateOptionalString(provider.name, '供应商名称', { maxLength: 200, trim: true });
+  if (provider.apiKey !== undefined && provider.apiKey !== null && typeof provider.apiKey !== 'string') {
+    throw new Error('API Key必须是文本');
+  }
+}
+
+function validateOptionalCategory(category) {
+  if (category === undefined || category === null || category === '') return;
+  validateString(category, { field: '模型分类', allowedValues: ['image', 'text', 'video'], trim: true });
+}
+
+function validateGenerateParams(params) {
+  validateObject(params, '生图参数');
+  validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
+  validateString(params.provider, { field: '供应商类型', minLength: 1, maxLength: 200, trim: true });
+  validateString(params.modelName, { field: '模型', minLength: 1, maxLength: 200, trim: true });
+  validateString(params.ratio, { field: '比例', allowedValues: ['1:1', '4:3', '16:9', '9:16'] });
+  validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
+  validateString(params.size, { field: '图片尺寸', minLength: 1, maxLength: 200, trim: true });
+  validateHttpUrl(params.endpoint);
+  if (params.apiKey !== undefined && params.apiKey !== null && typeof params.apiKey !== 'string') {
+    throw new Error('API Key必须是文本');
+  }
+  if (params.sourceImage !== undefined && params.sourceImage !== null && typeof params.sourceImage !== 'string') {
+    throw new Error('参考图路径必须是文本');
+  }
+}
+
+function validateTextPromptParams(params) {
+  validateObject(params, '文本模型参数');
+  validateHttpUrl(params.endpoint);
+  validateString(params.model, { field: '文本模型', minLength: 1, maxLength: 200, trim: true });
+  validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
+  validateOptionalString(params.imageModel, '生图模型', { maxLength: 200, trim: true });
+  if (params.ratio !== undefined && params.ratio !== null && params.ratio !== '') {
+    validateString(params.ratio, { field: '比例', allowedValues: ['1:1', '4:3', '16:9', '9:16'] });
+  }
+  if (params.quality !== undefined && params.quality !== null && params.quality !== '') {
+    validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
+  }
+  if (params.language !== undefined && params.language !== null && params.language !== '') {
+    validateString(params.language, { field: '语言', allowedValues: ['zh', 'en'] });
+  }
+  if (params.apiKey !== undefined && params.apiKey !== null && typeof params.apiKey !== 'string') {
+    throw new Error('API Key必须是文本');
+  }
+  if (params.isImageToImage !== undefined && typeof params.isImageToImage !== 'boolean') {
+    throw new Error('图生图标记必须是布尔值');
+  }
+}
+
+function validateGeneratedFilePath(filePath) {
+  const candidatePath = validateString(filePath, { field: '文件路径', minLength: 1, maxLength: 4096 });
+  const generatedDir = path.join(app.getPath('userData'), 'generated');
+  if (!fs.existsSync(generatedDir) || !fs.existsSync(candidatePath)) {
+    throw new Error('生成图片文件不存在');
+  }
+
+  const generatedRoot = fs.realpathSync(generatedDir);
+  const resolvedFilePath = fs.realpathSync(candidatePath);
+  if (!resolvedFilePath.startsWith(`${generatedRoot}${path.sep}`) || !fs.statSync(resolvedFilePath).isFile()) {
+    throw new Error('只能打开应用生成目录中的文件');
+  }
+}
+
 // 保存图片到磁盘（下载）
-ipcMain.handle('save-image', async (_event, dataUrl, suggestedName) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'save-image',
+  getMainWindow: () => mainWindow,
+  validate: (dataUrl, suggestedName) => { validateDataUrl(dataUrl); validateSuggestedName(suggestedName); },
+  handle: async (_event, dataUrl, suggestedName) => {
   try {
+    const safeSuggestedName = validateSuggestedName(suggestedName);
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
       title: '保存图片',
-      defaultPath: suggestedName || 'miaos-image.png',
+      defaultPath: safeSuggestedName,
       filters: [
         { name: 'PNG 图片', extensions: ['png'] },
         { name: 'JPEG 图片', extensions: ['jpg'] },
@@ -232,15 +359,22 @@ ipcMain.handle('save-image', async (_event, dataUrl, suggestedName) => {
   } catch (err) {
     return { ok: false, error: err.message };
   }
+  },
 });
 
 // 在系统中显示文件（下载完成后定位）
-ipcMain.handle('show-in-folder', async (_event, filePath) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'show-in-folder',
+  getMainWindow: () => mainWindow,
+  validate: (filePath) => { validateGeneratedFilePath(filePath); },
+  handle: async (_event, filePath) => {
   if (filePath && fs.existsSync(filePath)) {
     shell.showItemInFolder(filePath);
     return { ok: true };
   }
   return { ok: false };
+  },
 });
 
 // ===== 工具函数：发送 HTTP 请求 =====
@@ -370,7 +504,12 @@ function extractErrorMessage(result) {
 }
 
 // ===== 测试供应商连接（只有 API 调用成功才算通过，否则一律失败） =====
-ipcMain.handle('test-connection', async (_event, provider) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'test-connection',
+  getMainWindow: () => mainWindow,
+  validate: (provider) => { validateProvider(provider); },
+  handle: async (_event, provider) => {
   if (!provider || !provider.endpoint) throw new Error('请填写 API 地址');
 
   const headers = {};
@@ -390,7 +529,7 @@ ipcMain.handle('test-connection', async (_event, provider) => {
       const result = await probeEndpoint(provider.endpoint, { method: 'POST', headers, body, timeoutMs: 10000 });
       const d = result.data;
       const errMsg = extractErrorMessage(result);
-      
+
       // HTTP 2xx，且返回了任务ID或成功/运行中状态 → 完全成功
       if (result.status >= 200 && result.status < 300) {
         if (d && (d.status === 'succeeded' || d.status === 'running' || d.id)) {
@@ -399,15 +538,15 @@ ipcMain.handle('test-connection', async (_event, provider) => {
         // 2xx 但格式异常
         return { ok: true, status: result.status };
       }
-      
+
       // 非 2xx 状态码，根据错误信息判断原因
       const errorMsg = (d && d.error ? d.error : errMsg || '').toLowerCase();
-      
+
       // 404 → 地址错误
       if (result.status === 404) {
         throw new Error(`API 地址不存在（HTTP 404）：请检查 endpoint 是否正确`);
       }
-      
+
       // API Key 相关错误
       if (errorMsg.includes('apikey') || errorMsg.includes('api key') || errorMsg.includes('key is empty')) {
         if (!provider.apiKey) {
@@ -415,22 +554,22 @@ ipcMain.handle('test-connection', async (_event, provider) => {
         }
         throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
       }
-      
+
       // 模型相关错误（说明端点和key都正确，只是模型参数问题）
       if (errorMsg.includes('model')) {
         return { ok: true, status: result.status, warning: `连接成功：${errMsg || '端点和认证有效'}` };
       }
-      
+
       // 401/403 → 认证失败
       if (result.status === 401 || result.status === 403) {
         throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
       }
-      
+
       // 其他 Grsai 返回的 JSON 错误 → 端点可达，返回具体错误
       if (d && d.error) {
         throw new Error(`请求失败（HTTP ${result.status}）：${errMsg}`);
       }
-      
+
       // 其他非 JSON 响应
       throw new Error(`连接失败（HTTP ${result.status}）：${errMsg || '未知错误'}`);
     } catch (e) {
@@ -464,6 +603,7 @@ ipcMain.handle('test-connection', async (_event, provider) => {
   } catch (e) {
     throw new Error(e.message || '连接失败');
   }
+  },
 });
 
 // ===== 读取本地图片为 dataURL（图生图参考图） =====
@@ -793,7 +933,12 @@ const KNOWN_MODELS = {
 };
 
 // ===== 获取供应商下可用模型列表 =====
-ipcMain.handle('fetch-models', async (_event, provider, category) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'fetch-models',
+  getMainWindow: () => mainWindow,
+  validate: (provider, category) => { validateProvider(provider); validateOptionalCategory(category); },
+  handle: async (_event, provider, category) => {
   const { type, endpoint, apiKey } = provider || {};
   if (!type) throw new Error('缺少供应商类型');
   if (!endpoint) throw new Error('请先填写 API 地址');
@@ -854,10 +999,16 @@ ipcMain.handle('fetch-models', async (_event, provider, category) => {
   }
 
   return { ok: true, models };
+  },
 });
 
 // ===== 真正调用模型生图（按 provider 分流） =====
-ipcMain.handle('generate-image', async (_event, params) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'generate-image',
+  getMainWindow: () => mainWindow,
+  validate: (params) => { validateGenerateParams(params); },
+  handle: async (_event, params) => {
   const { prompt, provider, modelName, ratio, quality, size, endpoint, apiKey, sourceImage } = params;
   if (!prompt) throw new Error('提示词不能为空');
   if (!endpoint) throw new Error('请先配置供应商 API 地址');
@@ -909,10 +1060,16 @@ ipcMain.handle('generate-image', async (_event, params) => {
   }
 
   return await generateWithOpenAI({ prompt, model, size, providerType: ptype });
+  },
 });
 
 // ===== 保存粘贴的图片到临时文件 =====
-ipcMain.handle('save-pasted-image', async (_event, dataUrl) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'save-pasted-image',
+  getMainWindow: () => mainWindow,
+  validate: (dataUrl) => { validateDataUrl(dataUrl); },
+  handle: async (_event, dataUrl) => {
   try {
     const match = /^data:(image\/(\w+));base64,(.*)$/.exec(dataUrl);
     if (!match) throw new Error('无效的图片数据');
@@ -927,10 +1084,16 @@ ipcMain.handle('save-pasted-image', async (_event, dataUrl) => {
   } catch (e) {
     return { ok: false, error: e.message };
   }
+  },
 });
 
 // ===== 选择本地图片（图生图参考图） =====
-ipcMain.handle('pick-image-file', async () => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'pick-image-file',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择参考图片',
     properties: ['openFile'],
@@ -939,10 +1102,16 @@ ipcMain.handle('pick-image-file', async () => {
   if (result.canceled || !result.filePaths.length) return { canceled: true };
   const filePath = result.filePaths[0];
   return { canceled: false, filePath };
+  },
 });
 
 // ===== 选择文本文件（长文本提示词） =====
-ipcMain.handle('pick-text-file', async () => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'pick-text-file',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择提示词文本文件',
     properties: ['openFile'],
@@ -956,10 +1125,16 @@ ipcMain.handle('pick-text-file', async () => {
   } catch (e) {
     throw new Error('读取文件失败：' + e.message);
   }
+  },
 });
 
 // ===== 优化提示词（调用文本模型 chat 接口） =====
-ipcMain.handle('optimize-prompt', async (_event, params) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'optimize-prompt',
+  getMainWindow: () => mainWindow,
+  validate: (params) => { validateTextPromptParams(params); },
+  handle: async (_event, params) => {
   const { endpoint, apiKey, model, prompt, language } = params;
   if (!endpoint) throw new Error('请先在设置中配置文本模型 API 地址');
   if (!model) throw new Error('请先在设置中配置文本模型名称');
@@ -1002,10 +1177,16 @@ ipcMain.handle('optimize-prompt', async (_event, params) => {
 
   if (!content) throw new Error('文本模型返回为空');
   return { optimized: content.trim() };
+  },
 });
 
 // ===== 总结生图标题（5-10字，用于时间轴节点标题） =====
-ipcMain.handle('summarize-prompt', async (_event, params) => {
+registerSecureHandler({
+  ipcMain,
+  channel: 'summarize-prompt',
+  getMainWindow: () => mainWindow,
+  validate: (params) => { validateTextPromptParams(params); },
+  handle: async (_event, params) => {
   const { endpoint, apiKey, model, prompt, ratio, quality, imageModel, isImageToImage } = params;
   if (!endpoint) throw new Error('请先在设置中配置文本模型 API 地址');
   if (!model) throw new Error('请先在设置中配置文本模型名称');
@@ -1075,6 +1256,7 @@ ipcMain.handle('summarize-prompt', async (_event, params) => {
   const title = cleaned.length > 10 ? cleaned.slice(0, 10) : cleaned;
   console.log('[Summarize] 提取标题:', title);
   return { title };
+  },
 });
 
 if (shouldStartApp) {
