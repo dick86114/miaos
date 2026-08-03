@@ -267,9 +267,15 @@ test('窗口仅在白名单 HTTPS 地址上打开系统浏览器', async () => {
     const { calls } = await runMainWithMock({ homePath });
     assert.equal(typeof calls.windowOpenHandler, 'function');
 
-    assert.deepEqual(calls.windowOpenHandler({ url: 'https://github.com/dick86114/miaos' }), { action: 'deny' });
+    const allowedUrls = [
+      'https://github.com/dick86114/miaos',
+      'https://grsai.ai/models?source=miaos#latest',
+    ];
+    for (const url of allowedUrls) {
+      assert.deepEqual(calls.windowOpenHandler({ url }), { action: 'deny' });
+    }
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(calls.externalUrls, ['https://github.com/dick86114/miaos']);
+    assert.deepEqual(calls.externalUrls, allowedUrls);
 
     for (const url of [
       'javascript:alert(1)',
@@ -283,11 +289,19 @@ test('窗口仅在白名单 HTTPS 地址上打开系统浏览器', async () => {
       'https://github．com/',
       'https://github｡com/',
       'https://github.com:443/',
+      'https://github.com/a b',
+      'https://github.com/a\nb',
+      'https://github.com/a\rb',
+      'https://github.com/a\tb',
+      'https://github.com/?query=a\tb',
+      'https://github.com/a\u0000b',
+      'https://github.com/a\u000bb',
+      'https://github.com/a\u001fb',
     ]) {
       assert.deepEqual(calls.windowOpenHandler({ url }), { action: 'deny' });
     }
     await new Promise((resolve) => setImmediate(resolve));
-    assert.deepEqual(calls.externalUrls, ['https://github.com/dick86114/miaos']);
+    assert.deepEqual(calls.externalUrls, allowedUrls);
   } finally {
     cleanupTempHome(homePath);
   }

@@ -8,9 +8,11 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
 
 // 原始 authority 必须是严格的小写 ASCII 标准形式。先检查原始值，避免 URL 规范化放行大小写、IDN、百分号或显式端口变体。
 const ALLOWED_EXTERNAL_URL_PREFIX = /^https:\/\/(github\.com|www\.github\.com|grsai\.ai|www\.grsai\.ai)(?=\/|\?|#|$)/;
+// shell.openExternal 会自行规范化 URL；解析前必须拒绝全部空白和 ASCII 控制字符，避免原始值与实际打开目标不一致。
+const DISALLOWED_RAW_URL_CHARACTERS = /[\s\x00-\x1F\x7F]/u;
 
 function isAllowedExternalUrl(value) {
-  if (typeof value !== 'string' || value.length === 0 || value !== value.trim()) return false;
+  if (typeof value !== 'string' || value.length === 0 || DISALLOWED_RAW_URL_CHARACTERS.test(value)) return false;
 
   const prefix = value.match(ALLOWED_EXTERNAL_URL_PREFIX);
   if (!prefix) return false;

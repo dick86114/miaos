@@ -174,6 +174,17 @@ test('外部链接仅允许精确白名单 HTTPS 主机', () => {
     'https://github.com:443/',
     'https://www.GITHUB.com/',
     'https://grsai%2eai/',
+    'https://github.com/a b',
+    'https://github.com/a\nb',
+    'https://github.com/a\rb',
+    'https://github.com/a\tb',
+    'https://github.com/?query=a\tb',
+    'https://github.com/a\u0000b',
+    'https://github.com/a\u000bb',
+    'https://github.com/a\u001fb',
+    'https://github.com/a\u007fb',
+    'https://github.com/a\u00a0b',
+    'https://github.com/a\u2028b',
   ]) {
     assert.equal(isAllowedExternalUrl(url), false, url);
   }
