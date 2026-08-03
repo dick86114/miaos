@@ -359,24 +359,49 @@ function createProviderMetadataFromRenderer(provider) {
   return normalizeProviderMetadata(provider);
 }
 
+function scheduleTransactionRecovery(transactionId, delayMs = 60 * 1000) {
+  const transaction = providerTransactions.get(transactionId);
+  if (!transaction) return;
+  if (transaction.timer) clearTimeout(transaction.timer);
+  transaction.timer = setTimeout(() => { rollbackTransaction(transactionId, { automatic: true }); }, delayMs);
+  transaction.timer.unref?.();
+}
+
 function createTransaction(entries) {
   const snapshots = entries.map(({ providerId }) => ({
     providerId,
     apiKey: secretsVault.get(providerId),
     metadata: secretsVault.getProviderMetadata(providerId),
   }));
-  secretsVault.setMany(entries);
   const transactionId = crypto.randomUUID();
-  const timer = setTimeout(() => { rollbackTransaction(transactionId); }, 60 * 1000);
-  timer.unref?.();
-  providerTransactions.set(transactionId, { snapshots, timer });
-  return transactionId;
+  const transaction = { snapshots, timer: null, status: 'pending', retryCount: 0, lastCode: null };
+  providerTransactions.set(transactionId, transaction);
+  scheduleTransactionRecovery(transactionId);
+  try {
+    secretsVault.setMany(entries);
+    transaction.status = 'applied';
+    return { ok: true, transactionId };
+  } catch (error) {
+    if (error && (error.code === 'SECRET_VAULT_APPLIED_DURABILITY_UNCERTAIN' || error.code === 'SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED')) {
+      transaction.status = 'applied_uncertain';
+      transaction.lastCode = error.code;
+      return {
+        ok: false,
+        code: error.code,
+        transactionId,
+        error: '配置已可能写入，但持久化状态不确定，请重试/检查',
+      };
+    }
+    clearTimeout(transaction.timer);
+    providerTransactions.delete(transactionId);
+    throw error;
+  }
 }
 
-function rollbackTransaction(transactionId) {
+function rollbackTransaction(transactionId, { automatic = false } = {}) {
   const transaction = providerTransactions.get(transactionId);
-  if (!transaction) return { ok: false, error: '密钥事务不存在或已结束' };
-  clearTimeout(transaction.timer);
+  if (!transaction) return { ok: false, code: 'SECRET_TRANSACTION_NOT_FOUND', error: '密钥事务不存在或已结束' };
+  if (transaction.timer) clearTimeout(transaction.timer);
   const entries = transaction.snapshots.map((snapshot) => ({
     providerId: snapshot.providerId,
     ...(snapshot.apiKey ? { value: snapshot.apiKey } : { deleteSecret: true }),
@@ -387,13 +412,30 @@ function rollbackTransaction(transactionId) {
     providerTransactions.delete(transactionId);
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: error.message || '密钥事务回滚失败' };
+    transaction.status = 'rollback_failed';
+    transaction.lastCode = error?.code || 'SECRET_TRANSACTION_ROLLBACK_FAILED';
+    transaction.retryCount += 1;
+    scheduleTransactionRecovery(transactionId, Math.min(5 * 60 * 1000, 60 * 1000 * transaction.retryCount));
+    return {
+      ok: false,
+      code: 'SECRET_TRANSACTION_ROLLBACK_FAILED',
+      transactionId,
+      error: automatic ? '配置状态不确定，自动回滚失败，请检查后重试' : '配置状态不确定，请重试/检查',
+    };
   }
 }
 
 function commitTransaction(transactionId) {
   const transaction = providerTransactions.get(transactionId);
-  if (!transaction) return { ok: false, error: '密钥事务不存在或已结束' };
+  if (!transaction) return { ok: false, code: 'SECRET_TRANSACTION_NOT_FOUND', error: '密钥事务不存在或已结束' };
+  if (transaction.status !== 'applied') {
+    return {
+      ok: false,
+      code: 'SECRET_TRANSACTION_DURABILITY_UNCERTAIN',
+      transactionId,
+      error: '配置持久化状态不确定，请先重试回滚或检查',
+    };
+  }
   clearTimeout(transaction.timer);
   providerTransactions.delete(transactionId);
   return { ok: true };
@@ -474,7 +516,7 @@ registerSecureHandler({
       throw new Error('修改已保存供应商的地址或类型时，请重新输入 API Key');
     }
     const entry = { providerId, ...(value ? { value } : {}), ...(normalizedMetadata ? { metadata: normalizedMetadata } : {}) };
-    if (options.transactional) return { ok: true, transactionId: createTransaction([entry]) };
+    if (options.transactional) return createTransaction([entry]);
     secretsVault.setMany([entry]);
     return { ok: true };
   },
@@ -498,7 +540,7 @@ registerSecureHandler({
   },
   handle: async (_event, providerId, options = {}) => {
     const entry = { providerId, deleteSecret: true, metadata: null };
-    if (options.transactional) return { ok: true, transactionId: createTransaction([entry]) };
+    if (options.transactional) return createTransaction([entry]);
     secretsVault.setMany([entry]);
     return { ok: true };
   },
@@ -520,7 +562,7 @@ registerSecureHandler({
       return payload.operation === 'commit' ? commitTransaction(payload.transactionId) : rollbackTransaction(payload.transactionId);
     }
     const entries = validateSecretEntries(payload);
-    return { ok: true, transactionId: createTransaction(entries) };
+    return createTransaction(entries);
   },
 });
 

@@ -4,6 +4,7 @@ const { assertProviderId } = require('./provider-id');
 
 const LOCK_RETRY_COUNT = 5;
 const LOCK_RETRY_MS = 10;
+const LOCK_STALE_TTL_MS = 5 * 60 * 1000;
 
 function createVaultError(code, message) {
   const error = new Error(message);
@@ -82,18 +83,56 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库已损坏，请重新保存密钥');
   }
 
+  function readLockInfo(lockPath) {
+    try {
+      const parsed = JSON.parse(fsImpl.readFileSync(lockPath, 'utf8'));
+      if (!parsed || typeof parsed.pid !== 'number' || typeof parsed.createdAt !== 'number') return null;
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function isProcessAlive(pid) {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return error && error.code === 'EPERM';
+    }
+  }
+
+  function reclaimStaleLock(lockPath) {
+    const lock = readLockInfo(lockPath);
+    if (!lock || Date.now() - lock.createdAt <= LOCK_STALE_TTL_MS || isProcessAlive(lock.pid)) return false;
+    try {
+      fsImpl.unlinkSync(lockPath);
+      return true;
+    } catch (_) {
+      throw createVaultError('SECRET_VAULT_LOCK_RECLAIM_FAILED', '密钥仓库锁回收失败，请稍后重试');
+    }
+  }
+
   function acquireLock() {
     const lockPath = `${filePath}.lock`;
     for (let attempt = 0; attempt <= LOCK_RETRY_COUNT; attempt += 1) {
+      let fd = null;
       try {
-        return { lockPath, fd: fsImpl.openSync(lockPath, 'wx', 0o600) };
+        fd = fsImpl.openSync(lockPath, 'wx', 0o600);
+        fsImpl.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: Date.now() }), 'utf8');
+        fsImpl.fsyncSync(fd);
+        return { lockPath, fd };
       } catch (error) {
+        if (fd !== null) {
+          try { fsImpl.closeSync(fd); } catch (_) {}
+          try { fsImpl.unlinkSync(lockPath); } catch (_) {}
+        }
         if (!error || error.code !== 'EEXIST') {
-          throw createVaultError('SECRET_VAULT_WRITE_FAILED', '密钥仓库写入失败');
+          throw createVaultError('SECRET_VAULT_LOCK_FAILED', '密钥仓库锁创建失败');
         }
-        if (attempt === LOCK_RETRY_COUNT) {
-          throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库正被其他进程使用，请稍后重试');
-        }
+        if (reclaimStaleLock(lockPath)) continue;
+        if (attempt === LOCK_RETRY_COUNT) throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库正被其他进程使用，请稍后重试');
         waitForLockRetry();
       }
     }
@@ -101,8 +140,10 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   }
 
   function releaseLock(lock) {
-    try { fsImpl.closeSync(lock.fd); } catch (_) {}
-    try { fsImpl.unlinkSync(lock.lockPath); } catch (_) {}
+    let failed = false;
+    try { fsImpl.closeSync(lock.fd); } catch (_) { failed = true; }
+    try { fsImpl.unlinkSync(lock.lockPath); } catch (_) { failed = true; }
+    if (failed) throw createVaultError('SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED', '密钥仓库已写入，但锁释放状态不确定');
   }
 
   function writeDocument(document) {
@@ -110,6 +151,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     const tempPath = `${filePath}.tmp-${crypto.randomBytes(12).toString('hex')}`;
     let tempFd = null;
     let directoryFd = null;
+    let renamed = false;
     try {
       fsImpl.mkdirSync(directory, { recursive: true, mode: 0o700 });
       tempFd = fsImpl.openSync(tempPath, 'wx', 0o600);
@@ -118,19 +160,23 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
       fsImpl.closeSync(tempFd);
       tempFd = null;
       fsImpl.renameSync(tempPath, filePath);
+      renamed = true;
       directoryFd = fsImpl.openSync(directory, 'r');
       fsImpl.fsyncSync(directoryFd);
       fsImpl.closeSync(directoryFd);
       directoryFd = null;
-    } catch (error) {
+    } catch (_) {
       if (tempFd !== null) {
         try { fsImpl.closeSync(tempFd); } catch (_) {}
       }
       if (directoryFd !== null) {
         try { fsImpl.closeSync(directoryFd); } catch (_) {}
       }
-      try { fsImpl.unlinkSync(tempPath); } catch (_) {}
-      throw createVaultError('SECRET_VAULT_WRITE_FAILED', '密钥仓库写入失败');
+      if (!renamed) {
+        try { fsImpl.unlinkSync(tempPath); } catch (_) {}
+        throw createVaultError('SECRET_VAULT_WRITE_FAILED', '密钥仓库写入失败');
+      }
+      throw createVaultError('SECRET_VAULT_APPLIED_DURABILITY_UNCERTAIN', '密钥仓库已写入，但持久化状态不确定');
     }
   }
 
@@ -143,7 +189,6 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   }
 
   function applyEntries(entries) {
-    assertEncryptionAvailable();
     if (!Array.isArray(entries) || entries.length === 0 || entries.length > 100) {
       throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥更新数据格式不正确');
     }
@@ -158,6 +203,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
       ids.add(providerId);
       const next = { providerId };
       if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
+        assertEncryptionAvailable();
         if (typeof entry.value !== 'string' || entry.value.length === 0) {
           throw createVaultError('SECRET_VAULT_CORRUPTED', 'API Key 格式不正确');
         }
@@ -178,6 +224,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     }
 
     const lock = acquireLock();
+    let operationError = null;
     try {
       const document = readDocument();
       const draft = {
@@ -193,10 +240,48 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
           else draft.providers[entry.providerId] = entry.metadata;
         }
       }
-      writeDocument(draft);
-    } finally {
-      releaseLock(lock);
+      try {
+        writeDocument(draft);
+      } catch (error) {
+        if (error && error.code === 'SECRET_VAULT_APPLIED_DURABILITY_UNCERTAIN') {
+          error.snapshot = document;
+        }
+        throw error;
+      }
+    } catch (error) {
+      operationError = error;
     }
+    try {
+      releaseLock(lock);
+    } catch (releaseError) {
+      if (!operationError) operationError = releaseError;
+    }
+    if (operationError) throw operationError;
+  }
+
+  function restoreSnapshot(snapshot) {
+    if (!snapshot || snapshot.version !== 1 || !snapshot.secrets || !snapshot.providers
+      || typeof snapshot.secrets !== 'object' || typeof snapshot.providers !== 'object') {
+      throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库快照格式不正确');
+    }
+    const document = {
+      version: 1,
+      secrets: cloneDictionary(snapshot.secrets),
+      providers: cloneDictionary(snapshot.providers),
+    };
+    const lock = acquireLock();
+    let operationError = null;
+    try {
+      writeDocument(document);
+    } catch (error) {
+      operationError = error;
+    }
+    try {
+      releaseLock(lock);
+    } catch (error) {
+      if (!operationError) operationError = error;
+    }
+    if (operationError) throw operationError;
   }
 
   function set(providerId, value) {
@@ -208,10 +293,10 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   }
 
   function get(providerId) {
-    assertEncryptionAvailable();
     assertProviderId(providerId);
     const encrypted = readDocument().secrets[providerId];
     if (!encrypted) return null;
+    assertEncryptionAvailable();
     try {
       return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
     } catch (_) {
@@ -220,7 +305,6 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   }
 
   function has(providerId) {
-    assertEncryptionAvailable();
     assertProviderId(providerId);
     return Object.prototype.hasOwnProperty.call(readDocument().secrets, providerId);
   }
@@ -241,6 +325,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   return {
     set,
     setMany,
+    restoreSnapshot,
     get,
     has,
     delete: remove,

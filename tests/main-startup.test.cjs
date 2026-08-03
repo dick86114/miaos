@@ -89,7 +89,7 @@ function createNetworkMock(calls) {
   };
 }
 
-function createElectronMock({ homePath, setPathImpl, openDialogResult } = {}) {
+function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, safeStorageImpl } = {}) {
   const tempPath = path.join(homePath, 'temp');
   let userDataPath = null;
   const calls = {
@@ -180,7 +180,7 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult } = {}) {
       openExternal() {},
       showItemInFolder(filePath) { calls.showItemInFolder.push(filePath); },
     },
-    safeStorage: {
+    safeStorage: safeStorageImpl || {
       isEncryptionAvailable: () => true,
       encryptString: (value) => Buffer.from(`encrypted:${value}`),
       decryptString: (buffer) => {
@@ -215,6 +215,7 @@ async function runMainWithMock(options = {}) {
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === 'electron') return electronMock;
+    if ((request === 'fs' || request === 'node:fs') && options.fsImpl) return options.fsImpl;
     if (request === 'electron-updater') return updaterMock;
     if (request === 'https' || request === 'node:https' || request === 'http' || request === 'node:http') return networkMock;
     if (request === 'node:os' || request === 'os') {
@@ -414,6 +415,33 @@ test('供应商密钥事务在本地元数据失败时可回滚新增、编辑�
   }
 });
 
+test('事务 rollback 写入失败时保留 transaction，明确返回不确定状态并允许重试', async () => {
+  const homePath = createTempHome('miaos-provider-rollback-failure-');
+  let failRollback = false;
+  const fsImpl = {
+    ...fs,
+    writeFileSync(target, value, options) {
+      if (failRollback && String(target).includes('.tmp-')) throw Object.assign(new Error('回滚写入失败'), { code: 'EIO' });
+      return fs.writeFileSync(target, value, options);
+    },
+  };
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false, fsImpl });
+    const started = await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_tx', 'sk-new', {
+      ...createGrsaiMetadata('https://new.invalid/generate'), id: 'p_tx',
+    }, { transactional: true });
+    failRollback = true;
+    const failed = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'rollback', transactionId: started.transactionId });
+    assert.equal(failed.ok, false);
+    assert.equal(failed.code, 'SECRET_TRANSACTION_ROLLBACK_FAILED');
+    assert.equal(failed.transactionId, started.transactionId);
+    failRollback = false;
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'rollback', transactionId: started.transactionId }), { ok: true });
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
 test('已保存供应商的所有请求路径都通过 providerId 从 vault 读取密钥', async () => {
   const homePath = createTempHome('miaos-provider-secret-all-requests-');
   try {
@@ -470,6 +498,7 @@ test('已保存供应商将 key 绑定到可信 metadata，不能被 renderer �
       metadata: createGrsaiMetadata(trustedEndpoint),
     }]);
     assert.equal(migrate.ok, true);
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'commit', transactionId: migrate.transactionId }), { ok: true });
 
     const tampered = await calls.ipcHandlers['generate-image'](trustedEvent(), {
       ...createGenerateParams(null),
@@ -492,8 +521,8 @@ test('已保存供应商将 key 绑定到可信 metadata，不能被 renderer �
 test('公开 provider 没有密钥时仍可使用可信 metadata 发起无 Authorization 请求', async () => {
   const homePath = createTempHome('miaos-public-provider-');
   try {
-    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
-    const result = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+    const { calls: firstCalls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    const result = await firstCalls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
       providerId: 'p_public',
       metadata: {
         ...createGrsaiMetadata('https://public.invalid/generate'),
@@ -501,9 +530,35 @@ test('公开 provider 没有密钥时仍可使用可信 metadata 发起无 Autho
       },
     }]);
     assert.equal(result.ok, true);
+    assert.deepEqual(await firstCalls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'commit', transactionId: result.transactionId }), { ok: true });
+
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
     await calls.ipcHandlers['test-connection'](trustedEvent(), { providerId: 'p_public' });
     assert.equal(calls.networkRequests.at(-1).options.hostname, 'public.invalid');
     assert.equal(calls.networkRequests.at(-1).options.path, '/generate');
+    assert.equal('Authorization' in calls.networkRequests.at(-1).options.headers, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('safeStorage 不可用时公开 provider metadata 在重启后仍可无 Authorization 请求', async () => {
+  const homePath = createTempHome('miaos-public-no-keystore-');
+  const unavailable = {
+    isEncryptionAvailable: () => false,
+    encryptString() { throw new Error('不应加密'); },
+    decryptString() { throw new Error('不应解密'); },
+  };
+  try {
+    const { calls: firstCalls } = await runMainWithMock({ homePath, seedProviderSecret: false, safeStorageImpl: unavailable });
+    const started = await firstCalls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+      providerId: 'p_public', metadata: { ...createGrsaiMetadata('https://public-no-key.invalid/generate'), id: 'p_public', textModels: [] },
+    }]);
+    assert.equal(started.ok, true);
+    assert.deepEqual(await firstCalls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'commit', transactionId: started.transactionId }), { ok: true });
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false, safeStorageImpl: unavailable });
+    await calls.ipcHandlers['test-connection'](trustedEvent(), { providerId: 'p_public' });
+    assert.equal(calls.networkRequests.at(-1).options.hostname, 'public-no-key.invalid');
     assert.equal('Authorization' in calls.networkRequests.at(-1).options.headers, false);
   } finally {
     cleanupTempHome(homePath);

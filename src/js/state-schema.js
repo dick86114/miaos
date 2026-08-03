@@ -200,7 +200,12 @@ export async function migrateLegacyProviderSecrets(state, migrateSecrets) {
   if (entries.length > 0) {
     const result = await migrateSecrets(entries);
     if (!result || result.ok !== true) {
-      return { ok: false, error: result?.error || 'API Key 安全迁移失败' };
+      return {
+        ok: false,
+        ...(result?.code ? { code: result.code } : {}),
+        ...(result?.transactionId ? { transactionId: result.transactionId } : {}),
+        error: result?.error || 'API Key 安全迁移失败',
+      };
     }
     for (const provider of providers) {
       if (typeof provider.apiKey === 'string') {

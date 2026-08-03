@@ -64,10 +64,10 @@ test('写入严格经过临时文件、fsync 和 rename', () => {
 
   vault.set('p_test', 'sk-secret');
 
-  assert.deepEqual(calls.map(([name]) => name), ['write', 'fsync', 'rename', 'fsync']);
-  assert.match(calls[0][1], new RegExp(`^${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.tmp-[a-f0-9]+$`));
-  assert.equal(calls[2][1], calls[0][1]);
-  assert.equal(calls[2][2], filePath);
+  assert.deepEqual(calls.map(([name]) => name), ['write', 'fsync', 'write', 'fsync', 'rename', 'fsync']);
+  assert.match(calls[2][1], new RegExp(`^${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.tmp-[a-f0-9]+$`));
+  assert.equal(calls[4][1], calls[2][1]);
+  assert.equal(calls[4][2], filePath);
   assert.equal(existsSync(`${filePath}.tmp`), false);
 });
 
@@ -171,9 +171,113 @@ test('原子写入使用随机临时文件、fsync 文件和父目录，并拒�
   const tempOpen = calls.find((call) => String(call[1]).includes('.tmp-'));
   assert.ok(tempOpen, '应以随机后缀创建临时文件');
   assert.equal(tempOpen[2], 'wx');
-  assert.equal(calls.filter(([name]) => name === 'fsync').length, 2);
+  assert.equal(calls.filter(([name]) => name === 'fsync').length, 3);
   assert.ok(calls.some(([name, from, to]) => name === 'rename' && to === filePath));
 
   fs.writeFileSync(`${filePath}.lock`, 'busy');
   assert.throws(() => vault.set('p_other', 'sk-other'), (error) => error.code === 'SECRET_VAULT_LOCKED');
+});
+
+test('父目录 fsync 在 rename 后失败时标记已应用但 durability 不确定，并保留可回滚快照', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-durability-uncertain-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const initial = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs });
+  initial.set('p_test', 'sk-old');
+  const before = readFileSync(filePath, 'utf8');
+  const fdPaths = new Map();
+  const fsImpl = {
+    ...fs,
+    openSync(target, flags, mode) {
+      const fd = fs.openSync(target, flags, mode);
+      fdPaths.set(fd, target);
+      return fd;
+    },
+    closeSync(fd) {
+      fdPaths.delete(fd);
+      return fs.closeSync(fd);
+    },
+    fsyncSync(fd) {
+      if (fdPaths.get(fd) === dir) throw Object.assign(new Error('目录 fsync 失败'), { code: 'EIO' });
+      return fs.fsyncSync(fd);
+    },
+  };
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
+
+  let snapshot;
+  assert.throws(() => vault.setMany([{ providerId: 'p_test', value: 'sk-new' }]), (error) => {
+    assert.equal(error.code, 'SECRET_VAULT_APPLIED_DURABILITY_UNCERTAIN');
+    snapshot = error.snapshot;
+    assert.ok(snapshot);
+    return true;
+  });
+  assert.notEqual(readFileSync(filePath, 'utf8'), before);
+  const recoveryVault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs });
+  recoveryVault.restoreSnapshot(snapshot);
+  assert.equal(readFileSync(filePath, 'utf8'), before);
+});
+
+test('过期且所属进程已退出的 lock 会回收，存活进程的 lock 不会被删除', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-stale-lock-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs });
+  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ pid: 999999, createdAt: Date.now() - 10 * 60 * 1000 }));
+  vault.set('p_test', 'sk-secret');
+  assert.equal(existsSync(`${filePath}.lock`), false);
+
+  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ pid: process.pid, createdAt: Date.now() - 10 * 60 * 1000 }));
+  assert.throws(() => vault.set('p_other', 'sk-other'), (error) => error.code === 'SECRET_VAULT_LOCKED');
+  fs.unlinkSync(`${filePath}.lock`);
+});
+
+test('lock 释放失败不会被吞掉，已写入状态以明确不确定错误返回', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-lock-release-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const fsImpl = {
+    ...fs,
+    unlinkSync(target) {
+      if (target === `${filePath}.lock`) throw Object.assign(new Error('锁删除失败'), { code: 'EACCES' });
+      return fs.unlinkSync(target);
+    },
+  };
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
+  assert.throws(() => vault.set('p_test', 'sk-secret'), (error) => error.code === 'SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED');
+  assert.equal(vault.get('p_test'), 'sk-secret');
+  fs.unlinkSync(`${filePath}.lock`);
+});
+
+test('safeStorage 不可用时纯 metadata 更新和无密钥读取仍可用', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-public-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const unavailable = {
+    isEncryptionAvailable: () => false,
+    encryptString() { throw new Error('不应加密'); },
+    decryptString() { throw new Error('不应解密'); },
+  };
+  const vault = createSecretsVault({ filePath, safeStorage: unavailable, fsImpl: fs });
+  assert.doesNotThrow(() => vault.setMany([{ providerId: 'p_public', metadata: { id: 'p_public', endpoint: 'https://public.example/v1' } }]));
+  assert.equal(vault.get('p_public'), null);
+  assert.equal(vault.has('p_public'), false);
+  assert.deepEqual(vault.getProviderMetadata('p_public'), { id: 'p_public', endpoint: 'https://public.example/v1' });
+});
+
+
+test('lock close 失败不会被吞掉且仍尝试清理 lock 文件', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-lock-close-'));
+  const filePath = path.join(dir, 'secrets.json');
+  let lockFd = null;
+  const fsImpl = {
+    ...fs,
+    openSync(target, flags, mode) {
+      const fd = fs.openSync(target, flags, mode);
+      if (target === `${filePath}.lock`) lockFd = fd;
+      return fd;
+    },
+    closeSync(fd) {
+      if (fd === lockFd) throw Object.assign(new Error('锁关闭失败'), { code: 'EIO' });
+      return fs.closeSync(fd);
+    },
+  };
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
+  assert.throws(() => vault.set('p_test', 'sk-secret'), (error) => error.code === 'SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED');
+  assert.equal(existsSync(`${filePath}.lock`), false);
 });

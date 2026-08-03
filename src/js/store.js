@@ -61,20 +61,36 @@ export async function migrateLegacyProviderSecrets() {
       if (!window.api || !window.api.migrateProviderSecrets) return { ok: false, error: '运行环境异常：无法调用密钥迁移接口' };
       return window.api.migrateProviderSecrets(entries);
     });
-    if (!result.ok) return result;
+    if (!result.ok) {
+      if (result.transactionId) {
+        const rollback = await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId);
+        if (!rollback || !rollback.ok) {
+          return { ok: false, code: 'CONFIGURATION_STATE_UNCERTAIN', error: '配置状态不确定，请重试/检查' };
+        }
+      }
+      return result;
+    }
     try {
       statePersistence.saveNow(state);
     } catch (_) {
       state = previousState;
-      if (result.transactionId) await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId);
+      const rollback = result.transactionId
+        ? await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId)
+        : { ok: true };
+      if (!rollback || !rollback.ok) {
+        return { ok: false, code: 'CONFIGURATION_STATE_UNCERTAIN', error: '配置状态不确定，请重试/检查' };
+      }
       return { ok: false, error: 'API Key 安全迁移失败，旧配置已保留' };
     }
     if (result.transactionId) {
       const committed = await window.api?.completeProviderSecretTransaction?.('commit', result.transactionId);
       if (!committed || !committed.ok) {
+        const rollback = await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId);
+        if (!rollback || !rollback.ok) {
+          return { ok: false, code: 'CONFIGURATION_STATE_UNCERTAIN', error: '配置状态不确定，请重试/检查' };
+        }
         state = previousState;
         try { statePersistence.saveNow(state); } catch (_) {}
-        await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId);
         return { ok: false, error: 'API Key 安全迁移失败，旧配置已保留' };
       }
     }

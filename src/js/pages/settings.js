@@ -819,7 +819,13 @@ export function renderSettings(container) {
         const metadata = toProviderMetadata(f);
         const secretResult = await window.api?.setProviderSecret?.(f.id, typedApiKey, metadata, { transactional: true });
         if (!secretResult || !secretResult.ok || !secretResult.transactionId) {
-          toast('密钥保存失败：' + (secretResult?.error || '系统钥匙串不可用'), 'error');
+          const rollback = secretResult?.transactionId
+            ? await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId)
+            : { ok: true };
+          const message = !rollback || !rollback.ok || String(secretResult?.code || '').startsWith('SECRET_VAULT_APPLIED_')
+            ? '配置状态不确定，请重试/检查'
+            : '密钥保存失败：' + (secretResult?.error || '系统钥匙串不可用');
+          toast(message, 'error');
           return;
         }
         let localSaved = false;
@@ -842,7 +848,11 @@ export function renderSettings(container) {
           if (!committed || !committed.ok) throw new Error(committed?.error || '密钥事务提交失败');
           pageState.selectedProviderId = saved.id;
         } catch (error) {
-          await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId);
+          const rollback = await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId);
+          if (!rollback || !rollback.ok) {
+            toast('配置状态不确定，请重试/检查', 'error');
+            return;
+          }
           if (localSaved) {
             try {
               if (previousProvider) saveProvider(previousProvider);
@@ -869,7 +879,13 @@ export function renderSettings(container) {
           const previousProvider = getProvider(f.id);
           const secretResult = await window.api?.deleteProviderSecret?.(f.id, { transactional: true });
           if (!secretResult || !secretResult.ok || !secretResult.transactionId) {
-            toast('密钥删除失败：' + (secretResult?.error || '系统钥匙串不可用'), 'error');
+            const rollback = secretResult?.transactionId
+              ? await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId)
+              : { ok: true };
+            const message = !rollback || !rollback.ok || String(secretResult?.code || '').startsWith('SECRET_VAULT_APPLIED_')
+              ? '配置状态不确定，请重试/检查'
+              : '密钥删除失败：' + (secretResult?.error || '系统钥匙串不可用');
+            toast(message, 'error');
             return;
           }
           let localDeleted = false;
@@ -879,7 +895,11 @@ export function renderSettings(container) {
             const committed = await window.api?.completeProviderSecretTransaction?.('commit', secretResult.transactionId);
             if (!committed || !committed.ok) throw new Error(committed?.error || '密钥事务提交失败');
           } catch (error) {
-            await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId);
+            const rollback = await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId);
+            if (!rollback || !rollback.ok) {
+              toast('配置状态不确定，请重试/检查', 'error');
+              return;
+            }
             if (localDeleted && previousProvider) {
               try { saveProvider(previousProvider); } catch (_) {}
             }
