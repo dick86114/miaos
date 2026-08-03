@@ -243,12 +243,14 @@ export function createStatePersistence(storage) {
         return { state: current.state, source: 'current', warning: null };
       }
 
-      if (current.error) {
-        const backup = readMigratedState(storage, BACKUP_STORAGE_KEY);
-        if (backup.state) {
-          safeWrite(storage, CURRENT_STORAGE_KEY, stringifyState(backup.state));
-          return { state: backup.state, source: 'backup', warning: '主状态损坏，已从备份恢复' };
-        }
+      const backup = readMigratedState(storage, BACKUP_STORAGE_KEY);
+      if (backup.state) {
+        safeWrite(storage, CURRENT_STORAGE_KEY, stringifyState(backup.state));
+        return {
+          state: backup.state,
+          source: 'backup',
+          warning: current.error ? '主状态损坏，已从备份恢复' : '主状态缺失，已从备份恢复',
+        };
       }
 
       for (const key of LEGACY_STORAGE_KEYS) {

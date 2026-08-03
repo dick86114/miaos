@@ -45,6 +45,22 @@ test('损坏主状态时恢复备份且不覆盖备份', () => {
   assert.equal(storage.getItem(CURRENT_STORAGE_KEY), JSON.stringify(backup));
 });
 
+test('主状态缺失且备份和旧状态都有效时优先恢复备份', () => {
+  const backup = createDefaultState();
+  backup.history.push({ id: 'h_backup_missing_current', createdAt: 3 });
+  const legacy = createDefaultState();
+  legacy.history.push({ id: 'h_legacy_should_not_use', createdAt: 4 });
+  const storage = createMemoryStorage({
+    [BACKUP_STORAGE_KEY]: JSON.stringify(backup),
+    [LEGACY_STORAGE_KEYS[0]]: JSON.stringify(legacy),
+  });
+  const persistence = createStatePersistence(storage);
+  const result = persistence.load();
+  assert.equal(result.source, 'backup');
+  assert.equal(result.state.history[0].id, 'h_backup_missing_current');
+  assert.equal(storage.getItem(BACKUP_STORAGE_KEY), JSON.stringify(backup));
+});
+
 test('写入新状态前保留上一个合法状态', () => {
   const oldState = createDefaultState();
   const storage = createMemoryStorage({ [CURRENT_STORAGE_KEY]: JSON.stringify(oldState) });
