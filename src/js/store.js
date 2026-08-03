@@ -5,6 +5,7 @@ import {
   createStatePersistence,
   DEFAULT_ENABLED_IMAGE,
   GRSAI_IMAGE_MODELS,
+  migrateLegacyProviderSecrets as migrateLegacyProviderSecretsInState,
 } from './state-schema.js';
 
 const RANDOM_PROMPTS = [
@@ -48,6 +49,31 @@ function scheduleSave() {
     statePersistence.scheduleSave(state);
   } catch (e) {
     console.warn('状态保存失败', e);
+  }
+}
+
+
+// 启动时将旧 localStorage 中的明文密钥转交主进程，成功后立即持久化无密钥状态。
+export async function migrateLegacyProviderSecrets() {
+  const previousState = JSON.parse(JSON.stringify(state));
+  try {
+    const result = await migrateLegacyProviderSecretsInState(state, async (entries) => {
+      if (!window.api || !window.api.migrateProviderSecrets) {
+        return { ok: false, error: '运行环境异常：无法调用密钥迁移接口' };
+      }
+      return window.api.migrateProviderSecrets(entries);
+    });
+    if (!result.ok) return result;
+    try {
+      statePersistence.saveNow(state);
+    } catch (error) {
+      state = previousState;
+      return { ok: false, error: 'API Key 安全迁移失败，旧配置已保留' };
+    }
+    return result;
+  } catch (error) {
+    state = previousState;
+    return { ok: false, error: error?.message || 'API Key 安全迁移失败' };
   }
 }
 
@@ -115,7 +141,8 @@ export function saveProvider(data) {
     existing.name = data.name ?? existing.name;
     existing.type = data.type ?? existing.type;
     existing.endpoint = data.endpoint ?? existing.endpoint;
-    existing.apiKey = data.apiKey ?? existing.apiKey;
+    existing.hasApiKey = data.hasApiKey ?? existing.hasApiKey ?? false;
+    delete existing.apiKey;
     if (data.capabilities) existing.capabilities = [...data.capabilities];
     if (data.imageModels) existing.imageModels = data.imageModels.map((m) => ({ ...m }));
     if (data.textModels) existing.textModels = data.textModels.map((m) => ({ ...m }));
@@ -125,11 +152,11 @@ export function saveProvider(data) {
     return cloneProvider(existing);
   }
   const provider = {
-    id: uid('p'),
+    id: data.id || uid('p'),
     name: data.name || '新供应商',
     type: data.type || 'openai',
     endpoint: data.endpoint || '',
-    apiKey: data.apiKey || '',
+    hasApiKey: !!data.hasApiKey,
     capabilities: data.capabilities || ['image'],
     imageModels: (data.imageModels || []).map((m) => ({ ...m })),
     textModels: (data.textModels || []).map((m) => ({ ...m })),
@@ -258,7 +285,7 @@ export function getAllEnabledModels(category = 'image') {
     const key = CAT_KEYS[category];
     if (!key) return;
     p[key].filter((m) => m.enabled).forEach((m) => {
-      result.push({ ...m, providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint, providerApiKey: p.apiKey });
+      result.push({ ...m, providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint });
     });
   });
   return result;
@@ -313,7 +340,7 @@ export async function generateImage({ prompt, providerId, modelId, ratio, qualit
     modelName: model.id,
     ratio, quality, size,
     endpoint: provider.endpoint,
-    apiKey: provider.apiKey,
+    providerId: provider.id,
     sourceImage: sourceImage || null,
   });
   if (!result || !result.ok) throw new Error((result && result.error) || '生图失败');
@@ -366,7 +393,7 @@ export function getDefaultImageModel() {
   if (!p) return null;
   const m = p.imageModels.find((x) => x.id === d.defaultImageModel && x.enabled);
   if (!m) return null;
-  return { providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint, providerApiKey: p.apiKey, modelId: m.id, modelName: m.name };
+  return { providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint, modelId: m.id, modelName: m.name };
 }
 
 // 获取默认文本模型信息
@@ -377,14 +404,14 @@ export function getDefaultTextModel() {
   if (!p) return null;
   const m = p.textModels.find((x) => x.id === d.defaultTextModel && x.enabled);
   if (!m) return null;
-  return { providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint, providerApiKey: p.apiKey, modelId: m.id, modelName: m.name };
+  return { providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint, modelId: m.id, modelName: m.name };
 }
 
 // 兼容旧 getTextProvider API
 export function getTextProvider() {
   const m = getDefaultTextModel();
   if (!m) return null;
-  return { endpoint: m.providerEndpoint, apiKey: m.providerApiKey, model: m.modelId };
+  return { providerId: m.providerId, endpoint: m.providerEndpoint, model: m.modelId };
 }
 
 // ===== 优化提示词 =====
@@ -394,7 +421,7 @@ export async function optimizePrompt(prompt, language = 'zh') {
   if (!window.api || !window.api.optimizePrompt) throw new Error('运行环境异常：无法调用优化提示词接口');
   const result = await window.api.optimizePrompt({
     endpoint: tm.providerEndpoint,
-    apiKey: tm.providerApiKey,
+    providerId: tm.providerId,
     model: tm.modelId,
     prompt,
     language,
@@ -419,7 +446,7 @@ export async function summarizePrompt({ prompt, ratio, quality, imageModel, isIm
     console.log('[AutoSummary] 调用文本模型:', tm.providerName, tm.modelId);
     const result = await window.api.summarizePrompt({
       endpoint: tm.providerEndpoint,
-      apiKey: tm.providerApiKey,
+      providerId: tm.providerId,
       model: tm.modelId,
       prompt,
       ratio,
@@ -712,7 +739,7 @@ export async function generateSmart(projectId, versionId, { prompt, modelId, rat
     modelName: model0.id,
     ratio, quality, size,
     endpoint: provider0.endpoint,
-    apiKey: provider0.apiKey,
+    providerId: provider0.id,
     sourceImage: finalSourceImage,
   });
   if (!result || !result.ok) throw new Error((result && result.error) || '生图失败');

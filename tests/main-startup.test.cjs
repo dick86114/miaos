@@ -19,6 +19,10 @@ const EXPECTED_CHANNELS = [
   'update-check',
   'update-open-release-page',
   'update-configure',
+  'provider-secret-set',
+  'provider-secret-has',
+  'provider-secret-delete',
+  'provider-secret-migrate',
   'save-image',
   'show-in-folder',
   'test-connection',
@@ -176,6 +180,15 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult } = {}) {
       openExternal() {},
       showItemInFolder(filePath) { calls.showItemInFolder.push(filePath); },
     },
+    safeStorage: {
+      isEncryptionAvailable: () => true,
+      encryptString: (value) => Buffer.from(`encrypted:${value}`),
+      decryptString: (buffer) => {
+        const value = buffer.toString();
+        if (!value.startsWith('encrypted:')) throw new Error('密文无效');
+        return value.slice('encrypted:'.length);
+      },
+    },
     nativeImage: {
       ...createNativeImageMock(),
       createFromPath() { return { isEmpty() { return true; } }; },
@@ -215,6 +228,9 @@ async function runMainWithMock(options = {}) {
     require(mainPath);
     await Promise.resolve();
     await new Promise((resolve) => setImmediate(resolve));
+    if (options.seedProviderSecret !== false && calls.ipcHandlers['provider-secret-set']) {
+      await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_grsai', 'test-key');
+    }
     return { calls, exitCode: process.exitCode };
   } catch (error) {
     error.startupCalls = calls;
@@ -239,7 +255,7 @@ function createGenerateParams(sourceImage) {
     quality: '高清',
     size: '1024x1024',
     endpoint: 'https://example.invalid/generate',
-    apiKey: 'test-key',
+    providerId: 'p_grsai',
     sourceImage,
   };
 }
@@ -315,7 +331,7 @@ test('app.setPath 非预期异常会传播且不显示数据目录错误', async
   }
 });
 
-test('正常启动精确注册 14 个真实安全 handler，未知 sender 全部被拒绝', async () => {
+test('正常启动精确注册 18 个真实安全 handler（原 14 个加 4 个密钥 handler），未知 sender 全部被拒绝', async () => {
   const homePath = createTempHome('miaos-ipc-registrations-');
   try {
     const { calls } = await runMainWithMock({ homePath });
@@ -329,6 +345,85 @@ test('正常启动精确注册 14 个真实安全 handler，未知 sender 全部
       assert.deepEqual(result, { ok: false, error: 'IPC 来源不受信任', code: 'IPC_UNTRUSTED_SENDER' });
     }
     assert.deepEqual(calls.networkRequests, []);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('密钥 IPC 通过安全 wrapper 保存、查询、迁移和删除密文', async () => {
+  const homePath = createTempHome('miaos-provider-secret-ipc-');
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_one', 'sk-one'), { ok: true });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_one'), { ok: true, has: true });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [
+      { providerId: 'p_two', apiKey: 'sk-two' },
+    ]), { ok: true });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_two'), { ok: true, has: true });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-delete'](trustedEvent(), 'p_one'), { ok: true });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_one'), { ok: true, has: false });
+    assert.doesNotMatch(fs.readFileSync(path.join(homePath, '.miaos', 'secrets.json'), 'utf8'), /sk-one|sk-two/);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('已保存供应商的所有请求路径都通过 providerId 从 vault 读取密钥', async () => {
+  const homePath = createTempHome('miaos-provider-secret-all-requests-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    const provider = {
+      providerId: 'p_grsai',
+      type: 'grsai',
+      endpoint: 'https://example.invalid/generate',
+    };
+
+    await calls.ipcHandlers['test-connection'](trustedEvent(), provider);
+    assert.equal(calls.networkRequests.at(-1).options.headers.Authorization, 'Bearer test-key');
+
+    const models = await calls.ipcHandlers['fetch-models'](trustedEvent(), provider, 'image');
+    assert.equal(models.ok, true);
+    assert.ok(models.models.length > 0);
+
+    await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(null));
+    assert.equal(calls.networkRequests.at(-1).options.headers.Authorization, 'Bearer test-key');
+
+    await calls.ipcHandlers['optimize-prompt'](trustedEvent(), {
+      providerId: 'p_grsai',
+      endpoint: 'https://example.invalid/v1',
+      model: 'text-model',
+      prompt: '测试提示词',
+      language: 'zh',
+    });
+    assert.equal(calls.networkRequests.at(-1).options.headers.Authorization, 'Bearer test-key');
+
+    await calls.ipcHandlers['summarize-prompt'](trustedEvent(), {
+      providerId: 'p_grsai',
+      endpoint: 'https://example.invalid/v1',
+      model: 'text-model',
+      prompt: '测试提示词',
+      ratio: '1:1',
+      quality: '高清',
+      imageModel: 'gpt-image-2',
+      isImageToImage: false,
+    });
+    assert.equal(calls.networkRequests.at(-1).options.headers.Authorization, 'Bearer test-key');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('已保存供应商的生图请求只传 providerId，主进程从 vault 读取密钥', async () => {
+  const homePath = createTempHome('miaos-provider-secret-request-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    const params = createGenerateParams(null);
+    assert.equal('apiKey' in params, false);
+
+    await calls.ipcHandlers['generate-image'](trustedEvent(), params);
+
+    assert.equal(calls.networkRequests.length, 1);
+    assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer test-key');
   } finally {
     cleanupTempHome(homePath);
   }

@@ -27,7 +27,7 @@ export const DEFAULT_PROVIDERS = [
     name: 'Grsai',
     type: 'grsai',
     endpoint: 'https://grsaiapi.com/v1/api/generate',
-    apiKey: '',
+    hasApiKey: false,
     capabilities: ['image'],
     imageModels: GRSAI_IMAGE_MODELS.map((m) => ({
       ...m,
@@ -78,6 +78,7 @@ export function migrateState(parsed) {
         textModels: p.textModels || [],
         videoModels: p.videoModels || [],
         lastTestResult: p.lastTestResult || null,
+        hasApiKey: !!p.hasApiKey,
       })),
       history: Array.isArray(source.history) ? source.history : [],
       projects: Array.isArray(source.projects) ? source.projects : [],
@@ -103,6 +104,7 @@ export function migrateState(parsed) {
         type: p.type,
         endpoint: p.endpoint,
         apiKey: p.apiKey || '',
+        hasApiKey: !!p.hasApiKey,
         capabilities: ['image'],
         imageModels: oldModels.map((m) => ({ id: m.id, name: m.name || m.id, enabled: !!m.enabled })),
         textModels: [],
@@ -122,6 +124,7 @@ export function migrateState(parsed) {
       type: 'openai',
       endpoint: tp.endpoint,
       apiKey: tp.apiKey || '',
+      hasApiKey: !!tp.hasApiKey,
       capabilities: ['text'],
       imageModels: [],
       textModels: [{ id: textModelId, name: textModelId, enabled: true }],
@@ -168,6 +171,32 @@ export function migrateState(parsed) {
     },
     updateRepo: typeof source.updateRepo === 'string' ? source.updateRepo : 'dick86114/miaos',
   };
+}
+
+
+// 将旧 localStorage 中的明文密钥交给主进程保存。只有主进程确认全部完成后才清理状态。
+export async function migrateLegacyProviderSecrets(state, migrateSecrets) {
+  const providers = Array.isArray(state?.providers) ? state.providers : [];
+  const secrets = providers
+    .filter((provider) => typeof provider?.apiKey === 'string' && provider.apiKey.length > 0)
+    .map((provider) => ({ providerId: provider.id, apiKey: provider.apiKey }));
+
+  if (secrets.length > 0) {
+    const result = await migrateSecrets(secrets);
+    if (!result || result.ok !== true) {
+      return { ok: false, error: result?.error || 'API Key 安全迁移失败' };
+    }
+  }
+
+  for (const provider of providers) {
+    if (typeof provider.apiKey === 'string') {
+      provider.hasApiKey = provider.apiKey.length > 0 || !!provider.hasApiKey;
+      delete provider.apiKey;
+    } else if (provider.hasApiKey === undefined) {
+      provider.hasApiKey = false;
+    }
+  }
+  return { ok: true, migrated: secrets.length > 0 };
 }
 
 export function validateState(value) {

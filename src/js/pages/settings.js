@@ -12,6 +12,7 @@ import {
   addCustomModelByCat,
   removeModelByCat,
   setProviderModelsByCat,
+  uid,
   testConnection,
   fetchModels,
   getDefaults,
@@ -46,7 +47,7 @@ export function renderSettings(container) {
     selectedProviderId: null,
     isAddingProvider: false,
     // 编辑表单临时状态
-    form: null, // { id?, name, type, endpoint, apiKey, capabilities, imageModels, textModels, videoModels }
+    form: null, // { id, name, type, endpoint, hasApiKey, capabilities, imageModels, textModels, videoModels }
     testStatus: null, // { ok, message, warning? }
     testLoading: false,
     fetchLoadingCat: null, // 当前正在获取模型的分类：'image' | 'text' | 'video' | null
@@ -83,10 +84,11 @@ export function renderSettings(container) {
     if (!pageState.form) {
       if (pageState.isAddingProvider) {
         pageState.form = {
+          id: uid('p'),
           name: '',
           type: 'grsai',
           endpoint: 'https://grsaiapi.com/v1/api/generate',
-          apiKey: '',
+          hasApiKey: false,
           capabilities: ['image'],
           imageModels: [],
           textModels: [],
@@ -99,7 +101,7 @@ export function renderSettings(container) {
           name: selectedProvider.name,
           type: selectedProvider.type,
           endpoint: selectedProvider.endpoint,
-          apiKey: selectedProvider.apiKey,
+          hasApiKey: !!selectedProvider.hasApiKey,
           capabilities: [...(selectedProvider.capabilities || [])],
           imageModels: (selectedProvider.imageModels || []).map((m) => ({ ...m })),
           textModels: (selectedProvider.textModels || []).map((m) => ({ ...m })),
@@ -293,12 +295,12 @@ export function renderSettings(container) {
           <div class="form-group">
             <label class="form-label" for="pf-key">API Key</label>
             <div class="input-with-action">
-              <input class="form-input" id="pf-key" type="${pageState.keyVisible ? 'text' : 'password'}" placeholder="sk-...（可选，公开接口可留空）" value="${escapeAttr(f.apiKey || '')}" />
+              <input class="form-input" id="pf-key" type="${pageState.keyVisible ? 'text' : 'password'}" placeholder="${f.hasApiKey ? '已安全保存，留空表示不修改' : 'sk-...（可选，公开接口可留空）'}" value="" />
               <button class="input-action-btn" type="button" id="btn-toggle-key" title="${pageState.keyVisible ? '隐藏密钥' : '显示密钥'}">
                 ${icon(pageState.keyVisible ? 'eye-off' : 'eye', 16)}
               </button>
             </div>
-            <div class="form-hint">密钥仅存储在本地，不会上传至任何服务器</div>
+            <div class="form-hint">密钥通过系统钥匙串加密保存在本机，不会写入应用状态</div>
           </div>
 
           <!-- 能力选择 -->
@@ -530,7 +532,7 @@ export function renderSettings(container) {
           name: p.name,
           type: p.type,
           endpoint: p.endpoint,
-          apiKey: p.apiKey,
+          hasApiKey: !!p.hasApiKey,
           capabilities: [...p.capabilities],
           imageModels: p.imageModels.map((m) => ({ ...m })),
           textModels: p.textModels.map((m) => ({ ...m })),
@@ -576,7 +578,6 @@ export function renderSettings(container) {
 
     syncInput('pf-name', 'name');
     syncInput('pf-endpoint', 'endpoint');
-    syncInput('pf-key', 'apiKey');
     syncSelect('pf-type', 'type');
 
     // API Key 显示/隐藏切换（不刷新页面，直接操作DOM）
@@ -616,22 +617,21 @@ export function renderSettings(container) {
     const testBtn = inner.querySelector('#btn-test');
     if (testBtn) {
       testBtn.addEventListener('click', async () => {
-        if (!f.endpoint) { toast('请先填写 API 地址', 'error'); return; }
-        pageState.testLoading = true;
-        pageState.testStatus = null;
-        // 先更新表单上的 endpoint/key 输入值
-        refresh();
-        const cur = getInner();
-        const endpointInput = cur.querySelector('#pf-endpoint');
-        const keyInput = cur.querySelector('#pf-key');
-        const nameInput = cur.querySelector('#pf-name');
-        const typeInput = cur.querySelector('#pf-type');
+        const endpointInput = inner.querySelector('#pf-endpoint');
+        const keyInput = inner.querySelector('#pf-key');
+        const nameInput = inner.querySelector('#pf-name');
+        const typeInput = inner.querySelector('#pf-type');
+        const typedApiKey = keyInput?.value || '';
         const providerData = {
           name: nameInput?.value || f.name,
           type: typeInput?.value || f.type,
           endpoint: endpointInput?.value || f.endpoint,
-          apiKey: keyInput?.value || f.apiKey,
+          ...(pageState.isAddingProvider && typedApiKey ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
         };
+        if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
+        pageState.testLoading = true;
+        pageState.testStatus = null;
+        refresh();
         try {
           const result = await testConnection(providerData);
           const hasWarning = result && result.warning;
@@ -642,9 +642,8 @@ export function renderSettings(container) {
           toast('连接失败：' + err.message, 'error');
         } finally {
           pageState.testLoading = false;
-          // 更新当前表单中的 endpoint/key
+          // 更新当前表单中的 endpoint/type，密钥不进入表单状态。
           f.endpoint = providerData.endpoint;
-          f.apiKey = providerData.apiKey;
           f.type = providerData.type;
           refresh();
         }
@@ -656,19 +655,20 @@ export function renderSettings(container) {
     inner.querySelectorAll('[data-act="fetch-models"]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const cat = btn.getAttribute('data-cat');
-        if (!f.endpoint) { toast('请先填写 API 地址', 'error'); return; }
+        const endpointInput = inner.querySelector('#pf-endpoint');
+        const keyInput = inner.querySelector('#pf-key');
+        const typeInput = inner.querySelector('#pf-type');
+        const typedApiKey = keyInput?.value || '';
+        const providerData = {
+          type: typeInput?.value || f.type,
+          endpoint: endpointInput?.value || f.endpoint,
+          ...(pageState.isAddingProvider && typedApiKey ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
+        };
+        if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
         pageState.fetchLoadingCat = cat;
         refresh();
         try {
-          // 同步输入
-          const endpointInput = getInner().querySelector('#pf-endpoint');
-          const keyInput = getInner().querySelector('#pf-key');
-          const typeInput = getInner().querySelector('#pf-type');
-          const models = await fetchModels({
-            type: typeInput?.value || f.type,
-            endpoint: endpointInput?.value || f.endpoint,
-            apiKey: keyInput?.value || f.apiKey,
-          }, cat);
+          const models = await fetchModels(providerData, cat);
           if (models && models.length) {
             const key = cat + 'Models';
             // 合并已有启用状态
@@ -775,15 +775,16 @@ export function renderSettings(container) {
     // 保存供应商
     const saveBtn = inner.querySelector('#btn-save-provider');
     if (saveBtn) {
-      saveBtn.addEventListener('click', () => {
+      saveBtn.addEventListener('click', async () => {
         // 同步输入值
         const nameInput = inner.querySelector('#pf-name');
         const endpointInput = inner.querySelector('#pf-endpoint');
         const keyInput = inner.querySelector('#pf-key');
         const typeInput = inner.querySelector('#pf-type');
+        const isNewProvider = pageState.isAddingProvider;
         f.name = (nameInput?.value || f.name || '').trim();
         f.endpoint = (endpointInput?.value || f.endpoint || '').trim();
-        f.apiKey = keyInput?.value || f.apiKey || '';
+        const typedApiKey = keyInput?.value || '';
         f.type = typeInput?.value || f.type;
 
         if (!f.name) { toast('请填写供应商名称', 'error'); nameInput?.focus(); return; }
@@ -801,12 +802,21 @@ export function renderSettings(container) {
           }
         }
 
+        if (typedApiKey) {
+          const secretResult = await window.api?.setProviderSecret?.(f.id, typedApiKey);
+          if (!secretResult || !secretResult.ok) {
+            toast('密钥保存失败：' + (secretResult?.error || '系统钥匙串不可用'), 'error');
+            return;
+          }
+          f.hasApiKey = true;
+        }
+
         const saved = saveProvider({
-          id: f.id || undefined,
+          id: f.id,
           name: f.name,
           type: f.type,
           endpoint: f.endpoint,
-          apiKey: f.apiKey,
+          hasApiKey: !!f.hasApiKey,
           capabilities: f.capabilities,
           imageModels: f.imageModels,
           textModels: f.textModels,
@@ -818,7 +828,7 @@ export function renderSettings(container) {
         pageState.form = null;
         pageState.testStatus = null;
         pageState.defaults = getDefaults();
-        toast(f.id ? '供应商已更新' : '供应商已保存', 'success');
+        toast(isNewProvider ? '供应商已保存' : '供应商已更新', 'success');
         refresh();
       });
     }
@@ -826,8 +836,13 @@ export function renderSettings(container) {
     // 删除供应商
     const delBtn = inner.querySelector('#btn-delete-provider');
     if (delBtn) {
-      delBtn.addEventListener('click', () => {
+      delBtn.addEventListener('click', async () => {
         if (confirmDialog(`确定删除供应商「${f.name}」吗？该供应商下的所有模型配置将被移除。`)) {
+          const secretResult = await window.api?.deleteProviderSecret?.(f.id);
+          if (!secretResult || !secretResult.ok) {
+            toast('密钥删除失败：' + (secretResult?.error || '系统钥匙串不可用'), 'error');
+            return;
+          }
           deleteProvider(f.id);
           pageState.selectedProviderId = null;
           pageState.form = null;

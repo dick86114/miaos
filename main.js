@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -16,9 +16,11 @@ const {
 const { registerSecureHandler } = require('./src/main/security/ipc');
 const { createImageFileAccess } = require('./src/main/security/image-files');
 const { createImageDecoder } = require('./src/main/security/image-decoder');
+const { createSecretsVault } = require('./src/main/secrets-vault');
 
 let mainWindow = null;
 let updateInfoCache = null;
+let secretsVault = null;
 const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
 const imageFileAccess = createImageFileAccess({
   fsImpl: fs,
@@ -184,6 +186,11 @@ if (!shouldStartApp) {
   return;
 }
 app.setPath('userData', userDataPath);
+secretsVault = createSecretsVault({
+  filePath: path.join(userDataPath, 'secrets.json'),
+  safeStorage,
+  fsImpl: fs,
+});
 
 // 本应用为本地 file:// 应用，禁用硬件加速与渲染沙箱，
 // 避免 ad-hoc 签名环境下 GPU/Helper 进程因缺少 entitlements 而崩溃。
@@ -264,14 +271,50 @@ function validateOptionalString(value, field, options = {}) {
   return validateString(value, { field, ...options });
 }
 
-function validateProvider(provider) {
+function validateProviderId(providerId) {
+  return validateString(providerId, {
+    field: '供应商 ID',
+    minLength: 1,
+    maxLength: 200,
+    trim: true,
+  });
+}
+
+function validateProvider(provider, { allowApiKeyOverride = false } = {}) {
   validateObject(provider, '供应商');
   validateHttpUrl(provider.endpoint);
   validateOptionalString(provider.type, '供应商类型', { maxLength: 200, trim: true });
   validateOptionalString(provider.provider, '供应商类型', { maxLength: 200, trim: true });
   validateOptionalString(provider.name, '供应商名称', { maxLength: 200, trim: true });
-  if (provider.apiKey !== undefined && provider.apiKey !== null && typeof provider.apiKey !== 'string') {
-    throw new Error('API Key必须是文本');
+  if (provider.providerId !== undefined && provider.providerId !== null && provider.providerId !== '') {
+    validateProviderId(provider.providerId);
+  }
+  if (provider.apiKey !== undefined) throw new Error('不允许传递持久化 API Key');
+  if (provider.apiKeyOverride !== undefined && provider.apiKeyOverride !== null && provider.apiKeyOverride !== '') {
+    if (!allowApiKeyOverride || provider.providerId) throw new Error('一次性 API Key 仅允许用于未保存的供应商');
+    validateString(provider.apiKeyOverride, { field: '一次性 API Key', minLength: 1, maxLength: 10000 });
+  }
+}
+
+function resolveProviderApiKey({ providerId, apiKeyOverride } = {}) {
+  if (providerId) {
+    const apiKey = secretsVault.get(providerId);
+    if (!apiKey) throw new Error('该供应商未安全保存 API Key');
+    return apiKey;
+  }
+  if (apiKeyOverride) return apiKeyOverride;
+  return '';
+}
+
+function validateSecretEntries(entries) {
+  if (!Array.isArray(entries) || entries.length > 100) throw new Error('密钥迁移数据格式不正确');
+  const ids = new Set();
+  for (const entry of entries) {
+    validateObject(entry, '密钥迁移项');
+    const providerId = validateProviderId(entry.providerId);
+    validateString(entry.apiKey, { field: 'API Key', minLength: 1, maxLength: 10000 });
+    if (ids.has(providerId)) throw new Error('密钥迁移包含重复供应商');
+    ids.add(providerId);
   }
 }
 
@@ -289,8 +332,9 @@ async function validateGenerateParams(params) {
   validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
   validateString(params.size, { field: '图片尺寸', minLength: 1, maxLength: 200, trim: true });
   validateHttpUrl(params.endpoint);
-  if (params.apiKey !== undefined && params.apiKey !== null && typeof params.apiKey !== 'string') {
-    throw new Error('API Key必须是文本');
+  validateProviderId(params.providerId);
+  if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) {
+    throw new Error('生图请求不允许传递 API Key');
   }
   if (params.sourceImage !== undefined && params.sourceImage !== null && typeof params.sourceImage !== 'string') {
     throw new Error('参考图路径必须是文本');
@@ -315,13 +359,59 @@ function validateTextPromptParams(params) {
   if (params.language !== undefined && params.language !== null && params.language !== '') {
     validateString(params.language, { field: '语言', allowedValues: ['zh', 'en'] });
   }
-  if (params.apiKey !== undefined && params.apiKey !== null && typeof params.apiKey !== 'string') {
-    throw new Error('API Key必须是文本');
+  validateProviderId(params.providerId);
+  if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) {
+    throw new Error('文本请求不允许传递 API Key');
   }
   if (params.isImageToImage !== undefined && typeof params.isImageToImage !== 'boolean') {
     throw new Error('图生图标记必须是布尔值');
   }
 }
+
+// ===== 安全密钥仓库 =====
+registerSecureHandler({
+  ipcMain,
+  channel: 'provider-secret-set',
+  getMainWindow: () => mainWindow,
+  validate: (providerId, value) => {
+    validateProviderId(providerId);
+    validateString(value, { field: 'API Key', minLength: 1, maxLength: 10000 });
+  },
+  handle: async (_event, providerId, value) => {
+    secretsVault.set(providerId, value);
+    return { ok: true };
+  },
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'provider-secret-has',
+  getMainWindow: () => mainWindow,
+  validate: (providerId) => { validateProviderId(providerId); },
+  handle: async (_event, providerId) => ({ ok: true, has: secretsVault.has(providerId) }),
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'provider-secret-delete',
+  getMainWindow: () => mainWindow,
+  validate: (providerId) => { validateProviderId(providerId); },
+  handle: async (_event, providerId) => {
+    secretsVault.delete(providerId);
+    return { ok: true };
+  },
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'provider-secret-migrate',
+  getMainWindow: () => mainWindow,
+  validate: (entries) => { validateSecretEntries(entries); },
+  handle: async (_event, entries) => {
+    for (const entry of entries) secretsVault.set(entry.providerId, entry.apiKey);
+    return { ok: true };
+  },
+});
 
 // 保存图片到磁盘（下载）
 registerSecureHandler({
@@ -504,12 +594,13 @@ registerSecureHandler({
   ipcMain,
   channel: 'test-connection',
   getMainWindow: () => mainWindow,
-  validate: (provider) => { validateProvider(provider); },
+  validate: (provider) => { validateProvider(provider, { allowApiKeyOverride: true }); },
   handle: async (_event, provider) => {
   if (!provider || !provider.endpoint) throw new Error('请填写 API 地址');
 
+  const apiKey = resolveProviderApiKey(provider);
   const headers = {};
-  if (provider.apiKey) headers['Authorization'] = `Bearer ${provider.apiKey}`;
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
   const ptype = (provider.type || provider.provider || '').toLowerCase();
 
@@ -545,7 +636,7 @@ registerSecureHandler({
 
       // API Key 相关错误
       if (errorMsg.includes('apikey') || errorMsg.includes('api key') || errorMsg.includes('key is empty')) {
-        if (!provider.apiKey) {
+        if (!apiKey) {
           throw new Error('API 地址可达，但未填写 API Key');
         }
         throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
@@ -922,9 +1013,10 @@ registerSecureHandler({
   ipcMain,
   channel: 'fetch-models',
   getMainWindow: () => mainWindow,
-  validate: (provider, category) => { validateProvider(provider); validateOptionalCategory(category); },
+  validate: (provider, category) => { validateProvider(provider, { allowApiKeyOverride: true }); validateOptionalCategory(category); },
   handle: async (_event, provider, category) => {
-  const { type, endpoint, apiKey } = provider || {};
+  const { type, endpoint } = provider || {};
+  const apiKey = resolveProviderApiKey(provider);
   if (!type) throw new Error('缺少供应商类型');
   if (!endpoint) throw new Error('请先填写 API 地址');
 
@@ -994,7 +1086,8 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: async (params) => { await validateGenerateParams(params); },
   handle: async (_event, params) => {
-  const { prompt, provider, modelName, ratio, quality, size, endpoint, apiKey, sourceImage } = params;
+  const { prompt, provider, modelName, ratio, quality, size, endpoint, sourceImage } = params;
+  const apiKey = resolveProviderApiKey(params);
   if (!prompt) throw new Error('提示词不能为空');
   if (!endpoint) throw new Error('请先配置供应商 API 地址');
   if (!modelName) throw new Error('请选择模型');
@@ -1116,7 +1209,8 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: (params) => { validateTextPromptParams(params); },
   handle: async (_event, params) => {
-  const { endpoint, apiKey, model, prompt, language } = params;
+  const { endpoint, model, prompt, language } = params;
+  const apiKey = resolveProviderApiKey(params);
   if (!endpoint) throw new Error('请先在设置中配置文本模型 API 地址');
   if (!model) throw new Error('请先在设置中配置文本模型名称');
   if (!prompt || !prompt.trim()) throw new Error('请输入需要优化的提示词');
@@ -1168,7 +1262,8 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: (params) => { validateTextPromptParams(params); },
   handle: async (_event, params) => {
-  const { endpoint, apiKey, model, prompt, ratio, quality, imageModel, isImageToImage } = params;
+  const { endpoint, model, prompt, ratio, quality, imageModel, isImageToImage } = params;
+  const apiKey = resolveProviderApiKey(params);
   if (!endpoint) throw new Error('请先在设置中配置文本模型 API 地址');
   if (!model) throw new Error('请先在设置中配置文本模型名称');
   if (!prompt || !prompt.trim()) throw new Error('提示词为空');

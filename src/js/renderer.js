@@ -2,8 +2,14 @@
 import { renderIcons, icon } from './icons.js';
 import { initRouter, navigate } from './router.js';
 import { toast } from './ui.js';
+import { migrateLegacyProviderSecrets } from './store.js';
 
-function init() {
+async function init() {
+  const migration = await migrateLegacyProviderSecrets();
+  if (!migration.ok) {
+    toast('API Key 安全迁移失败，旧配置已保留，请检查系统钥匙串', 'error', 8000);
+  }
+
   renderIcons(document);
 
   const navItems = Array.from(document.querySelectorAll('.sidebar-item'));
