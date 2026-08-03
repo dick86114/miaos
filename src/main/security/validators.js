@@ -1,4 +1,5 @@
 const path = require('path');
+const { detectImageMime } = require('./image-binary');
 
 const MAX_DATA_URL_BYTES = 50 * 1024 * 1024;
 const DATA_URL_PATTERN = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/]*={0,2})$/;
@@ -80,8 +81,18 @@ function validateDataUrl(value) {
   if (buffer.toString('base64') !== base64) {
     throw validationError('图片数据 base64 格式不正确');
   }
+  if (buffer.length === 0) {
+    throw validationError('图片数据不能为空');
+  }
   if (buffer.length > MAX_DATA_URL_BYTES) {
     throw validationError('图片数据不能超过 50 MiB');
+  }
+  const detectedMime = detectImageMime(buffer);
+  if (!detectedMime) {
+    throw validationError('图片数据不是完整的受支持图片');
+  }
+  if (detectedMime !== match[1]) {
+    throw validationError('图片声明的 MIME 与实际内容不一致');
   }
   return dataUrl;
 }

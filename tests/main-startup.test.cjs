@@ -7,6 +7,48 @@ const Module = require('node:module');
 const { EventEmitter } = require('node:events');
 
 const mainPath = path.resolve(__dirname, '..', 'main.js');
+function createPngBytes(width = 1) {
+  const signature = Buffer.from('89504e470d0a1a0a', 'hex');
+  const ihdr = Buffer.alloc(25);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4, 'ascii');
+  ihdr.writeUInt32BE(width, 8);
+  ihdr.writeUInt32BE(1, 12);
+  ihdr[16] = 8;
+  ihdr[17] = 2;
+  const iend = Buffer.from('0000000049454e4400000000', 'hex');
+  return Buffer.concat([signature, ihdr, iend]);
+}
+
+function createJpegBytes() {
+  return Buffer.from('ffd8ffe00002ffd9', 'hex');
+}
+
+function createWebpBytes() {
+  const buffer = Buffer.alloc(12);
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(4, 4);
+  buffer.write('WEBP', 8, 'ascii');
+  return buffer;
+}
+
+function createBmpBytes(width = 1) {
+  const buffer = Buffer.alloc(55);
+  buffer.write('BM', 0, 'ascii');
+  buffer.writeUInt32LE(buffer.length, 2);
+  buffer.writeUInt32LE(54, 10);
+  buffer.writeUInt32LE(40, 14);
+  buffer.writeInt32LE(width, 18);
+  buffer.writeInt32LE(1, 22);
+  buffer.writeUInt16LE(1, 26);
+  buffer.writeUInt16LE(24, 28);
+  return buffer;
+}
+
+function dataUrl(mime, bytes) {
+  return `data:${mime};base64,${bytes.toString('base64')}`;
+}
+
 const EXPECTED_CHANNELS = [
   'update-get-current-version',
   'update-check',
@@ -23,8 +65,11 @@ const EXPECTED_CHANNELS = [
   'optimize-prompt',
   'summarize-prompt',
 ];
-const PNG_BYTES = Buffer.from('89504e470d0a1a0a00000000', 'hex');
-const PNG_DATA_URL = `data:image/png;base64,${PNG_BYTES.toString('base64')}`;
+const PNG_BYTES = createPngBytes();
+const PNG_DATA_URL = dataUrl('image/png', PNG_BYTES);
+const JPEG_BYTES = createJpegBytes();
+const WEBP_BYTES = createWebpBytes();
+const BMP_BYTES = createBmpBytes();
 
 function createTempHome(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -344,6 +389,78 @@ test('真实 generate handler 拒绝未授权、伪图像、符号链接和超�
   }
 });
 
+test('真实 generate handler 在网络前拒绝空、伪造、MIME 不匹配和截断 source data URL', async () => {
+  const homePath = createTempHome('miaos-source-data-url-reject-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    const rejectedDataUrls = [
+      'data:image/png;base64,',
+      'data:image/png;base64,aGVsbG8=',
+      dataUrl('image/jpeg', PNG_BYTES),
+      dataUrl('image/png', Buffer.from('89504e470d0a1a0a', 'hex')),
+      dataUrl('image/jpeg', Buffer.from('ffd8ffe00002', 'hex')),
+      dataUrl('image/webp', Buffer.from('52494646040000005745425000', 'hex')),
+    ];
+
+    for (const sourceImage of rejectedDataUrls) {
+      const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(sourceImage));
+      assert.equal(result.code, 'IPC_VALIDATION_FAILED');
+      assert.equal(calls.networkRequests.length, 0);
+    }
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('真实 generate handler 在网络前拒绝截断 PNG、JPEG、WebP 和 BMP 文件', async () => {
+  const homePath = createTempHome('miaos-source-file-structure-reject-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    const generatedDir = path.join(homePath, '.miaos', 'generated');
+    fs.mkdirSync(generatedDir, { recursive: true });
+    const invalidFiles = [
+      ['truncated.png', Buffer.from('89504e470d0a1a0a', 'hex')],
+      ['truncated.jpg', Buffer.from('ffd8ffe00002', 'hex')],
+      ['truncated.webp', Buffer.from('52494646040000005745425000', 'hex')],
+      ['truncated.bmp', Buffer.from('424d00000000', 'hex')],
+    ];
+
+    for (const [name, contents] of invalidFiles) {
+      const sourceImage = path.join(generatedDir, name);
+      fs.writeFileSync(sourceImage, contents);
+      const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(sourceImage));
+      assert.equal(result.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+      assert.equal(calls.networkRequests.length, 0);
+    }
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('真实 generate handler 拒绝授权后被同路径原子替换的参考图，且不请求网络', async () => {
+  const homePath = createTempHome('miaos-source-identity-replace-');
+  const pickedImage = path.join(homePath, 'picked.png');
+  fs.writeFileSync(pickedImage, createPngBytes(1));
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      openDialogResult: { canceled: false, filePaths: [pickedImage] },
+    });
+    const picked = await calls.ipcHandlers['pick-image-file'](trustedEvent());
+    assert.equal(picked.canceled, false);
+
+    const replacementPath = path.join(homePath, 'replacement.png');
+    fs.writeFileSync(replacementPath, createPngBytes(2));
+    fs.renameSync(replacementPath, picked.filePath);
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(picked.filePath));
+    assert.equal(result.code, 'IPC_SOURCE_IMAGE_REPLACED');
+    assert.equal(calls.networkRequests.length, 0);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
 test('真实 generate handler 允许 generated、选择器授权、粘贴授权和受限 data URL 的参考图', async () => {
   const homePath = createTempHome('miaos-source-image-allow-');
   const pickedImage = path.join(homePath, 'picked.png');
@@ -379,10 +496,10 @@ test('真实 generate handler 允许 generated、选择器授权、粘贴授权�
     assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
 
     const bmpImage = path.join(generatedDir, 'generated.bmp');
-    fs.writeFileSync(bmpImage, Buffer.from('424d', 'hex'));
+    fs.writeFileSync(bmpImage, BMP_BYTES);
     const bmpResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(bmpImage));
     assert.equal(bmpResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, ['data:image/bmp;base64,Qk0=']);
+    assert.deepEqual(getRequestBody(calls).images, [dataUrl('image/bmp', BMP_BYTES)]);
   } finally {
     cleanupTempHome(homePath);
   }

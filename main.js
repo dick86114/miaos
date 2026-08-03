@@ -292,6 +292,9 @@ function validateGenerateParams(params) {
   if (params.sourceImage !== undefined && params.sourceImage !== null && typeof params.sourceImage !== 'string') {
     throw new Error('参考图路径必须是文本');
   }
+  if (typeof params.sourceImage === 'string' && params.sourceImage.startsWith('data:')) {
+    validateDataUrl(params.sourceImage);
+  }
 }
 
 function validateTextPromptParams(params) {

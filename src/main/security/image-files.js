@@ -1,5 +1,7 @@
+const crypto = require('crypto');
 const { fileURLToPath } = require('url');
 const { MAX_DATA_URL_BYTES, validateDataUrl } = require('./validators');
+const { detectImageMime } = require('./image-binary');
 
 function createFileError(message, code) {
   const error = new Error(message);
@@ -7,17 +9,13 @@ function createFileError(message, code) {
   return error;
 }
 
-function isWithinPath(candidatePath, parentPath, allowParent = false) {
-  return (allowParent && candidatePath === parentPath)
-    || candidatePath.startsWith(`${parentPath}${pathSeparator(parentPath)}`);
-}
-
-function pathSeparator(filePath) {
-  return filePath.includes('\\') ? '\\' : '/';
-}
-
 function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath }) {
-  const authorizedPaths = new Set();
+  const authorizedPaths = new Map();
+
+  function isWithinPath(candidatePath, parentPath, allowParent = false) {
+    return (allowParent && candidatePath === parentPath)
+      || candidatePath.startsWith(`${parentPath}${pathImpl.sep}`);
+  }
 
   function normalizePathReference(value) {
     if (typeof value !== 'string' || !value) {
@@ -96,11 +94,78 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath }) {
     return canonicalPath;
   }
 
+  function createIdentity(stat, buffer) {
+    return {
+      dev: stat.dev,
+      ino: stat.ino,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+    };
+  }
+
+  function sameMetadata(left, right) {
+    return left.dev === right.dev
+      && left.ino === right.ino
+      && left.size === right.size
+      && left.mtimeMs === right.mtimeMs;
+  }
+
+  function readRegularFileSafely(filePath, { expectedIdentity } = {}) {
+    const beforeOpenStat = lstatRegularFile(filePath, { sourceImage: true });
+    const constants = fsImpl.constants || {};
+    const flags = (constants.O_RDONLY || 0) | (constants.O_NOFOLLOW || 0);
+    let fd;
+    try {
+      fd = fsImpl.openSync(filePath, flags);
+    } catch (error) {
+      if (error && error.code === 'ELOOP') {
+        throw createFileError('参考图不允许使用符号链接', 'IPC_SOURCE_IMAGE_SYMLINK');
+      }
+      throw createFileError('参考图无法安全打开', 'IPC_SOURCE_IMAGE_UNAUTHORIZED');
+    }
+
+    try {
+      const openedStat = fsImpl.fstatSync(fd);
+      if (!openedStat.isFile()) {
+        throw createFileError('参考图必须是普通文件', 'IPC_SOURCE_IMAGE_NOT_REGULAR');
+      }
+      if (!sameMetadata(beforeOpenStat, openedStat)) {
+        throw createFileError('参考图在安全打开前已被替换', 'IPC_SOURCE_IMAGE_REPLACED');
+      }
+      if (expectedIdentity && !sameMetadata(expectedIdentity, openedStat)) {
+        throw createFileError('参考图已被替换，请重新选择', 'IPC_SOURCE_IMAGE_REPLACED');
+      }
+      if (openedStat.size > MAX_DATA_URL_BYTES) {
+        throw createFileError('参考图不能超过 50 MiB', 'IPC_SOURCE_IMAGE_TOO_LARGE');
+      }
+
+      const buffer = fsImpl.readFileSync(fd);
+      const afterReadStat = fsImpl.fstatSync(fd);
+      if (!sameMetadata(openedStat, afterReadStat) || buffer.length !== afterReadStat.size) {
+        throw createFileError('参考图在读取过程中发生变化', 'IPC_SOURCE_IMAGE_REPLACED');
+      }
+
+      const identity = createIdentity(afterReadStat, buffer);
+      if (expectedIdentity && identity.sha256 !== expectedIdentity.sha256) {
+        throw createFileError('参考图内容已被替换，请重新选择', 'IPC_SOURCE_IMAGE_REPLACED');
+      }
+      const mime = detectImageMime(buffer, { allowBmp: true });
+      if (!mime) {
+        throw createFileError('参考图不是完整的 PNG、JPEG、WebP 或 BMP 图片', 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+      }
+      return { buffer, identity, mime };
+    } finally {
+      fsImpl.closeSync(fd);
+    }
+  }
+
   function authorizeFile(value) {
     const candidatePath = pathImpl.resolve(normalizePathReference(value));
     lstatRegularFile(candidatePath, { sourceImage: true });
     const canonicalPath = fsImpl.realpathSync(candidatePath);
-    authorizedPaths.add(canonicalPath);
+    const { identity } = readRegularFileSafely(canonicalPath);
+    authorizedPaths.set(canonicalPath, identity);
     return canonicalPath;
   }
 
@@ -108,35 +173,16 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath }) {
     const candidatePath = pathImpl.resolve(normalizePathReference(value));
     const generatedDir = pathImpl.resolve(getUserDataPath(), 'generated');
     if (isWithinPath(candidatePath, generatedDir, true)) {
-      return resolveGeneratedFile(candidatePath, { sourceImage: true });
+      return { canonicalPath: resolveGeneratedFile(candidatePath, { sourceImage: true }) };
     }
 
     lstatRegularFile(candidatePath, { sourceImage: true });
     const canonicalPath = fsImpl.realpathSync(candidatePath);
-    if (!authorizedPaths.has(canonicalPath)) {
+    const identity = authorizedPaths.get(canonicalPath);
+    if (!identity) {
       throw createFileError('参考图路径未获主进程授权', 'IPC_SOURCE_IMAGE_UNAUTHORIZED');
     }
-    return canonicalPath;
-  }
-
-  function detectImageMime(buffer) {
-    if (buffer.length >= 8
-      && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-      return 'image/png';
-    }
-    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-      return 'image/jpeg';
-    }
-    if (buffer.length >= 12
-      && buffer.subarray(0, 4).toString('ascii') === 'RIFF'
-      && buffer.subarray(8, 12).toString('ascii') === 'WEBP') {
-      return 'image/webp';
-    }
-    // 选择器现有过滤器明确包含 bmp，保留该本地文件兼容能力并校验文件头。
-    if (buffer.length >= 2 && buffer.subarray(0, 2).toString('ascii') === 'BM') {
-      return 'image/bmp';
-    }
-    throw createFileError('参考图不是受支持的 PNG、JPEG、WebP 或 BMP 文件', 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+    return { canonicalPath, identity };
   }
 
   function readSourceImageAsDataUrl(value) {
@@ -144,13 +190,8 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath }) {
       return validateDataUrl(value);
     }
 
-    const canonicalPath = resolveAuthorizedSourceFile(value);
-    const stat = lstatRegularFile(canonicalPath, { sourceImage: true });
-    if (stat.size > MAX_DATA_URL_BYTES) {
-      throw createFileError('参考图不能超过 50 MiB', 'IPC_SOURCE_IMAGE_TOO_LARGE');
-    }
-    const buffer = fsImpl.readFileSync(canonicalPath);
-    const mime = detectImageMime(buffer);
+    const { canonicalPath, identity } = resolveAuthorizedSourceFile(value);
+    const { buffer, mime } = readRegularFileSafely(canonicalPath, { expectedIdentity: identity });
     return `data:${mime};base64,${buffer.toString('base64')}`;
   }
 
