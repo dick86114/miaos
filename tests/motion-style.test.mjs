@@ -355,7 +355,9 @@ function isSafeReducedMotionAnimationDeclaration(rule, declaration) {
 function getReducedMotionOverrideProblems(rules) {
   const problems = [];
   const protectedProperties = new Set([
-    'animation', ...animationLonghandProperties, 'transition-duration', 'transition-delay',
+    'animation', ...animationLonghandProperties,
+    'transition', 'transition-property', 'transition-timing-function',
+    'transition-duration', 'transition-delay',
   ]);
 
   for (const rule of rules) {
@@ -752,4 +754,34 @@ test('transition-property 不能通过 var 值间接指定 all 或布局属性',
   const problems = getTransitionProblems(getCssRules(css));
 
   assert.equal(problems.filter((problem) => problem.includes('不得使用 var')).length, 2);
+});
+
+test('nested reduced-motion 中的 transition 简写不能绕过覆盖白名单', () => {
+  const css = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      @supports (display: grid) {
+        .bad-transition {
+          transition: opacity var(--motion-slow) var(--motion-ease) !important;
+        }
+      }
+    }
+  `);
+
+  assert.equal(
+    getReducedMotionOverrideProblems(getCssRules(css)).some((problem) => problem.includes('未批准的 transition')),
+    true,
+  );
+});
+
+test('合法全局 reduced-motion transition 覆盖保持允许', () => {
+  const css = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        transition-duration: 1ms !important;
+        transition-delay: 0ms !important;
+      }
+    }
+  `);
+
+  assert.deepEqual(getReducedMotionOverrideProblems(getCssRules(css)), []);
 });
