@@ -16,12 +16,12 @@ test('项目统一使用 pnpm', () => {
   assert.doesNotMatch(workflow, /npm ci|npm run/);
 });
 
-test('pnpm 安装允许 Electron 构建脚本', () => {
+test('pnpm 安装允许官方 Electron 构建脚本', () => {
   assert.deepEqual(pkg.pnpm?.onlyBuiltDependencies, ['electron']);
 });
 
-
-test('安装后验证会补齐 Electron 可执行入口', () => {
-  assert.equal(pkg.scripts.postinstall, 'node scripts/ensure-electron-ready.mjs');
-  assert.equal(existsSync(new URL('../scripts/ensure-electron-ready.mjs', import.meta.url)), true);
+test('Electron 使用受支持稳定版本且不使用自定义 postinstall 兜底', () => {
+  assert.equal(pkg.devDependencies.electron, '43.2.0');
+  assert.equal('postinstall' in pkg.scripts, false);
+  assert.equal(existsSync(new URL('../scripts/ensure-electron-ready.mjs', import.meta.url)), false);
 });
