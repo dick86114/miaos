@@ -1,6 +1,16 @@
 // 通用 UI 工具：toast 通知、DOM 辅助
 import { renderIcons, createIcon } from './icons.js';
 
+// 转义插入 HTML 模板的文本，避免名称与提示词破坏页面结构。
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // 轻量 toast
 export function toast(message, type = 'info', duration = 2600) {
   let stack = document.querySelector('.toast-stack');
