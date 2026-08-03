@@ -5,6 +5,7 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const { autoUpdater } = require('electron-updater');
+const { resolveAppDataPath } = require('./src/main/app-data');
 
 let mainWindow = null;
 let updateInfoCache = null;
@@ -115,19 +116,22 @@ ipcMain.handle('update-configure', async (_event, opts) => {
   }
 });
 
-const os = require('os');
-
-// 使用独立的应用数据目录。优先使用用户主目录下 .miaos；
-// 若主目录被 TCC 限制（ad-hoc 签名环境），回退到系统临时目录以保证可写。
-let userDataPath = path.join(app.getPath('home'), '.miaos');
+// 使用独立的应用数据目录。若目录不可写，立即阻止启动，避免静默降级到临时目录导致数据丢失。
+let shouldStartApp = true;
 try {
-  fs.mkdirSync(userDataPath, { recursive: true });
-  fs.accessSync(userDataPath, fs.W_OK);
-} catch {
-  userDataPath = path.join(os.tmpdir(), 'miaos');
-  fs.mkdirSync(userDataPath, { recursive: true });
+  const userDataPath = resolveAppDataPath({ homePath: app.getPath('home'), fsImpl: fs });
+  app.setPath('userData', userDataPath);
+} catch (error) {
+  shouldStartApp = false;
+  process.exitCode = 1;
+  dialog.showErrorBox('妙生无法启动', '应用数据目录不可写，请检查 ~/.miaos 权限。');
+  app.exit(1);
 }
-app.setPath('userData', userDataPath);
+
+if (!shouldStartApp) {
+  // 启动前数据目录不可写属于安全边界错误，退出后不再注册 IPC 或创建窗口。
+  return;
+}
 
 // 本应用为本地 file:// 应用，禁用硬件加速与渲染沙箱，
 // 避免 ad-hoc 签名环境下 GPU/Helper 进程因缺少 entitlements 而崩溃。
@@ -909,7 +913,7 @@ ipcMain.handle('save-pasted-image', async (_event, dataUrl) => {
     if (!match) throw new Error('无效的图片数据');
     const ext = match[2] === 'jpeg' ? 'jpg' : match[2];
     const buffer = Buffer.from(match[3], 'base64');
-    const tmpDir = path.join(os.tmpdir(), 'miaos-pasted');
+    const tmpDir = path.join(app.getPath('temp'), 'miaos-pasted');
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
     const fileName = `pasted-${Date.now()}.${ext}`;
     const filePath = path.join(tmpDir, fileName);
@@ -1068,20 +1072,22 @@ ipcMain.handle('summarize-prompt', async (_event, params) => {
   return { title };
 });
 
-app.whenReady().then(() => {
-  setupAutoUpdater();
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+if (shouldStartApp) {
+  app.whenReady().then(() => {
+    setupAutoUpdater();
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
 
-  // 窗口就绪后延迟自动检查更新（仅打包环境）
-  if (app.isPackaged) {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(() => {});
-    }, 5000);
-  }
-});
+    // 窗口就绪后延迟自动检查更新（仅打包环境）
+    if (app.isPackaged) {
+      setTimeout(() => {
+        autoUpdater.checkForUpdates().catch(() => {});
+      }, 5000);
+    }
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
