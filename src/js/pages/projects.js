@@ -76,12 +76,12 @@ export function renderProjects(container) {
         });
       });
       listEl.querySelectorAll('.project-card-delete').forEach((btn) => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const id = btn.getAttribute('data-id');
           const p = getProjects().find((x) => x.id === id);
           if (!p) return;
-          if (!confirmDialog(`确定删除项目「${p.name}」吗？所有版本与图片将一并删除，此操作不可撤销。`)) return;
+          if (!await confirmDialog(`确定删除项目「${p.name}」吗？所有版本与图片将一并删除，此操作不可撤销。`)) return;
           deleteProject(id);
           toast('项目已删除', 'success');
           renderView(container, getProjects());

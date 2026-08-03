@@ -1,6 +1,6 @@
 // 生图页：豆包风格 Composer 布局 + 全局任务队列
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast } from '../ui.js';
+import { mountPage, htmlToElement, toast, withButtonLoading } from '../ui.js';
 import {
   getProviders,
   getDefaultProvider,
@@ -341,29 +341,30 @@ export function renderGenerate(container) {
       toast('请先在「设置 → 模型供应商」中配置文本模型', 'error');
       return;
     }
-    // 进入优化状态：按钮旋转、输入框只读+波浪动画
-    btnOptimize.disabled = true;
-    btnOptimize.classList.add('is-optimizing');
-    promptInput.readOnly = true;
-    promptInput.classList.add('is-optimizing');
-    // 添加波浪进度条
-    const composerCard = root.querySelector('.composer-card');
-    const waveBar = document.createElement('div');
-    waveBar.className = 'composer-wave-bar';
-    if (composerCard) composerCard.appendChild(waveBar);
-    try {
-      const optimized = await optimizePrompt(prompt);
-      promptInput.value = optimized;
-      toast('提示词已优化', 'success');
-    } catch (err) {
-      toast('优化失败：' + err.message, 'error');
-    } finally {
-      btnOptimize.disabled = false;
-      btnOptimize.classList.remove('is-optimizing');
-      promptInput.readOnly = false;
-      promptInput.classList.remove('is-optimizing');
-      if (waveBar) waveBar.remove();
-    }
+    // 输入区域保留波浪反馈，按钮状态由统一包装器管理。
+    const feedbackKey = 'prompt-optimize';
+    await withButtonLoading(btnOptimize, '优化中…', async () => {
+      toast('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
+      btnOptimize.classList.add('is-optimizing');
+      promptInput.readOnly = true;
+      promptInput.classList.add('is-optimizing');
+      const composerCard = root.querySelector('.composer-card');
+      const waveBar = document.createElement('div');
+      waveBar.className = 'composer-wave-bar';
+      if (composerCard) composerCard.appendChild(waveBar);
+      try {
+        const optimized = await optimizePrompt(prompt);
+        promptInput.value = optimized;
+        toast('提示词已优化', 'success', { key: feedbackKey });
+      } catch (err) {
+        toast('优化失败：' + err.message, 'error', { key: feedbackKey });
+      } finally {
+        btnOptimize.classList.remove('is-optimizing');
+        promptInput.readOnly = false;
+        promptInput.classList.remove('is-optimizing');
+        waveBar.remove();
+      }
+    });
   });
 
   // ===== 随机提示词 =====

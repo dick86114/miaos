@@ -86,8 +86,8 @@ export function renderDetail(container, params) {
   });
 
   // 删除
-  root.querySelector('#btn-delete').addEventListener('click', () => {
-    if (!confirmDialog('确定删除这张图片吗？')) return;
+  root.querySelector('#btn-delete').addEventListener('click', async () => {
+    if (!await confirmDialog('确定删除这张图片吗？')) return;
     deleteHistory(item.id);
     toast('已删除', 'success');
     navigate('/history');

@@ -1,6 +1,6 @@
 // 设置页面：通用设置 / 模型供应商 / 关于与更新
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, escapeHtml, escapeAttr } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, escapeHtml, escapeAttr, withButtonLoading } from '../ui.js';
 import { renderReleaseNotes } from '../release-notes.js';
 import {
   getProviders,
@@ -647,24 +647,25 @@ export function renderSettings(container) {
           ...(pageState.isAddingProvider ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
         };
         if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
-        pageState.testLoading = true;
-        pageState.testStatus = null;
-        refresh();
-        try {
-          const result = await testConnection(providerData);
-          const hasWarning = result && result.warning;
-          pageState.testStatus = { ok: true, message: hasWarning ? result.warning : '连接成功' };
-          toast(hasWarning ? '连接测试完成：' + result.warning : '连接测试成功', hasWarning ? 'info' : 'success');
-        } catch (err) {
-          pageState.testStatus = { ok: false, message: err.message || '连接失败' };
-          toast('连接失败：' + err.message, 'error');
-        } finally {
-          pageState.testLoading = false;
-          // 更新当前表单中的 endpoint/type，密钥不进入表单状态。
-          f.endpoint = providerData.endpoint;
-          f.type = providerData.type;
-          refresh();
-        }
+        const feedbackKey = `provider-test:${f.id}`;
+        await withButtonLoading(testBtn, '测试中…', async () => {
+          pageState.testStatus = null;
+          toast('正在测试连接…', 'info', { key: feedbackKey, duration: 0 });
+          try {
+            const result = await testConnection(providerData);
+            const hasWarning = result && result.warning;
+            pageState.testStatus = { ok: true, message: hasWarning ? result.warning : '连接成功' };
+            toast(hasWarning ? '连接测试完成：' + result.warning : '连接测试成功', hasWarning ? 'info' : 'success', { key: feedbackKey });
+          } catch (err) {
+            pageState.testStatus = { ok: false, message: err.message || '连接失败' };
+            toast('连接失败：' + err.message, 'error', { key: feedbackKey });
+          } finally {
+            // 更新当前表单中的 endpoint/type，密钥不进入表单状态。
+            f.endpoint = providerData.endpoint;
+            f.type = providerData.type;
+            refresh();
+          }
+        });
       });
     }
 
@@ -683,29 +684,30 @@ export function renderSettings(container) {
           ...(pageState.isAddingProvider ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
         };
         if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
-        pageState.fetchLoadingCat = cat;
-        refresh();
-        try {
-          const models = await fetchModels(providerData, cat);
-          if (models && models.length) {
-            const key = cat + 'Models';
-            // 合并已有启用状态
-            const existing = new Map((f[key] || []).map((m) => [m.id, m.enabled]));
-            f[key] = models.map((m) => ({
-              id: m.id,
-              name: m.name || m.id,
-              enabled: existing.has(m.id) ? existing.get(m.id) : true,
-            }));
-            toast(`获取到 ${models.length} 个${cat === 'image' ? '生图' : cat === 'text' ? '文本' : '视频'}模型`, 'success');
-          } else {
-            toast('未获取到模型，可手动添加', 'info');
+        const feedbackKey = `provider-models:${f.id}:${cat}`;
+        await withButtonLoading(btn, '获取中…', async () => {
+          toast('正在获取模型…', 'info', { key: feedbackKey, duration: 0 });
+          try {
+            const models = await fetchModels(providerData, cat);
+            if (models && models.length) {
+              const key = cat + 'Models';
+              // 合并已有启用状态
+              const existing = new Map((f[key] || []).map((m) => [m.id, m.enabled]));
+              f[key] = models.map((m) => ({
+                id: m.id,
+                name: m.name || m.id,
+                enabled: existing.has(m.id) ? existing.get(m.id) : true,
+              }));
+              toast(`获取到 ${models.length} 个${cat === 'image' ? '生图' : cat === 'text' ? '文本' : '视频'}模型`, 'success', { key: feedbackKey });
+            } else {
+              toast('未获取到模型，可手动添加', 'info', { key: feedbackKey });
+            }
+          } catch (err) {
+            toast('获取失败：' + err.message, 'error', { key: feedbackKey });
+          } finally {
+            refresh();
           }
-        } catch (err) {
-          toast('获取失败：' + err.message, 'error');
-        } finally {
-          pageState.fetchLoadingCat = null;
-          refresh();
-        }
+        });
       });
     });
 
@@ -821,7 +823,10 @@ export function renderSettings(container) {
           }
         }
 
-        const metadata = toProviderMetadata(f);
+        const feedbackKey = `provider-save:${f.id}`;
+        await withButtonLoading(saveBtn, '保存中…', async () => {
+          toast('正在保存供应商…', 'info', { key: feedbackKey, duration: 0 });
+          const metadata = toProviderMetadata(f);
         const secretResult = await window.api?.setProviderSecret?.(f.id, typedApiKey, metadata, { transactional: true });
         if (!secretResult || !secretResult.ok || !secretResult.transactionId) {
           const rollback = secretResult?.transactionId
@@ -830,7 +835,7 @@ export function renderSettings(container) {
           const message = !rollback || !rollback.ok || String(secretResult?.code || '').startsWith('SECRET_VAULT_APPLIED_')
             ? '配置状态不确定，请重试/检查'
             : '密钥保存失败：' + (secretResult?.error || '系统钥匙串不可用');
-          toast(message, 'error');
+          toast(message, 'error', { key: feedbackKey });
           return;
         }
         let localSaved = false;
@@ -864,15 +869,16 @@ export function renderSettings(container) {
               else deleteProvider(f.id);
             } catch (_) {}
           }
-          toast('供应商保存失败：' + (error.message || '本地状态写入失败'), 'error');
+          toast('供应商保存失败：' + (error.message || '本地状态写入失败'), 'error', { key: feedbackKey });
           return;
         }
         pageState.isAddingProvider = false;
         pageState.form = null;
         pageState.testStatus = null;
         pageState.defaults = getDefaults();
-        toast(isNewProvider ? '供应商已保存' : '供应商已更新', 'success');
+        toast(isNewProvider ? '供应商已保存' : '供应商已更新', 'success', { key: feedbackKey });
         refresh();
+        });
       });
     }
 
@@ -880,7 +886,7 @@ export function renderSettings(container) {
     const delBtn = inner.querySelector('#btn-delete-provider');
     if (delBtn) {
       delBtn.addEventListener('click', async () => {
-        if (confirmDialog(`确定删除供应商「${f.name}」吗？该供应商下的所有模型配置将被移除。`)) {
+        if (await confirmDialog(`确定删除供应商「${f.name}」吗？该供应商下的所有模型配置将被移除。`)) {
           const previousProvider = getProvider(f.id);
           const secretResult = await window.api?.deleteProviderSecret?.(f.id, { transactional: true });
           if (!secretResult || !secretResult.ok || !secretResult.transactionId) {
@@ -946,7 +952,7 @@ export function renderSettings(container) {
     if (btnCheck) {
       btnCheck.addEventListener('click', async () => {
         if (!window.api || !window.api.updateCheck) { toast('运行环境异常', 'error'); return; }
-        setBtnLoading(btnCheck, '检查中…');
+        await withButtonLoading(btnCheck, '检查中…', async () => {
         try {
           const res = await window.api.updateCheck();
           if (res && res.ok === false) {
@@ -957,6 +963,7 @@ export function renderSettings(container) {
         } finally {
           resetBtn(btnCheck);
         }
+        });
       });
     }
     const btnDownload = inner.querySelector('#btn-download');

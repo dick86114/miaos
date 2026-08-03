@@ -188,3 +188,30 @@ body {
   .sidebar-item { justify-content: center; padding: 10px; }
   .main-content { padding: 16px; }
 }
+
+/* 统一异步反馈：按钮加载时保持原有尺寸，避免文案切换造成布局抖动。 */
+.btn.is-loading {
+  cursor: progress;
+}
+
+.toast-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.toast-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  margin: -3px -7px -3px 2px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.toast-close:hover { background: rgba(255, 255, 255, 0.16); }
+.toast-close:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.9); outline-offset: 1px; }

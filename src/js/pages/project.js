@@ -1,6 +1,6 @@
 // 项目工作台：横向时间轴（主线节点+分支卡片） + 详情面板
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, withButtonLoading } from '../ui.js';
 import {
   getProject,
   updateProject,
@@ -584,29 +584,30 @@ export function renderProject(container, params) {
           toast('请先在「设置 → 模型供应商」中配置文本模型', 'error');
           return;
         }
-        // 进入优化状态：按钮旋转、输入框只读+波浪动画
-        btnOptimize.disabled = true;
-        btnOptimize.classList.add('is-optimizing');
-        promptInput.readOnly = true;
-        promptInput.classList.add('is-optimizing');
-        // 添加波浪进度条
-        const composerCard = root.querySelector('.composer-card');
-        const waveBar = document.createElement('div');
-        waveBar.className = 'composer-wave-bar';
-        if (composerCard) composerCard.appendChild(waveBar);
-        try {
-          const optimized = await optimizePrompt(prompt);
-          promptInput.value = optimized;
-          toast('提示词已优化', 'success');
-        } catch (err) {
-          toast('优化失败：' + err.message, 'error');
-        } finally {
-          btnOptimize.disabled = false;
-          btnOptimize.classList.remove('is-optimizing');
-          promptInput.readOnly = false;
-          promptInput.classList.remove('is-optimizing');
-          if (waveBar) waveBar.remove();
-        }
+        // 输入区域保留波浪反馈，按钮状态由统一包装器管理。
+        const feedbackKey = 'prompt-optimize';
+        await withButtonLoading(btnOptimize, '优化中…', async () => {
+          toast('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
+          btnOptimize.classList.add('is-optimizing');
+          promptInput.readOnly = true;
+          promptInput.classList.add('is-optimizing');
+          const composerCard = root.querySelector('.composer-card');
+          const waveBar = document.createElement('div');
+          waveBar.className = 'composer-wave-bar';
+          if (composerCard) composerCard.appendChild(waveBar);
+          try {
+            const optimized = await optimizePrompt(prompt);
+            promptInput.value = optimized;
+            toast('提示词已优化', 'success', { key: feedbackKey });
+          } catch (err) {
+            toast('优化失败：' + err.message, 'error', { key: feedbackKey });
+          } finally {
+            btnOptimize.classList.remove('is-optimizing');
+            promptInput.readOnly = false;
+            promptInput.classList.remove('is-optimizing');
+            waveBar.remove();
+          }
+        });
       });
     }
 
@@ -719,7 +720,7 @@ export function renderProject(container, params) {
     });
 
     // ========== 时间轴：切换节点 / 删除节点 ==========
-    root.querySelector('.pwb-timeline-outer').addEventListener('click', (e) => {
+    root.querySelector('.pwb-timeline-outer').addEventListener('click', async (e) => {
       // 删节点（主节点或子节点统一处理）
       const nodeDel = e.target.closest('[data-root-delete]');
       if (nodeDel) {
@@ -734,7 +735,7 @@ export function renderProject(container, params) {
         }, 0);
         const label = ver.parentId ? '分支' : '主线';
         const message = `确定删除${label}「${ver.name}」吗？\n\n该${label}及其下 ${descendants.length} 个衍生节点、共 ${imgCount} 张生成图都将一并删除，且无法恢复。`;
-        if (!confirmDialog(message)) return;
+        if (!await confirmDialog(message)) return;
         // 先删子节点，再删自身
         descendants.forEach((id) => deleteVersion(project.id, id));
         deleteVersion(project.id, rid);
@@ -834,7 +835,7 @@ export function renderProject(container, params) {
       } else if (act === 'download') {
         await downloadImage(img.image, img.id);
       } else if (act === 'delete') {
-        if (!confirmDialog('确定删除这张图片吗？')) return;
+        if (!await confirmDialog('确定删除这张图片吗？')) return;
         deleteImage(project.id, v.id, img.id);
         toast('已删除', 'success');
         refreshGallery();
@@ -911,8 +912,8 @@ export function renderProject(container, params) {
     root.querySelector('#back-projects').addEventListener('click', (e) => {
       e.preventDefault(); navigate('/projects');
     });
-    root.querySelector('#btn-delete-project').addEventListener('click', () => {
-      if (!confirmDialog(`确定删除项目「${project.name}」吗？所有版本与图片将一并删除。`)) return;
+    root.querySelector('#btn-delete-project').addEventListener('click', async () => {
+      if (!await confirmDialog(`确定删除项目「${project.name}」吗？所有版本与图片将一并删除。`)) return;
       deleteProject(project.id);
       toast('项目已删除', 'success');
       navigate('/projects');

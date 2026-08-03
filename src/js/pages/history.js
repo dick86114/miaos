@@ -75,12 +75,12 @@ export function renderHistory(container) {
     });
 
     // 清空历史
-    root.querySelector('#btn-clear').addEventListener('click', () => {
+    root.querySelector('#btn-clear').addEventListener('click', async () => {
       if (getHistory().length === 0) {
         toast('历史记录已是空的', 'info');
         return;
       }
-      if (!confirmDialog('确定清空全部历史记录吗？此操作不可撤销。')) return;
+      if (!await confirmDialog('确定清空全部历史记录吗？此操作不可撤销。')) return;
       clearHistory();
       toast('已清空历史记录', 'success');
       renderView(container, []);
