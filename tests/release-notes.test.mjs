@@ -144,7 +144,7 @@ test('渲染层 CSP 禁止内联脚本并限制页面能力', () => {
 
 test('外部链接仅允许精确白名单 HTTPS 主机', () => {
   for (const url of [
-    'https://github.com/dick86114/miaos',
+    'https://github.com/dick86114/miaos?source=release#notes',
     'https://www.github.com/dick86114/miaos',
     'https://grsai.ai/',
     'https://www.grsai.ai/',
@@ -165,6 +165,15 @@ test('外部链接仅允许精确白名单 HTTPS 主机', () => {
     'https://github.com./',
     ' https://github.com/',
     'https:%2f%2fgithub.com/',
+    'HTTPS://github.com/',
+    'https://GITHUB.COM/',
+    'https://github%2ecom/',
+    'https://github。com/',
+    'https://github．com/',
+    'https://github｡com/',
+    'https://github.com:443/',
+    'https://www.GITHUB.com/',
+    'https://grsai%2eai/',
   ]) {
     assert.equal(isAllowedExternalUrl(url), false, url);
   }

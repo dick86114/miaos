@@ -276,6 +276,13 @@ test('窗口仅在白名单 HTTPS 地址上打开系统浏览器', async () => {
       'https://github.com.evil.example/',
       'https://github.com@evil.example/',
       'http://github.com/dick86114/miaos',
+      'HTTPS://github.com/',
+      'https://GITHUB.COM/',
+      'https://github%2ecom/',
+      'https://github。com/',
+      'https://github．com/',
+      'https://github｡com/',
+      'https://github.com:443/',
     ]) {
       assert.deepEqual(calls.windowOpenHandler({ url }), { action: 'deny' });
     }
