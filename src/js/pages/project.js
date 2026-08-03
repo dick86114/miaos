@@ -57,6 +57,84 @@ export function createProjectPageLifecycle() {
   };
 }
 
+// 将画廊事件绑定在容器级别，局部重排或替换卡片时不会累积单卡片监听器。
+export function createProjectGalleryController(dependencies) {
+  const {
+    galleryGrid,
+    queueApi,
+    getCurrentVersion,
+    confirmDialog: confirmDelete,
+    deleteImage: deleteImageFn,
+    refreshGallery,
+    toast: showToast,
+    onOpenImage,
+    onImageAction,
+  } = dependencies;
+  let disposed = false;
+
+  const getCurrentImage = (imageId) => {
+    const current = getCurrentVersion?.();
+    if (!current?.project || !current?.version) return null;
+    const image = current.version.images.find((item) => item.id === imageId);
+    return image ? { ...current, image } : null;
+  };
+
+  const onClick = async (event) => {
+    if (disposed) return;
+    const target = event.target;
+    const cancelButton = target.closest?.('.task-cancel');
+    if (cancelButton) {
+      queueApi.cancel(cancelButton.getAttribute('data-task-id'));
+      return;
+    }
+    const dismissButton = target.closest?.('.task-dismiss');
+    if (dismissButton) {
+      queueApi.removeTask(dismissButton.getAttribute('data-task-id'));
+      return;
+    }
+
+    const actionButton = target.closest?.('[data-act]');
+    const imageElement = target.closest?.('.gallery-item img');
+    if (!actionButton && imageElement) {
+      const imageId = imageElement.closest('.gallery-item')?.getAttribute('data-image-id');
+      const current = imageId ? getCurrentImage(imageId) : null;
+      if (current) onOpenImage?.(current.image, current.version, current.project);
+      return;
+    }
+    if (!actionButton) return;
+
+    const action = actionButton.getAttribute('data-act');
+    const imageId = actionButton.getAttribute('data-image-id');
+    const current = imageId ? getCurrentImage(imageId) : null;
+    if (!current) return;
+
+    if (action === 'delete') {
+      if (!await confirmDelete('确定删除这张图片吗？')) return;
+      if (disposed) return;
+      deleteImageFn(current.project.id, current.version.id, current.image.id);
+      showToast?.('已删除', 'success');
+      refreshGallery?.();
+      return;
+    }
+
+    await onImageAction?.({
+      action,
+      image: current.image,
+      version: current.version,
+      project: current.project,
+    });
+  };
+
+  galleryGrid.addEventListener('click', onClick);
+  return {
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      galleryGrid.removeEventListener('click', onClick);
+    },
+  };
+}
+
 export function renderProject(container, params) {
   const projectId = params[0];
   const project = getProject(projectId);
@@ -823,56 +901,37 @@ export function renderProject(container, params) {
     });
 
     // ========== 画廊操作 ==========
-    galleryGrid.addEventListener('click', async (e) => {
-      // 取消排队任务
-      const cancelBtn = e.target.closest('.task-cancel');
-      if (cancelBtn) { queue.cancel(cancelBtn.getAttribute('data-task-id')); return; }
-      // 移除失败卡片
-      const dismissBtn = e.target.closest('.task-dismiss');
-      if (dismissBtn) { queue.removeTask(dismissBtn.getAttribute('data-task-id')); return; }
-
-      const btn = e.target.closest('[data-act]');
-      const imgEl = e.target.closest('.gallery-item img');
-
-      if (!btn && imgEl) {
-        const item = e.target.closest('.gallery-item');
-        const imgId = item.getAttribute('data-image-id');
-        if (!imgId) return;
+    const galleryController = createProjectGalleryController({
+      galleryGrid,
+      queueApi: queue,
+      getCurrentVersion: () => {
         const fresh = getProject(project.id);
-        const v = fresh.versions.find((x) => x.id === fresh.currentVersionId);
-        const img = v.images.find((i) => i.id === imgId);
-        if (img) { closeLightbox?.(); closeLightbox = openLightbox(img, v); }
-        return;
-      }
-      if (!btn) return;
-
-      const act = btn.getAttribute('data-act');
-      const imgId = btn.getAttribute('data-image-id');
-      if (!imgId) return;
-
-      const fresh = getProject(project.id);
-      const v = fresh.versions.find((x) => x.id === fresh.currentVersionId);
-      const img = v.images.find((i) => i.id === imgId);
-      if (!img) return;
-
-      if (act === 'zoom') {
+        const version = fresh?.versions.find((item) => item.id === fresh.currentVersionId);
+        return fresh && version ? { project: fresh, version } : null;
+      },
+      confirmDialog,
+      deleteImage,
+      refreshGallery,
+      toast,
+      onOpenImage: (image, version) => {
         closeLightbox?.();
-        closeLightbox = openLightbox(img, v);
-      } else if (act === 'derive') {
-        pageLifecycle.trackDialog(openDeriveDialog(project.id, v.id, container, renderWorkbench, img.id, {
-          isPageActive: pageLifecycle.isActive,
-        }));
-      } else if (act === 'cover') {
-        setProjectCover(project.id, img.id);
-        toast('已设为项目封面', 'success');
-      } else if (act === 'download') {
-        await downloadImage(img.image, img.id);
-      } else if (act === 'delete') {
-        if (!await confirmDialog('确定删除这张图片吗？')) return;
-        deleteImage(project.id, v.id, img.id);
-        toast('已删除', 'success');
-        refreshGallery();
-      }
+        closeLightbox = openLightbox(image, version);
+      },
+      onImageAction: async ({ action, image, version, project: freshProject }) => {
+        if (action === 'zoom') {
+          closeLightbox?.();
+          closeLightbox = openLightbox(image, version);
+        } else if (action === 'derive') {
+          pageLifecycle.trackDialog(openDeriveDialog(freshProject.id, version.id, container, renderWorkbench, image.id, {
+            isPageActive: pageLifecycle.isActive,
+          }));
+        } else if (action === 'cover') {
+          setProjectCover(freshProject.id, image.id);
+          toast('已设为项目封面', 'success');
+        } else if (action === 'download') {
+          await downloadImage(image.image, image.id);
+        }
+      },
     });
 
     // ========== 刷新画廊（队列变化时） ==========
@@ -954,6 +1013,7 @@ export function renderProject(container, params) {
     const cleanup = () => {
       closeDropdown();
       closeLightbox?.();
+      galleryController.dispose();
       pageLifecycle.cleanup();
       unsubscribe();
     };
