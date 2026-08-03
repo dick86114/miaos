@@ -87,7 +87,7 @@ body {
   color: var(--ink-2);
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background-color var(--motion-normal) var(--motion-ease), color var(--motion-normal) var(--motion-ease);
 }
 .sidebar-item:hover { background: var(--surface-2); color: var(--ink); }
 .sidebar-item[data-active="true"] {
@@ -110,7 +110,7 @@ body {
   background: var(--bg);
   padding: 24px;
 }
-.page-enter { animation: pageFade 0.22s ease; }
+.page-enter { animation: pageFade var(--motion-normal) var(--motion-ease) both; }
 @keyframes pageFade {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
@@ -128,7 +128,7 @@ body {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease, border-color 0.15s ease;
+  transition: background-color var(--motion-normal) var(--motion-ease), box-shadow var(--motion-normal) var(--motion-ease), transform var(--motion-fast) var(--motion-ease), border-color var(--motion-normal) var(--motion-ease);
   border: 1px solid transparent;
   text-decoration: none;
   font-family: var(--font-sans);
@@ -168,13 +168,13 @@ body {
   border-radius: var(--r-md);
   font-size: 13px;
   box-shadow: var(--shadow-3);
-  animation: toastIn 0.2s ease;
+  animation: toastIn var(--motion-normal) var(--motion-ease) both;
   max-width: 420px;
 }
 .toast.toast-success { background: var(--state-success); }
 .toast.toast-error { background: var(--state-error); }
 .toast.toast-info { background: var(--brand); }
-.toast.fade-out { animation: toastOut 0.25s ease forwards; }
+.toast.fade-out { animation: toastOut var(--motion-slow) var(--motion-ease) both; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes toastOut { to { opacity: 0; transform: translateY(10px); } }
 

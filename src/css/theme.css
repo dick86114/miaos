@@ -33,6 +33,16 @@
   --shadow-2: 0 8px 24px -8px rgba(15, 23, 42, 0.12);
   --shadow-3: 0 24px 60px -20px rgba(15, 23, 42, 0.22);
 
+  /* 运动：交互反馈使用统一时长与缓动，循环状态保留独立节奏。 */
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --motion-slow: 240ms;
+  --motion-loop: 800ms;
+  --motion-wave: 1200ms;
+  --motion-pulse: 1500ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --motion-linear: linear;
+
   /* 字体 */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
   --font-mono: "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -76,4 +86,19 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+
+/* 尊重系统减少动态效果设置；保留极短动画事件，避免 Toast 等现有清理逻辑失效。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }
