@@ -8,34 +8,7 @@ const {
   validateSuggestedName,
 } = require('../src/main/security/validators');
 
-function createPngBytes(width = 1) {
-  const signature = Buffer.from('89504e470d0a1a0a', 'hex');
-  const ihdr = Buffer.alloc(25);
-  ihdr.writeUInt32BE(13, 0);
-  ihdr.write('IHDR', 4, 'ascii');
-  ihdr.writeUInt32BE(width, 8);
-  ihdr.writeUInt32BE(1, 12);
-  ihdr[16] = 8;
-  ihdr[17] = 2;
-  const iend = Buffer.from('0000000049454e4400000000', 'hex');
-  return Buffer.concat([signature, ihdr, iend]);
-}
-
-function createJpegBytes() {
-  return Buffer.from('ffd8ffe00002ffd9', 'hex');
-}
-
-function createWebpBytes() {
-  const buffer = Buffer.alloc(12);
-  buffer.write('RIFF', 0, 'ascii');
-  buffer.writeUInt32LE(4, 4);
-  buffer.write('WEBP', 8, 'ascii');
-  return buffer;
-}
-
-function dataUrl(mime, bytes) {
-  return `data:${mime};base64,${bytes.toString('base64')}`;
-}
+const { REAL_IMAGE_BYTES, FAKE_IMAGE_BYTES, dataUrl } = require('./image-fixtures.cjs');
 
 test('拒绝危险协议和非法仓库名', () => {
   assert.throws(() => validateHttpUrl('file:///etc/passwd'), /仅支持 HTTP/);
@@ -58,18 +31,19 @@ test('字符串校验限制长度和枚举值', () => {
 });
 
 test('图片 data URL 仅允许完整且 MIME 一致的受支持图片，并按解码后体积限制', () => {
-  const png = dataUrl('image/png', createPngBytes());
-  const jpeg = dataUrl('image/jpeg', createJpegBytes());
-  const webp = dataUrl('image/webp', createWebpBytes());
+  const png = dataUrl('image/png', REAL_IMAGE_BYTES.png);
+  const jpeg = dataUrl('image/jpeg', REAL_IMAGE_BYTES.jpeg);
+  const webp = dataUrl('image/webp', REAL_IMAGE_BYTES.webp);
   assert.equal(validateDataUrl(png), png);
   assert.equal(validateDataUrl(jpeg), jpeg);
   assert.equal(validateDataUrl(webp), webp);
   assert.throws(() => validateDataUrl('data:image/png;base64,'), /不能为空|完整/);
   assert.throws(() => validateDataUrl('data:image/png;base64,aGVsbG8='), /完整/);
-  assert.throws(() => validateDataUrl(dataUrl('image/jpeg', createPngBytes())), /MIME/);
-  assert.throws(() => validateDataUrl(dataUrl('image/png', Buffer.from('89504e470d0a1a0a', 'hex'))), /完整/);
-  assert.throws(() => validateDataUrl(dataUrl('image/jpeg', Buffer.from('ffd8ffe00002', 'hex'))), /完整/);
-  assert.throws(() => validateDataUrl(dataUrl('image/webp', Buffer.from('52494646040000005745425000', 'hex'))), /完整/);
+  assert.throws(() => validateDataUrl(dataUrl('image/jpeg', REAL_IMAGE_BYTES.png)), /MIME/);
+  assert.throws(() => validateDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.png)), /完整/);
+  assert.throws(() => validateDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.jpeg)), /完整/);
+  assert.throws(() => validateDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.webp)), /完整/);
+  assert.throws(() => validateDataUrl(dataUrl('image/bmp', REAL_IMAGE_BYTES.bmp)), /图片格式/);
   assert.throws(() => validateDataUrl('data:image/gif;base64,aGVsbG8='), /图片格式/);
   assert.throws(() => validateDataUrl('data:image/png;base64,%%%'), /base64/);
   const tooLarge = `data:image/png;base64,${Buffer.alloc(50 * 1024 * 1024 + 1).toString('base64')}`;

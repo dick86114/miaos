@@ -7,47 +7,7 @@ const Module = require('node:module');
 const { EventEmitter } = require('node:events');
 
 const mainPath = path.resolve(__dirname, '..', 'main.js');
-function createPngBytes(width = 1) {
-  const signature = Buffer.from('89504e470d0a1a0a', 'hex');
-  const ihdr = Buffer.alloc(25);
-  ihdr.writeUInt32BE(13, 0);
-  ihdr.write('IHDR', 4, 'ascii');
-  ihdr.writeUInt32BE(width, 8);
-  ihdr.writeUInt32BE(1, 12);
-  ihdr[16] = 8;
-  ihdr[17] = 2;
-  const iend = Buffer.from('0000000049454e4400000000', 'hex');
-  return Buffer.concat([signature, ihdr, iend]);
-}
-
-function createJpegBytes() {
-  return Buffer.from('ffd8ffe00002ffd9', 'hex');
-}
-
-function createWebpBytes() {
-  const buffer = Buffer.alloc(12);
-  buffer.write('RIFF', 0, 'ascii');
-  buffer.writeUInt32LE(4, 4);
-  buffer.write('WEBP', 8, 'ascii');
-  return buffer;
-}
-
-function createBmpBytes(width = 1) {
-  const buffer = Buffer.alloc(55);
-  buffer.write('BM', 0, 'ascii');
-  buffer.writeUInt32LE(buffer.length, 2);
-  buffer.writeUInt32LE(54, 10);
-  buffer.writeUInt32LE(40, 14);
-  buffer.writeInt32LE(width, 18);
-  buffer.writeInt32LE(1, 22);
-  buffer.writeUInt16LE(1, 26);
-  buffer.writeUInt16LE(24, 28);
-  return buffer;
-}
-
-function dataUrl(mime, bytes) {
-  return `data:${mime};base64,${bytes.toString('base64')}`;
-}
+const { REAL_IMAGE_BYTES, FAKE_IMAGE_BYTES, dataUrl } = require('./image-fixtures.cjs');
 
 const EXPECTED_CHANNELS = [
   'update-get-current-version',
@@ -65,11 +25,12 @@ const EXPECTED_CHANNELS = [
   'optimize-prompt',
   'summarize-prompt',
 ];
-const PNG_BYTES = createPngBytes();
+const PNG_BYTES = REAL_IMAGE_BYTES.png;
+const PNG_REPLACEMENT_BYTES = REAL_IMAGE_BYTES.pngReplacement;
 const PNG_DATA_URL = dataUrl('image/png', PNG_BYTES);
-const JPEG_BYTES = createJpegBytes();
-const WEBP_BYTES = createWebpBytes();
-const BMP_BYTES = createBmpBytes();
+const JPEG_BYTES = REAL_IMAGE_BYTES.jpeg;
+const WEBP_BYTES = REAL_IMAGE_BYTES.webp;
+const BMP_BYTES = REAL_IMAGE_BYTES.bmp;
 
 function createTempHome(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -397,9 +358,9 @@ test('真实 generate handler 在网络前拒绝空、伪造、MIME 不匹配和
       'data:image/png;base64,',
       'data:image/png;base64,aGVsbG8=',
       dataUrl('image/jpeg', PNG_BYTES),
-      dataUrl('image/png', Buffer.from('89504e470d0a1a0a', 'hex')),
-      dataUrl('image/jpeg', Buffer.from('ffd8ffe00002', 'hex')),
-      dataUrl('image/webp', Buffer.from('52494646040000005745425000', 'hex')),
+      dataUrl('image/png', FAKE_IMAGE_BYTES.png),
+      dataUrl('image/jpeg', FAKE_IMAGE_BYTES.jpeg),
+      dataUrl('image/webp', FAKE_IMAGE_BYTES.webp),
     ];
 
     for (const sourceImage of rejectedDataUrls) {
@@ -412,17 +373,17 @@ test('真实 generate handler 在网络前拒绝空、伪造、MIME 不匹配和
   }
 });
 
-test('真实 generate handler 在网络前拒绝截断 PNG、JPEG、WebP 和 BMP 文件', async () => {
+test('真实 generate handler 在网络前拒绝 PNG、JPEG、WebP 和 BMP 伪容器文件', async () => {
   const homePath = createTempHome('miaos-source-file-structure-reject-');
   try {
     const { calls } = await runMainWithMock({ homePath });
     const generatedDir = path.join(homePath, '.miaos', 'generated');
     fs.mkdirSync(generatedDir, { recursive: true });
     const invalidFiles = [
-      ['truncated.png', Buffer.from('89504e470d0a1a0a', 'hex')],
-      ['truncated.jpg', Buffer.from('ffd8ffe00002', 'hex')],
-      ['truncated.webp', Buffer.from('52494646040000005745425000', 'hex')],
-      ['truncated.bmp', Buffer.from('424d00000000', 'hex')],
+      ['fake.png', FAKE_IMAGE_BYTES.png],
+      ['fake.jpg', FAKE_IMAGE_BYTES.jpeg],
+      ['fake.webp', FAKE_IMAGE_BYTES.webp],
+      ['fake.bmp', FAKE_IMAGE_BYTES.bmp],
     ];
 
     for (const [name, contents] of invalidFiles) {
@@ -440,7 +401,7 @@ test('真实 generate handler 在网络前拒绝截断 PNG、JPEG、WebP 和 BMP
 test('真实 generate handler 拒绝授权后被同路径原子替换的参考图，且不请求网络', async () => {
   const homePath = createTempHome('miaos-source-identity-replace-');
   const pickedImage = path.join(homePath, 'picked.png');
-  fs.writeFileSync(pickedImage, createPngBytes(1));
+  fs.writeFileSync(pickedImage, PNG_BYTES);
   try {
     const { calls } = await runMainWithMock({
       homePath,
@@ -450,7 +411,7 @@ test('真实 generate handler 拒绝授权后被同路径原子替换的参考�
     assert.equal(picked.canceled, false);
 
     const replacementPath = path.join(homePath, 'replacement.png');
-    fs.writeFileSync(replacementPath, createPngBytes(2));
+    fs.writeFileSync(replacementPath, PNG_REPLACEMENT_BYTES);
     fs.renameSync(replacementPath, picked.filePath);
 
     const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(picked.filePath));
