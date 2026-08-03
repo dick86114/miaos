@@ -442,6 +442,31 @@ test('事务 rollback 写入失败时保留 transaction，明确返回不确定�
   }
 });
 
+test('自身残留 lock 的事务 rollback 仅凭 transaction owner token 可恢复成功', async () => {
+  const homePath = createTempHome('miaos-owner-rollback-');
+  let failRelease = true;
+  const fsImpl = {
+    ...fs,
+    unlinkSync(target) {
+      if (failRelease && String(target).endsWith('secrets.json.lock')) throw Object.assign(new Error('残留 lock'), { code: 'EACCES' });
+      return fs.unlinkSync(target);
+    },
+  };
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false, fsImpl });
+    const started = await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_tx', 'sk-new', {
+      ...createGrsaiMetadata('https://owner-lock.invalid/generate'), id: 'p_tx',
+    }, { transactional: true });
+    assert.equal(started.ok, false);
+    assert.equal(started.code, 'SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED');
+    failRelease = false;
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'rollback', transactionId: started.transactionId }), { ok: true });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_tx'), { ok: true, has: false });
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
 test('已保存供应商的所有请求路径都通过 providerId 从 vault 读取密钥', async () => {
   const homePath = createTempHome('miaos-provider-secret-all-requests-');
   try {

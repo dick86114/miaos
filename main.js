@@ -374,11 +374,11 @@ function createTransaction(entries) {
     metadata: secretsVault.getProviderMetadata(providerId),
   }));
   const transactionId = crypto.randomUUID();
-  const transaction = { snapshots, timer: null, status: 'pending', retryCount: 0, lastCode: null };
+  const transaction = { snapshots, lockOwnerToken: crypto.randomUUID(), timer: null, status: 'pending', retryCount: 0, lastCode: null };
   providerTransactions.set(transactionId, transaction);
   scheduleTransactionRecovery(transactionId);
   try {
-    secretsVault.setMany(entries);
+    secretsVault.setMany(entries, { ownerToken: transaction.lockOwnerToken });
     transaction.status = 'applied';
     return { ok: true, transactionId };
   } catch (error) {
@@ -408,7 +408,7 @@ function rollbackTransaction(transactionId, { automatic = false } = {}) {
     metadata: snapshot.metadata || null,
   }));
   try {
-    secretsVault.setMany(entries);
+    secretsVault.setMany(entries, { ownerToken: transaction.lockOwnerToken });
     providerTransactions.delete(transactionId);
     return { ok: true };
   } catch (error) {

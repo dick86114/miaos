@@ -220,11 +220,11 @@ test('过期且所属进程已退出的 lock 会回收，存活进程的 lock �
   const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-stale-lock-'));
   const filePath = path.join(dir, 'secrets.json');
   const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs });
-  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ pid: 999999, createdAt: Date.now() - 10 * 60 * 1000 }));
+  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ ownerToken: 'owner-dead', pid: 999999, createdAt: Date.now() - 10 * 60 * 1000 }));
   vault.set('p_test', 'sk-secret');
   assert.equal(existsSync(`${filePath}.lock`), false);
 
-  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ pid: process.pid, createdAt: Date.now() - 10 * 60 * 1000 }));
+  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ ownerToken: 'owner-live', pid: process.pid, createdAt: Date.now() - 10 * 60 * 1000 }));
   assert.throws(() => vault.set('p_other', 'sk-other'), (error) => error.code === 'SECRET_VAULT_LOCKED');
   fs.unlinkSync(`${filePath}.lock`);
 });
@@ -280,4 +280,68 @@ test('lock close 失败不会被吞掉且仍尝试清理 lock 文件', () => {
   const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
   assert.throws(() => vault.set('p_test', 'sk-secret'), (error) => error.code === 'SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED');
   assert.equal(existsSync(`${filePath}.lock`), false);
+});
+
+test('同一 owner token 可安全回收自身残留 lock，其他 owner 的活锁不会被删除', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-owner-lock-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const ownerToken = 'owner-transaction-a';
+  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ ownerToken, pid: process.pid, createdAt: Date.now() }));
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs });
+  vault.setMany([{ providerId: 'p_test', value: 'sk-secret' }], { ownerToken });
+  assert.equal(existsSync(`${filePath}.lock`), false);
+
+  fs.writeFileSync(`${filePath}.lock`, JSON.stringify({ ownerToken: 'owner-other', pid: process.pid, createdAt: Date.now() }));
+  assert.throws(() => vault.setMany([{ providerId: 'p_other', value: 'sk-other' }], { ownerToken: 'owner-transaction-b' }), (error) => error.code === 'SECRET_VAULT_LOCKED');
+  assert.equal(JSON.parse(readFileSync(`${filePath}.lock`, 'utf8')).ownerToken, 'owner-other');
+  fs.unlinkSync(`${filePath}.lock`);
+});
+
+test('空或截断 lock 超过 TTL 后按 mtime 回收，检查后被替换的新活锁不会误删', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-lock-race-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const lockPath = `${filePath}.lock`;
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs });
+  fs.writeFileSync(lockPath, '{');
+  const old = new Date(Date.now() - 10 * 60 * 1000);
+  fs.utimesSync(lockPath, old, old);
+  vault.set('p_stale', 'sk-stale');
+  assert.equal(existsSync(lockPath), false);
+
+  fs.writeFileSync(lockPath, '{');
+  fs.utimesSync(lockPath, old, old);
+  let lockReads = 0;
+  const fsImpl = {
+    ...fs,
+    readFileSync(target, encoding) {
+      if (target === lockPath && ++lockReads === 2) {
+        fs.writeFileSync(lockPath, JSON.stringify({ ownerToken: 'owner-race', pid: process.pid, createdAt: Date.now() }));
+      }
+      return fs.readFileSync(target, encoding);
+    },
+  };
+  const racingVault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
+  assert.throws(() => racingVault.set('p_race', 'sk-race'), (error) => error.code === 'SECRET_VAULT_LOCKED');
+  assert.equal(JSON.parse(readFileSync(lockPath, 'utf8')).ownerToken, 'owner-race');
+  fs.unlinkSync(lockPath);
+});
+
+test('release compare/recheck 不会删除检查后替换为其他 owner 的新 lock', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-release-race-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const lockPath = `${filePath}.lock`;
+  let lockReads = 0;
+  const fsImpl = {
+    ...fs,
+    readFileSync(target, encoding) {
+      if (target === lockPath && ++lockReads === 3) {
+        fs.writeFileSync(lockPath, JSON.stringify({ ownerToken: 'owner-replaced', pid: process.pid, createdAt: Date.now() }));
+      }
+      return fs.readFileSync(target, encoding);
+    },
+  };
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
+  assert.throws(() => vault.setMany([{ providerId: 'p_test', value: 'sk-secret' }], { ownerToken: 'owner-original' }), (error) => error.code === 'SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED');
+  assert.equal(JSON.parse(readFileSync(lockPath, 'utf8')).ownerToken, 'owner-replaced');
+  fs.unlinkSync(lockPath);
 });
