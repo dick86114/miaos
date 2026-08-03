@@ -41,7 +41,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     || typeof fsImpl.fsyncSync !== 'function' || typeof fsImpl.closeSync !== 'function'
     || typeof fsImpl.renameSync !== 'function' || typeof fsImpl.unlinkSync !== 'function'
     || typeof fsImpl.mkdirSync !== 'function' || typeof fsImpl.statSync !== 'function'
-    || typeof fsImpl.rmSync !== 'function') {
+    || typeof fsImpl.readdirSync !== 'function' || typeof fsImpl.rmSync !== 'function') {
     throw new TypeError('文件系统服务不可用');
   }
 
@@ -161,15 +161,98 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     return `${lockPath}.quarantine-${ownerHash}-${crypto.randomBytes(8).toString('hex')}`;
   }
 
-  function restoreQuarantine(quarantinePath, lockPath) {
+  function listQuarantines(lockPath) {
+    const directory = path.dirname(lockPath);
+    const prefix = `${path.basename(lockPath)}.quarantine-`;
+    let entries;
+    try {
+      entries = fsImpl.readdirSync(directory);
+    } catch (error) {
+      return lockReadError(error);
+    }
+
+    const quarantines = [];
+    for (const entry of entries) {
+      if (typeof entry !== 'string' || !entry.startsWith(prefix)) continue;
+      const quarantinePath = path.join(directory, entry);
+      const state = readLockState(quarantinePath);
+      if (state) quarantines.push({ path: quarantinePath, state });
+    }
+    return quarantines;
+  }
+
+  function createQuarantinedLockError(removeError, restoreError) {
+    const error = createVaultError('SECRET_VAULT_LOCK_QUARANTINED', '密钥仓库锁清理失败，quarantine 保护仍然存在');
+    error.cleanupFailureCode = removeError?.code || 'SECRET_VAULT_LOCK_REMOVE_FAILED';
+    error.restoreFailureCode = restoreError?.code || 'SECRET_VAULT_LOCK_RESTORE_FAILED';
+    error.cause = restoreError;
+    return error;
+  }
+
+  function restoreQuarantine(quarantinePath, lockPath, expected, ownerToken) {
     const current = readLockState(lockPath);
-    if (current) return false;
+    if (current) return null;
+
+    const quarantined = readLockState(quarantinePath);
+    if (!quarantined || quarantined.signature !== expected.signature
+      || (expected.info && quarantined.info?.ownerToken !== ownerToken)) {
+      return null;
+    }
+
     try {
       fsImpl.renameSync(quarantinePath, lockPath);
-      return true;
     } catch (error) {
-      if (error && error.code === 'EEXIST') return false;
+      if (error && error.code === 'EEXIST') return null;
       throw error;
+    }
+
+    const restored = readLockState(lockPath);
+    if (!restored || restored.signature !== expected.signature
+      || (expected.info && restored.info?.ownerToken !== ownerToken)) {
+      return null;
+    }
+    return restored;
+  }
+
+  function recoverOwnedQuarantine(lockPath, ownerToken) {
+    const quarantines = listQuarantines(lockPath);
+    if (quarantines.length === 0) return null;
+
+    // quarantine 是锁的明确保护状态：未知、其他 owner 或多个残留状态都不能绕过。
+    if (quarantines.length !== 1 || quarantines[0].state.info?.ownerToken !== ownerToken) {
+      throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库锁正在恢复，请稍后重试');
+    }
+
+    const quarantine = quarantines[0];
+    try {
+      const restored = restoreQuarantine(quarantine.path, lockPath, quarantine.state, ownerToken);
+      if (restored) return restored;
+    } catch (error) {
+      if (error && error.code === 'SECRET_VAULT_LOCK_READ_FAILED') throw error;
+      const recoveryError = createVaultError('SECRET_VAULT_LOCKED', '密钥仓库锁恢复失败，请稍后重试');
+      recoveryError.restoreFailureCode = error?.code || 'SECRET_VAULT_LOCK_RESTORE_FAILED';
+      recoveryError.cause = error;
+      throw recoveryError;
+    }
+    throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库锁正在恢复，请稍后重试');
+  }
+
+  function openRecoveredLock(lockPath, ownerToken, snapshot) {
+    let fd = null;
+    try {
+      fd = fsImpl.openSync(lockPath, 'r');
+      fsImpl.fsyncSync(fd);
+      const current = readLockState(lockPath);
+      if (!current || current.signature !== snapshot.signature || current.info?.ownerToken !== ownerToken) {
+        throw createVaultError('SECRET_VAULT_LOCKED', '密钥仓库锁已被其他进程接管，请稍后重试');
+      }
+      return { lockPath, fd, ownerToken, snapshot: current };
+    } catch (error) {
+      if (fd !== null) {
+        try { fsImpl.closeSync(fd); } catch (_) {}
+      }
+      if (error && (error.code === 'SECRET_VAULT_LOCKED' || error.code === 'SECRET_VAULT_LOCK_READ_FAILED')) throw error;
+      throw createVaultError('SECRET_VAULT_LOCK_FAILED', '密钥仓库锁恢复后无法打开');
     }
   }
 
@@ -192,7 +275,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     const quarantined = readLockState(quarantinePath);
     if (!quarantined || quarantined.signature !== expected.signature
       || (expected.info && quarantined.info?.ownerToken !== ownerToken)) {
-      restoreQuarantine(quarantinePath, lockPath);
+      restoreQuarantine(quarantinePath, lockPath, quarantined || expected, ownerToken);
       return { status: 'replaced' };
     }
 
@@ -201,9 +284,20 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     try {
       fsImpl.rmSync(quarantinePath, { recursive: true, force: false });
       return { status: 'removed' };
-    } catch (error) {
-      try { restoreQuarantine(quarantinePath, lockPath); } catch (_) {}
-      throw error;
+    } catch (removeError) {
+      let restored;
+      try {
+        restored = restoreQuarantine(quarantinePath, lockPath, quarantined, ownerToken);
+      } catch (restoreError) {
+        throw createQuarantinedLockError(removeError, restoreError);
+      }
+      if (!restored) {
+        throw createQuarantinedLockError(removeError, createVaultError(
+          'SECRET_VAULT_LOCK_RESTORE_BLOCKED',
+          '密钥仓库锁无法从 quarantine 恢复',
+        ));
+      }
+      throw removeError;
     }
   }
 
@@ -241,6 +335,9 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
 
   function acquireLock(ownerToken) {
     const lockPath = `${filePath}.lock`;
+    const recovered = recoverOwnedQuarantine(lockPath, ownerToken);
+    if (recovered) return openRecoveredLock(lockPath, ownerToken, recovered);
+
     for (let attempt = 0; attempt <= LOCK_RETRY_COUNT; attempt += 1) {
       let createdLock = false;
       try {
@@ -257,11 +354,21 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
         }
         return { lockPath, fd, ownerToken, snapshot };
       } catch (error) {
+        let cleanupError = null;
         if (createdLock) {
           try {
             const partial = readLockState(lockPath);
             if (partial) moveAndRemoveLock(lockPath, partial, ownerToken);
-          } catch (_) {}
+          } catch (cleanupFailure) {
+            cleanupError = cleanupFailure;
+          }
+        }
+        if (cleanupError) {
+          const lockError = createVaultError('SECRET_VAULT_LOCK_CLEANUP_FAILED', '密钥仓库锁创建失败且安全清理未完成');
+          lockError.cleanupFailureCode = cleanupError.code || 'SECRET_VAULT_LOCK_REMOVE_FAILED';
+          if (cleanupError.restoreFailureCode) lockError.restoreFailureCode = cleanupError.restoreFailureCode;
+          lockError.cause = cleanupError;
+          throw lockError;
         }
         if (error && error.code !== 'EEXIST') {
           if (error.code === 'SECRET_VAULT_LOCK_READ_FAILED') throw error;
@@ -282,6 +389,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
 
   function releaseLock(lock) {
     const failures = [];
+    let releaseFailure = null;
     try { fsImpl.closeSync(lock.fd); } catch (_) { failures.push('close'); }
 
     let current;
@@ -295,11 +403,17 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
         if (result.status !== 'removed') failures.push('owner');
       }
     } catch (error) {
+      releaseFailure = error;
       failures.push(error && error.code === 'SECRET_VAULT_LOCK_READ_FAILED' ? 'read' : 'remove');
     }
 
     if (failures.length > 0) {
-      throw createVaultError('SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED', '密钥仓库已写入，但锁释放状态不确定');
+      const error = createVaultError('SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED', '密钥仓库已写入，但锁释放状态不确定');
+      if (releaseFailure?.code) error.releaseFailureCode = releaseFailure.code;
+      if (releaseFailure?.cleanupFailureCode) error.cleanupFailureCode = releaseFailure.cleanupFailureCode;
+      if (releaseFailure?.restoreFailureCode) error.restoreFailureCode = releaseFailure.restoreFailureCode;
+      if (releaseFailure) error.cause = releaseFailure;
+      throw error;
     }
   }
 

@@ -385,6 +385,60 @@ test('safeStorage 不可用时纯 metadata 更新和无密钥读取仍可用', (
   assert.deepEqual(vault.getProviderMetadata('p_public'), { id: 'p_public', endpoint: 'https://public.example/v1' });
 });
 
+test('quarantine 删除与恢复同时失败时持续保护锁，同 owner 可安全重试恢复', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-quarantine-recovery-'));
+  const filePath = path.join(dir, 'secrets.json');
+  const lockPath = `${filePath}.lock`;
+  const ownerToken = 'owner-transaction-a';
+  let failRemove = true;
+  let failRestore = true;
+  const fsImpl = {
+    ...fs,
+    rmSync(target, options) {
+      if (failRemove && String(target).includes('.lock.quarantine-')) {
+        throw Object.assign(new Error('quarantine 删除失败'), { code: 'EACCES' });
+      }
+      return fs.rmSync(target, options);
+    },
+    renameSync(from, to) {
+      if (failRestore && String(from).includes('.lock.quarantine-') && to === lockPath) {
+        throw Object.assign(new Error('quarantine 恢复失败'), { code: 'EIO' });
+      }
+      return fs.renameSync(from, to);
+    },
+  };
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
+
+  assert.throws(() => vault.setMany([{ providerId: 'p_owner', value: 'sk-owner' }], { ownerToken }), (error) => {
+    assert.equal(error.code, 'SECRET_VAULT_APPLIED_LOCK_RELEASE_FAILED');
+    assert.equal(error.releaseFailureCode, 'SECRET_VAULT_LOCK_QUARANTINED');
+    assert.equal(error.restoreFailureCode, 'EIO');
+    return true;
+  });
+
+  const quarantines = fs.readdirSync(dir)
+    .filter((entry) => entry.includes('.lock.quarantine-'))
+    .map((entry) => path.join(dir, entry));
+  assert.equal(existsSync(lockPath), false);
+  assert.equal(quarantines.length, 1);
+  assert.equal(readLock(quarantines[0]).ownerToken, ownerToken);
+
+  const otherOwnerVault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl });
+  assert.throws(() => otherOwnerVault.setMany([{ providerId: 'p_other', value: 'sk-other' }], {
+    ownerToken: 'owner-transaction-b',
+  }), (error) => error.code === 'SECRET_VAULT_LOCKED');
+  const persisted = readFileSync(filePath, 'utf8');
+  assert.equal(persisted.includes('sk-owner'), false);
+  assert.equal(persisted.includes('sk-other'), false);
+
+  failRemove = false;
+  failRestore = false;
+  vault.restoreSnapshot({ version: 1, secrets: {}, providers: {} }, { ownerToken });
+  assert.equal(existsSync(lockPath), false);
+  assert.equal(fs.readdirSync(dir).some((entry) => entry.includes('.lock.quarantine-')), false);
+  assert.equal(vault.has('p_owner'), false);
+});
+
 test('lock close 失败不会被吞掉且仍尝试安全清理锁目录', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'miaos-secrets-lock-close-'));
   const filePath = path.join(dir, 'secrets.json');
