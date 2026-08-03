@@ -7,6 +7,7 @@ const Module = require('node:module');
 const { EventEmitter } = require('node:events');
 
 const mainPath = path.resolve(__dirname, '..', 'main.js');
+const httpClientPath = path.resolve(__dirname, '..', 'src/main/services/http-client.js');
 const {
   REAL_IMAGE_BYTES,
   FAKE_IMAGE_BYTES,
@@ -55,7 +56,7 @@ function cleanupTempHome(homePath) {
   fs.rmSync(homePath, { recursive: true, force: true });
 }
 
-function createNetworkMock(calls) {
+function createNetworkMock(calls, networkResponse) {
   function request(urlOrOptions, optionsOrCallback, maybeCallback) {
     const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
     const options = typeof optionsOrCallback === 'function' ? urlOrOptions : optionsOrCallback;
@@ -68,11 +69,14 @@ function createNetworkMock(calls) {
     req.destroy = () => {};
     req.end = () => {
       process.nextTick(() => {
+        const response = typeof networkResponse === 'function'
+          ? networkResponse(requestRecord)
+          : networkResponse || { statusCode: 200, body: JSON.stringify({ status: 'failed', error: '下游模拟失败' }) };
         const res = new EventEmitter();
-        res.statusCode = 200;
-        res.headers = {};
+        res.statusCode = response.statusCode ?? 200;
+        res.headers = response.headers || {};
         callback(res);
-        res.emit('data', Buffer.from(JSON.stringify({ status: 'failed', error: '下游模拟失败' })));
+        if (response.body !== undefined) res.emit('data', Buffer.from(response.body));
         res.emit('end');
       });
     };
@@ -89,7 +93,7 @@ function createNetworkMock(calls) {
   };
 }
 
-function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, safeStorageImpl } = {}) {
+function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, safeStorageImpl, networkResponse } = {}) {
   const tempPath = path.join(homePath, 'temp');
   let userDataPath = null;
   const calls = {
@@ -195,7 +199,7 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
     },
   };
 
-  return { electronMock, calls, networkMock: createNetworkMock(calls) };
+  return { electronMock, calls, networkMock: createNetworkMock(calls, networkResponse) };
 }
 
 async function runMainWithMock(options = {}) {
@@ -212,6 +216,7 @@ async function runMainWithMock(options = {}) {
   const originalExitCode = process.exitCode;
   process.exitCode = undefined;
   delete require.cache[mainPath];
+  delete require.cache[httpClientPath];
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === 'electron') return electronMock;
@@ -244,6 +249,7 @@ async function runMainWithMock(options = {}) {
   } finally {
     Module._load = originalLoad;
     delete require.cache[mainPath];
+    delete require.cache[httpClientPath];
     process.exitCode = originalExitCode;
   }
 }
@@ -895,6 +901,56 @@ test('真实 show-in-folder 拒绝作为可信根的 generated 符号链接目�
     assert.equal(result.code, 'IPC_FILE_ROOT_NOT_ALLOWED');
     assert.deepEqual(calls.showItemInFolder, []);
   } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('上游回显密钥时，IPC 公开错误和摘要日志均不暴露密钥', async () => {
+  const homePath = createTempHome('miaos-http-secret-redaction-');
+  const secret = 'sk-review-secret';
+  const logCalls = [];
+  const originalLog = console.log;
+  let connectionAttempt = 0;
+  try {
+    console.log = (...args) => logCalls.push(args.join(' '));
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse(request) {
+        if (request.options.path.includes('/chat/completions')) {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              choices: [{ message: { content: '雨夜霓虹街景' } }],
+              debug: `Authorization: Bearer ${secret}`,
+            }),
+          };
+        }
+        connectionAttempt += 1;
+        return {
+          statusCode: connectionAttempt === 1 ? 401 : 500,
+          body: JSON.stringify({ error: { message: `Authorization: Bearer ${secret}` } }),
+        };
+      },
+    });
+
+    for (const expectedCode of ['AUTH_FAILED', 'UPSTREAM_ERROR']) {
+      const failed = await calls.ipcHandlers['test-connection'](trustedEvent(), {
+        providerId: 'p_grsai', type: 'grsai', endpoint: 'https://example.invalid/generate',
+      });
+      assert.equal(failed.ok, false);
+      assert.equal(failed.code, expectedCode);
+      assert.doesNotMatch(JSON.stringify(failed), new RegExp(secret));
+    }
+
+    const summarized = await calls.ipcHandlers['summarize-prompt'](trustedEvent(), {
+      providerId: 'p_grsai', endpoint: 'https://example.invalid/generate', model: 'text-model',
+      prompt: '测试提示词', ratio: '1:1', quality: '高清', imageModel: 'gpt-image-2', isImageToImage: false,
+    });
+    assert.equal(summarized.title, '雨夜霓虹街景');
+    assert.doesNotMatch(JSON.stringify(summarized), new RegExp(secret));
+    assert.doesNotMatch(logCalls.join('\n'), new RegExp(secret));
+  } finally {
+    console.log = originalLog;
     cleanupTempHome(homePath);
   }
 });

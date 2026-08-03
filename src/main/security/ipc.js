@@ -1,4 +1,9 @@
+const { AppError, toPublicError } = require('../services/app-error');
+
 function createPublicError(error, fallbackCode) {
+  if (error instanceof AppError) {
+    return { ok: false, ...toPublicError(error) };
+  }
   const message = error && typeof error.message === 'string' && error.message.trim()
     ? error.message.trim()
     : '请求处理失败';

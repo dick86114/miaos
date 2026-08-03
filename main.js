@@ -14,6 +14,7 @@ const {
   validateSuggestedName,
 } = require('./src/main/security/validators');
 const { registerSecureHandler } = require('./src/main/security/ipc');
+const { requestJson } = require('./src/main/services/http-client');
 const { createImageFileAccess } = require('./src/main/security/image-files');
 const { createImageDecoder } = require('./src/main/security/image-decoder');
 const { createSecretsVault } = require('./src/main/secrets-vault');
@@ -616,235 +617,42 @@ registerSecureHandler({
   },
 });
 
-// ===== 工具函数：发送 HTTP 请求 =====
-function requestJson({ url, method = 'POST', headers = {}, body, timeoutMs = 60000 }) {
-  return new Promise((resolve, reject) => {
-    let parsedUrl;
-    try {
-      parsedUrl = new URL(url);
-    } catch (e) {
-      reject(new Error('无效的 API 地址：' + e.message));
-      return;
-    }
-
-    const lib = parsedUrl.protocol === 'https:' ? https : http;
-    const options = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-      path: parsedUrl.pathname + parsedUrl.search,
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...headers,
-      },
-      timeout: timeoutMs,
-    };
-
-    const req = lib.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        let json = null;
-        try {
-          json = data ? JSON.parse(data) : null;
-        } catch (e) {
-          // 可能是纯文本错误或 HTML
-        }
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          resolve({ status: res.statusCode, data: json, raw: data });
-        } else {
-          const msg = json && (json.error?.message || json.message || json.error)
-            ? (json.error?.message || json.message || JSON.stringify(json.error))
-            : `HTTP ${res.statusCode}: ${data.slice(0, 300)}`;
-          reject(new Error(msg));
-        }
-      });
-    });
-
-    req.on('error', (e) => {
-      const err = new Error(e.message || e.code || '网络请求失败');
-      err.code = e.code;
-      reject(err);
-    });
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('请求超时'));
-    });
-
-    if (body) {
-      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-      req.setHeader('Content-Length', Buffer.byteLength(bodyStr));
-      req.write(bodyStr);
-    }
-    req.end();
-  });
-}
-
-// ===== 轻量 HTTP 探测：返回状态码和响应体（用于提取错误信息） =====
-function probeEndpoint(url, { method = 'GET', headers = {}, body, timeoutMs = 8000 } = {}) {
-  return new Promise((resolve, reject) => {
-    let parsedUrl;
-    try {
-      parsedUrl = new URL(url);
-    } catch (e) {
-      reject(new Error('无效的 API 地址：' + e.message));
-      return;
-    }
-    const lib = parsedUrl.protocol === 'https:' ? https : http;
-    const options = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-      path: parsedUrl.pathname + parsedUrl.search,
-      method,
-      headers: { ...headers },
-      timeout: timeoutMs,
-    };
-    const req = lib.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => (data += chunk));
-      res.on('end', () => {
-        let json = null;
-        try { json = data ? JSON.parse(data) : null; } catch (_) {}
-        resolve({ status: res.statusCode, data: json, raw: data });
-      });
-    });
-    req.on('error', (e) => {
-      const err = new Error(e.message || e.code || '网络请求失败');
-      err.code = e.code;
-      reject(err);
-    });
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('连接超时，请检查网络或 API 地址'));
-    });
-    if (body) {
-      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-      req.setHeader('Content-Type', 'application/json');
-      req.setHeader('Content-Length', Buffer.byteLength(bodyStr));
-      req.write(bodyStr);
-    }
-    req.end();
-  });
-}
-
-// ===== 从 HTTP 响应中提取错误消息 =====
-function extractErrorMessage(result) {
-  if (!result) return '';
-  const d = result.data;
-  if (d) {
-    if (d.error && typeof d.error === 'object') return d.error.message || JSON.stringify(d.error);
-    if (d.error && typeof d.error === 'string') return d.error;
-    if (d.message) return d.message;
-    if (d.detail) return typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail);
-    if (d.msg) return d.msg;
-  }
-  if (result.raw) return result.raw.slice(0, 200);
-  return '';
-}
-
-// ===== 测试供应商连接（只有 API 调用成功才算通过，否则一律失败） =====
+// ===== 测试供应商连接（统一复用安全 HTTP 客户端） =====
 registerSecureHandler({
   ipcMain,
   channel: 'test-connection',
   getMainWindow: () => mainWindow,
   validate: (provider) => { validateProvider(provider, { allowApiKeyOverride: true }); },
   handle: async (_event, provider) => {
-  if (!provider || (!provider.providerId && !provider.endpoint)) throw new Error('请填写 API 地址');
+    if (!provider || (!provider.providerId && !provider.endpoint)) throw new Error('请填写 API 地址');
 
-  const trustedProvider = provider.providerId ? getTrustedProvider(provider.providerId, provider) : { endpoint: provider.endpoint, type: provider.type || provider.provider || '', apiKey: provider.apiKeyOverride || '' };
-  const apiKey = trustedProvider.apiKey;
-  const headers = {};
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const trustedProvider = provider.providerId
+      ? getTrustedProvider(provider.providerId, provider)
+      : { endpoint: provider.endpoint, type: provider.type || provider.provider || '', apiKey: provider.apiKeyOverride || '' };
+    const headers = {};
+    if (trustedProvider.apiKey) headers.Authorization = `Bearer ${trustedProvider.apiKey}`;
 
-  const ptype = String(trustedProvider.type).toLowerCase();
-  provider = { ...provider, endpoint: trustedProvider.endpoint };
-
-  // ---- Grsai：发 POST 请求验证，只有成功响应或明确的认证/参数错误才说明端点可达 ----
-  if (ptype === 'grsai') {
-    // 发送最简单的请求，Grsai 对各种情况都会快速返回 JSON
-    // 网络不通、地址错误才会超时或连接失败
-    const body = {
-      model: 'gpt-image-2',
-      prompt: 'test',
-    };
-    try {
-      const result = await probeEndpoint(provider.endpoint, { method: 'POST', headers, body, timeoutMs: 10000 });
-      const d = result.data;
-      const errMsg = extractErrorMessage(result);
-
-      // HTTP 2xx，且返回了任务ID或成功/运行中状态 → 完全成功
-      if (result.status >= 200 && result.status < 300) {
-        if (d && (d.status === 'succeeded' || d.status === 'running' || d.id)) {
-          return { ok: true, status: result.status };
-        }
-        // 2xx 但格式异常
-        return { ok: true, status: result.status };
+    if (String(trustedProvider.type).toLowerCase() === 'grsai') {
+      const result = await requestJson({
+        url: trustedProvider.endpoint,
+        method: 'POST',
+        headers,
+        body: { model: 'gpt-image-2', prompt: 'test' },
+        timeoutMs: 10000,
+      });
+      if (result.data && ['failed', 'violation'].includes(result.data.status)) {
+        throw new Error(result.data.status === 'violation' ? '供应商拒绝了测试请求' : '供应商未能完成测试请求');
       }
-
-      // 非 2xx 状态码，根据错误信息判断原因
-      const errorMsg = (d && d.error ? d.error : errMsg || '').toLowerCase();
-
-      // 404 → 地址错误
-      if (result.status === 404) {
-        throw new Error(`API 地址不存在（HTTP 404）：请检查 endpoint 是否正确`);
-      }
-
-      // API Key 相关错误
-      if (errorMsg.includes('apikey') || errorMsg.includes('api key') || errorMsg.includes('key is empty')) {
-        if (!apiKey) {
-          throw new Error('API 地址可达，但未填写 API Key');
-        }
-        throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
-      }
-
-      // 模型相关错误（说明端点和key都正确，只是模型参数问题）
-      if (errorMsg.includes('model')) {
-        return { ok: true, status: result.status, warning: `连接成功：${errMsg || '端点和认证有效'}` };
-      }
-
-      // 401/403 → 认证失败
-      if (result.status === 401 || result.status === 403) {
-        throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
-      }
-
-      // 其他 Grsai 返回的 JSON 错误 → 端点可达，返回具体错误
-      if (d && d.error) {
-        throw new Error(`请求失败（HTTP ${result.status}）：${errMsg}`);
-      }
-
-      // 其他非 JSON 响应
-      throw new Error(`连接失败（HTTP ${result.status}）：${errMsg || '未知错误'}`);
-    } catch (e) {
-      // 网络错误、超时等
-      if (e.message.includes('timeout') || e.message.includes('超时') || e.code === 'ETIMEDOUT' || e.code === 'ENOTFOUND' || e.code === 'ECONNREFUSED') {
-        throw new Error('连接超时或无法访问，请检查网络或 API 地址是否正确');
-      }
-      throw new Error(e.message || '连接失败');
-    }
-  }
-
-  // ---- OpenAI 兼容（agnes-ai / deepseek / openai / custom）----
-  // 调用 /models 端点，只有 2xx 才算成功
-  const modelsUrl = buildModelsUrl(provider.endpoint);
-  try {
-    const result = await probeEndpoint(modelsUrl, { method: 'GET', headers, timeoutMs: 8000 });
-    if (result.status >= 200 && result.status < 300) {
       return { ok: true, status: result.status };
     }
-    const errMsg = extractErrorMessage(result);
-    if (result.status === 401 || result.status === 403) {
-      throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
-    }
-    if (result.status === 404) {
-      throw new Error(`API 地址不存在（HTTP 404）：${errMsg || '请检查 endpoint 是否正确，应包含 /v1 路径'}`);
-    }
-    if (result.status === 400) {
-      throw new Error(`请求被拒绝（HTTP 400）：${errMsg || '参数错误'}`);
-    }
-    throw new Error(`连接失败（HTTP ${result.status}）：${errMsg || '未知错误'}`);
-  } catch (e) {
-    throw new Error(e.message || '连接失败');
-  }
+
+    const result = await requestJson({
+      url: buildModelsUrl(trustedProvider.endpoint),
+      method: 'GET',
+      headers,
+      timeoutMs: 8000,
+    });
+    return { ok: true, status: result.status };
   },
 });
 
@@ -897,6 +705,11 @@ function saveGeneratedImage(input, id) {
   }
 
   throw new Error('无法识别的图片返回格式');
+}
+
+function redactProviderSecret(value, apiKey) {
+  if (typeof value !== 'string' || !apiKey) return value;
+  return value.split(apiKey).join('[已隐藏]');
 }
 
 // ===== 从用户填写的 endpoint 推导出 /models 列表 URL =====
@@ -968,7 +781,7 @@ async function pollGrsaiResult({ model, id }) {
       return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
     }
     if (data.status === 'failed' || data.status === 'violation') {
-      throw new Error(data.error || `任务${data.status}`);
+      throw new Error(data.status === 'violation' ? '供应商拒绝了生成任务' : '供应商任务执行失败');
     }
     // running / 其它状态继续轮询
   }
@@ -1014,7 +827,7 @@ async function generateWithGrsai({ prompt, model, ratio, sourceImage }) {
   }
 
   // 失败 / 违规
-  throw new Error(data.error || `任务${data.status || '失败'}`);
+  throw new Error(data && data.status === 'violation' ? '供应商拒绝了生成任务' : '供应商任务执行失败');
 }
 
 // ===== OpenAI 兼容生图 =====
@@ -1050,7 +863,7 @@ async function generateWithOpenAI({ prompt, model, size, providerType }) {
       timeoutMs: 120000,
     });
   } catch (e) {
-    if (e.message && /response_format|b64|return_base64/i.test(e.message)) {
+    if (e && e.status === 400) {
       // 去掉格式相关字段重试
       const retryBody = { model: model.model, prompt, n: 1, size: size || '1024x1024' };
       result = await requestJson({
@@ -1191,23 +1004,12 @@ registerSecureHandler({
   const headers = {};
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-  let result;
-  try {
-    result = await probeEndpoint(modelsUrl, { method: 'GET', headers, timeoutMs: 15000 });
-  } catch (e) {
-    throw new Error('获取模型失败：' + (e.message || '网络请求失败'));
-  }
-
-  if (result.status < 200 || result.status >= 300) {
-    const errMsg = extractErrorMessage(result);
-    if (result.status === 401 || result.status === 403) {
-      throw new Error(`认证失败（HTTP ${result.status}）：${errMsg || 'API Key 无效或已过期'}`);
-    }
-    if (result.status === 404) {
-      throw new Error(`模型列表接口不存在（HTTP 404）：请检查 API 地址是否包含 /v1 路径`);
-    }
-    throw new Error(`获取模型失败（HTTP ${result.status}）：${errMsg || '未知错误'}`);
-  }
+  const result = await requestJson({
+    url: modelsUrl,
+    method: 'GET',
+    headers,
+    timeoutMs: 15000,
+  });
 
   const data = result.data;
   if (!data || !data.data || !Array.isArray(data.data)) {
@@ -1409,7 +1211,7 @@ registerSecureHandler({
     : null;
 
   if (!content) throw new Error('文本模型返回为空');
-  return { optimized: content.trim() };
+  return { optimized: redactProviderSecret(content.trim(), apiKey) };
   },
 });
 
@@ -1465,8 +1267,6 @@ registerSecureHandler({
     timeoutMs: 20000,
   });
 
-  console.log('[Summarize] 原始响应:', JSON.stringify(res).slice(0, 800));
-
   // 兼容多种响应格式：data.choices[0] 或 choices[0]
   let choice = null;
   if (res.data && res.data.choices && res.data.choices[0]) {
@@ -1488,8 +1288,7 @@ registerSecureHandler({
   // 清洗：去除换行、引号、前后空格、标点
   const cleaned = content.trim().replace(/[\n\r"'""''`]/g, '').replace(/[.。！!？?、,，]$/, '');
   // 严格截断为 10 字以内
-  const title = cleaned.length > 10 ? cleaned.slice(0, 10) : cleaned;
-  console.log('[Summarize] 提取标题:', title);
+  const title = redactProviderSecret(cleaned, apiKey).slice(0, 10);
   return { title };
   },
 });
