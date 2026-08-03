@@ -14,9 +14,15 @@ const {
   validateSuggestedName,
 } = require('./src/main/security/validators');
 const { registerSecureHandler } = require('./src/main/security/ipc');
+const { createImageFileAccess } = require('./src/main/security/image-files');
 
 let mainWindow = null;
 let updateInfoCache = null;
+const imageFileAccess = createImageFileAccess({
+  fsImpl: fs,
+  pathImpl: path,
+  getUserDataPath: () => app.getPath('userData'),
+});
 
 // GitHub Release 页面地址
 const RELEASE_URL = 'https://github.com/dick86114/miaos/releases/latest';
@@ -311,20 +317,6 @@ function validateTextPromptParams(params) {
   }
 }
 
-function validateGeneratedFilePath(filePath) {
-  const candidatePath = validateString(filePath, { field: '文件路径', minLength: 1, maxLength: 4096 });
-  const generatedDir = path.join(app.getPath('userData'), 'generated');
-  if (!fs.existsSync(generatedDir) || !fs.existsSync(candidatePath)) {
-    throw new Error('生成图片文件不存在');
-  }
-
-  const generatedRoot = fs.realpathSync(generatedDir);
-  const resolvedFilePath = fs.realpathSync(candidatePath);
-  if (!resolvedFilePath.startsWith(`${generatedRoot}${path.sep}`) || !fs.statSync(resolvedFilePath).isFile()) {
-    throw new Error('只能打开应用生成目录中的文件');
-  }
-}
-
 // 保存图片到磁盘（下载）
 registerSecureHandler({
   ipcMain,
@@ -355,7 +347,7 @@ registerSecureHandler({
       buffer = fs.readFileSync(dataUrl);
     }
     fs.writeFileSync(filePath, buffer);
-    return { ok: true, filePath };
+    return { ok: true, filePath: imageFileAccess.authorizePastedImage(filePath) };
   } catch (err) {
     return { ok: false, error: err.message };
   }
@@ -367,13 +359,11 @@ registerSecureHandler({
   ipcMain,
   channel: 'show-in-folder',
   getMainWindow: () => mainWindow,
-  validate: (filePath) => { validateGeneratedFilePath(filePath); },
+  validate: (filePath) => { imageFileAccess.resolveGeneratedFile(filePath); },
   handle: async (_event, filePath) => {
-  if (filePath && fs.existsSync(filePath)) {
-    shell.showItemInFolder(filePath);
-    return { ok: true };
-  }
-  return { ok: false };
+  const canonicalPath = imageFileAccess.resolveGeneratedFile(filePath);
+  shell.showItemInFolder(canonicalPath);
+  return { ok: true };
   },
 });
 
@@ -608,18 +598,7 @@ registerSecureHandler({
 
 // ===== 读取本地图片为 dataURL（图生图参考图） =====
 async function readLocalImageAsDataUrl(imageRef) {
-  let filePath = imageRef;
-  // file:// URL → 本地路径
-  if (typeof imageRef === 'string' && imageRef.startsWith('file://')) {
-    filePath = decodeURIComponent(imageRef.replace(/^file:\/\//, ''));
-  }
-  if (!filePath || typeof filePath !== 'string' || !fs.existsSync(filePath)) {
-    throw new Error('参考图文件不存在：' + imageRef);
-  }
-  const buf = fs.readFileSync(filePath);
-  const ext = path.extname(filePath).toLowerCase().replace('.', '') || 'png';
-  const mime = ext === 'jpg' ? 'jpeg' : ext;
-  return `data:image/${mime};base64,${buf.toString('base64')}`;
+  return imageFileAccess.readSourceImageAsDataUrl(imageRef);
 }
 
 // ===== 保存 base64/URL 图片到用户数据目录 =====
@@ -1019,11 +998,7 @@ registerSecureHandler({
   // 读取参考图为 base64 dataURL（图生图）
   let sourceImageDataUrl = null;
   if (sourceImage) {
-    try {
-      sourceImageDataUrl = await readLocalImageAsDataUrl(sourceImage);
-    } catch (e) {
-      throw new Error('读取参考图失败：' + e.message);
-    }
+    sourceImageDataUrl = await readLocalImageAsDataUrl(sourceImage);
   }
 
   if (ptype === 'grsai') {
@@ -1080,7 +1055,7 @@ registerSecureHandler({
     const fileName = `pasted-${Date.now()}.${ext}`;
     const filePath = path.join(tmpDir, fileName);
     fs.writeFileSync(filePath, buffer);
-    return { ok: true, filePath };
+    return { ok: true, filePath: imageFileAccess.authorizePastedImage(filePath) };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -1100,7 +1075,7 @@ registerSecureHandler({
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
   });
   if (result.canceled || !result.filePaths.length) return { canceled: true };
-  const filePath = result.filePaths[0];
+  const filePath = imageFileAccess.authorizePickedImage(result.filePaths[0]);
   return { canceled: false, filePath };
   },
 });
