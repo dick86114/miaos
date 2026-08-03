@@ -118,10 +118,14 @@ ipcMain.handle('update-configure', async (_event, opts) => {
 
 // 使用独立的应用数据目录。若目录不可写，立即阻止启动，避免静默降级到临时目录导致数据丢失。
 let shouldStartApp = true;
+const homePath = app.getPath('home');
+let userDataPath = null;
 try {
-  const userDataPath = resolveAppDataPath({ homePath: app.getPath('home'), fsImpl: fs });
-  app.setPath('userData', userDataPath);
+  userDataPath = resolveAppDataPath({ homePath, fsImpl: fs });
 } catch (error) {
+  if (!error || error.code !== 'APP_DATA_UNWRITABLE') {
+    throw error;
+  }
   shouldStartApp = false;
   process.exitCode = 1;
   dialog.showErrorBox('妙生无法启动', '应用数据目录不可写，请检查 ~/.miaos 权限。');
@@ -132,6 +136,7 @@ if (!shouldStartApp) {
   // 启动前数据目录不可写属于安全边界错误，退出后不再注册 IPC 或创建窗口。
   return;
 }
+app.setPath('userData', userDataPath);
 
 // 本应用为本地 file:// 应用，禁用硬件加速与渲染沙箱，
 // 避免 ad-hoc 签名环境下 GPU/Helper 进程因缺少 entitlements 而崩溃。
