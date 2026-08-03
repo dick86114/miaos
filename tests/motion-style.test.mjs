@@ -33,18 +33,77 @@ async function readCssFiles() {
 }
 
 function stripCssComments(css) {
-  return css.replace(/\/\*[\s\S]*?\*\//gu, '');
+  let result = '';
+  let mode = 'normal';
+  let quote = '';
+  let escaped = false;
+
+  for (let index = 0; index < css.length; index += 1) {
+    const character = css[index];
+    const nextCharacter = css[index + 1];
+
+    if (mode === 'comment') {
+      if (character === '*' && nextCharacter === '/') {
+        result += ' ';
+        mode = 'normal';
+        index += 1;
+      } else if (character === '\n' || character === '\r') {
+        result += character;
+      }
+      continue;
+    }
+
+    if (mode === 'string') {
+      result += character;
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === quote) {
+        mode = 'normal';
+        quote = '';
+      }
+      continue;
+    }
+
+    if (character === '/' && nextCharacter === '*') {
+      result += ' ';
+      mode = 'comment';
+      index += 1;
+    } else if (character === '"' || character === "'") {
+      result += character;
+      mode = 'string';
+      quote = character;
+    } else {
+      result += character;
+    }
+  }
+
+  return result;
 }
 
 function splitCssList(value) {
   const values = [];
   let depth = 0;
+  let quote = '';
+  let escaped = false;
   let start = 0;
 
   for (let index = 0; index < value.length; index += 1) {
-    if (value[index] === '(') depth += 1;
-    if (value[index] === ')') depth = Math.max(0, depth - 1);
-    if (value[index] === ',' && depth === 0) {
+    const character = value[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '(') {
+      depth += 1;
+    } else if (character === ')') {
+      depth = Math.max(0, depth - 1);
+    } else if (character === ',' && depth === 0) {
       values.push(value.slice(start, index).trim());
       start = index + 1;
     }
@@ -54,82 +113,208 @@ function splitCssList(value) {
   return values.filter(Boolean);
 }
 
+function findStructuralCharacter(css, target, start = 0, end = css.length) {
+  let quote = '';
+  let escaped = false;
+
+  for (let index = start; index < end; index += 1) {
+    const character = css[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === target) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 function findClosingBrace(css, openingBrace) {
   let depth = 1;
+  let quote = '';
+  let escaped = false;
+
   for (let index = openingBrace + 1; index < css.length; index += 1) {
-    if (css[index] === '{') depth += 1;
-    if (css[index] === '}') depth -= 1;
-    if (depth === 0) return index;
+    const character = css[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function splitDeclarations(content) {
+  const declarations = [];
+  let quote = '';
+  let escaped = false;
+  let start = 0;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ';') {
+      declarations.push(content.slice(start, index));
+      start = index + 1;
+    }
+  }
+
+  declarations.push(content.slice(start));
+  return declarations;
+}
+
+function findDeclarationColon(content) {
+  let quote = '';
+  let escaped = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ':') {
+      return index;
+    }
   }
   return -1;
 }
 
 function getDirectDeclarations(content) {
   const declarations = [];
-  const pattern = /(?:^|;)\s*([a-z-]+)\s*:\s*([^;]+?)(?=;|$)/giu;
 
-  for (const match of content.matchAll(pattern)) {
-    declarations.push({
-      property: match[1].toLowerCase(),
-      value: match[2].trim(),
-    });
+  for (const fragment of splitDeclarations(content)) {
+    const colon = findDeclarationColon(fragment);
+    if (colon < 0) continue;
+    const property = fragment.slice(0, colon).trim().toLowerCase();
+    const value = fragment.slice(colon + 1).trim();
+    if (/^[a-z-]+$/u.test(property) && value) declarations.push({ property, value });
   }
+
   return declarations;
 }
 
-function getCssRules(css, start = 0, end = css.length, contexts = []) {
-  const rules = [];
-  let cursor = start;
+function findLastSemicolon(content) {
+  let quote = '';
+  let escaped = false;
+  let lastSemicolon = -1;
 
-  while (cursor < end) {
-    const openingBrace = css.indexOf('{', cursor);
-    if (openingBrace < 0 || openingBrace >= end) break;
-    const closingBrace = findClosingBrace(css, openingBrace);
-    if (closingBrace < 0 || closingBrace > end) break;
-
-    const header = css.slice(cursor, openingBrace).trim();
-    const content = css.slice(openingBrace + 1, closingBrace);
-    const normalizedHeader = header.toLowerCase();
-
-    if (/^@media\b/u.test(normalizedHeader)) {
-      rules.push(...getCssRules(content, 0, content.length, [...contexts, normalizedHeader]));
-    } else if (!/^@(?:-[a-z]+-)?keyframes\b/u.test(normalizedHeader) && header) {
-      rules.push({
-        header,
-        contexts,
-        declarations: getDirectDeclarations(content),
-      });
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
     }
+    if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ';') {
+      lastSemicolon = index;
+    }
+  }
+  return lastSemicolon;
+}
+
+function splitRuleContent(content) {
+  const directFragments = [];
+  const blocks = [];
+  let cursor = 0;
+  let nextOpeningBrace = findStructuralCharacter(content, '{', cursor);
+
+  while (nextOpeningBrace >= 0) {
+    const closingBrace = findClosingBrace(content, nextOpeningBrace);
+    if (closingBrace < 0) break;
+
+    const beforeBlock = content.slice(cursor, nextOpeningBrace);
+    const lastSemicolon = findLastSemicolon(beforeBlock);
+    directFragments.push(beforeBlock.slice(0, lastSemicolon + 1));
+    const header = beforeBlock.slice(lastSemicolon + 1).trim();
+    if (header) blocks.push({ header, content: content.slice(nextOpeningBrace + 1, closingBrace) });
 
     cursor = closingBrace + 1;
+    nextOpeningBrace = findStructuralCharacter(content, '{', cursor);
   }
 
-  return rules;
+  directFragments.push(content.slice(cursor));
+  return {
+    directContent: directFragments.join('\n'),
+    blocks,
+  };
+}
+
+function parseRuleNode(header, content, contexts, result) {
+  const normalizedHeader = header.trim().toLowerCase();
+  if (!normalizedHeader) return;
+
+  const keyframeMatch = header.match(/^@(?:-[a-z]+-)?keyframes\s+([\w-]+)/iu);
+  if (keyframeMatch) {
+    result.keyframes.push({ name: keyframeMatch[1], block: content });
+    return;
+  }
+
+  const { directContent, blocks } = splitRuleContent(content);
+  if (normalizedHeader.startsWith('@')) {
+    for (const block of blocks) parseRuleNode(block.header, block.content, [...contexts, normalizedHeader], result);
+    return;
+  }
+
+  result.rules.push({
+    header: header.trim(),
+    contexts,
+    declarations: getDirectDeclarations(directContent),
+  });
+  for (const block of blocks) parseRuleNode(block.header, block.content, contexts, result);
+}
+
+function parseCss(css) {
+  const result = { rules: [], keyframes: [] };
+  const { blocks } = splitRuleContent(css);
+  for (const block of blocks) parseRuleNode(block.header, block.content, [], result);
+  return result;
+}
+
+function getCssRules(css) {
+  return parseCss(css).rules;
 }
 
 function getAtRuleBlock(css, atRule) {
-  const start = css.indexOf(atRule);
+  const start = css.toLowerCase().indexOf(atRule.toLowerCase());
   if (start < 0) return '';
-  const openingBrace = css.indexOf('{', start);
+  const openingBrace = findStructuralCharacter(css, '{', start);
   if (openingBrace < 0) return '';
   const closingBrace = findClosingBrace(css, openingBrace);
   return closingBrace < 0 ? '' : css.slice(openingBrace + 1, closingBrace);
 }
 
 function getKeyframes(css) {
-  const keyframes = [];
-  const pattern = /@(?:-[a-z]+-)?keyframes\s+([\w-]+)/giu;
-
-  for (const match of css.matchAll(pattern)) {
-    const openingBrace = css.indexOf('{', match.index);
-    const closingBrace = openingBrace < 0 ? -1 : findClosingBrace(css, openingBrace);
-    if (closingBrace < 0) continue;
-    keyframes.push({
-      name: match[1],
-      block: css.slice(openingBrace + 1, closingBrace),
-    });
-  }
-  return keyframes;
+  return parseCss(css).keyframes;
 }
 
 function isReduceMotionRule(rule) {
@@ -355,6 +540,19 @@ test('所有关键帧仅修改 transform 或 opacity 合成属性', async () => 
   assert.deepEqual(problems, []);
 });
 
+test('嵌套容器中的全部关键帧步骤仍受合成属性白名单约束', () => {
+  const css = stripCssComments(`
+    @layer motion {
+      @keyframes nested-safe { from { opacity: 0; } 50% { transform: translateY(0); } }
+      @keyframes nested-unsafe { to { filter: blur(2px); } }
+    }
+  `);
+
+  assert.deepEqual(getKeyframeProblems(css), [
+    '@keyframes nested-unsafe 修改了不允许的属性 filter',
+  ]);
+});
+
 test('减少动态效果模式会让波浪进度保持可见且不循环', async () => {
   const pagesCss = stripCssComments(await readFile(path.join(cssDirectory, 'pages.css'), 'utf8'));
   const reduceMotion = getAtRuleBlock(pagesCss, '@media (prefers-reduced-motion: reduce)');
@@ -373,4 +571,69 @@ test('全局减少动态效果模式会缩短过渡并停止循环动画', async
   assert.match(reduceMotion, /transition-duration:\s*1ms\s*!important\s*;/u);
   assert.match(reduceMotion, /animation-duration:\s*1ms\s*!important\s*;/u);
   assert.match(reduceMotion, /animation-iteration-count:\s*1\s*!important\s*;/u);
+});
+
+test('字符串中的注释起始符不会吞掉后续 transition-property 规则', () => {
+  const css = stripCssComments(`
+    .content::before { content: "/*"; }
+    .escaped::before { content: "已转义 \\" /*"; }
+    .after { transition-property: ALL; }
+    /* 实际注释 */
+  `);
+  const problems = getTransitionProblems(getCssRules(css));
+
+  assert.equal(problems.some((problem) => problem.includes('transition-property 使用 all')), true);
+});
+
+test('通用容器 at-rule 内的硬编码 animation 与 transition-property all 都会被发现', () => {
+  const css = stripCssComments(`
+    @supports (display: grid) {
+      .bad-animation { animation: pulse 120ms ease; }
+    }
+    @container card (width > 20rem) {
+      .bad-transition { transition-property: all; }
+    }
+    @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }
+  `);
+  const rules = getCssRules(css);
+  const keyframeNames = new Set(getKeyframes(css).map(({ name }) => name.toLowerCase()));
+
+  assert.equal(rules.some((rule) => rule.header === '.bad-animation'), true);
+  assert.equal(rules.some((rule) => rule.header === '.bad-transition'), true);
+  assert.equal(getAnimationProblems(rules, keyframeNames).some((problem) => problem.includes('必须使用运动时长变量')), true);
+  assert.equal(getTransitionProblems(rules).some((problem) => problem.includes('transition-property 使用 all')), true);
+});
+
+test('嵌套容器内受控 animation longhand 通过且无尾分号仍会解析', () => {
+  const css = stripCssComments(`
+    @layer motion {
+      @supports (display: grid) {
+        .valid {
+          animation-name: pulse;
+          animation-duration: var(--motion-fast);
+          animation-timing-function: var(--motion-ease)
+        }
+      }
+    }
+    @keyframes pulse { from { opacity: 0; } to { transform: translateY(0); } }
+  `);
+  const rules = getCssRules(css);
+  const keyframeNames = new Set(getKeyframes(css).map(({ name }) => name.toLowerCase()));
+
+  assert.equal(rules.some((rule) => rule.header === '.valid'), true);
+  assert.deepEqual(getAnimationProblems(rules, keyframeNames), []);
+});
+
+test('嵌套 selector 保持独立规则，不会被父规则当作 declaration', () => {
+  const css = stripCssComments(`
+    .parent {
+      color: var(--ink);
+      & .child { transition-property: all; }
+    }
+  `);
+  const rules = getCssRules(css);
+
+  assert.equal(rules.some((rule) => rule.header === '.parent'), true);
+  assert.equal(rules.some((rule) => rule.header === '& .child'), true);
+  assert.equal(getTransitionProblems(rules).some((problem) => problem.includes('transition-property 使用 all')), true);
 });
