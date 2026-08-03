@@ -6,6 +6,7 @@ import { renderProject } from './pages/project.js';
 import { renderHistory } from './pages/history.js';
 import { renderDetail } from './pages/detail.js';
 import { renderSettings } from './pages/settings.js';
+import { createPageErrorState, mountPage } from './ui.js';
 
 const ROUTES = [
   { pattern: /^\/generate\/?$/, render: renderGenerate },
@@ -16,59 +17,94 @@ const ROUTES = [
   { pattern: /^\/detail\/([^/]+)\/?$/, render: renderDetail },
 ];
 
-let mainContainer = null;
-let navItems = [];
+export function createRouter({ routes = ROUTES, windowRef = window } = {}) {
+  let mainContainer = null;
+  let navItems = [];
+  let currentCleanup = null;
+
+  function parseHash() {
+    let hash = windowRef.location.hash.replace(/^#/, '');
+    if (!hash) hash = '/generate';
+    if (!hash.startsWith('/')) hash = '/' + hash;
+    return hash;
+  }
+
+  function updateNav(activeKey) {
+    navItems.forEach((item) => {
+      const key = item.getAttribute('data-nav-key');
+      item.setAttribute('data-active', String(key === activeKey));
+    });
+  }
+
+  function cleanupCurrentPage() {
+    try {
+      if (typeof currentCleanup === 'function') currentCleanup();
+    } catch (error) {
+      console.error('页面清理失败：', error);
+    } finally {
+      currentCleanup = null;
+    }
+  }
+
+  function showRenderError() {
+    const retry = () => dispatch();
+    mountPage(mainContainer, createPageErrorState(), { retry });
+  }
+
+  function dispatch() {
+    const path = parseHash();
+    let activeKey = 'generate';
+    if (path.startsWith('/projects') || path.startsWith('/project')) activeKey = 'projects';
+    else if (path.startsWith('/history')) activeKey = 'history';
+    else if (path.startsWith('/settings')) activeKey = 'settings';
+    else if (path.startsWith('/detail')) activeKey = 'history';
+    updateNav(activeKey);
+
+    for (const route of routes) {
+      const match = route.pattern.exec(path);
+      if (!match) continue;
+
+      cleanupCurrentPage();
+      try {
+        const cleanup = route.render(mainContainer, match.slice(1));
+        currentCleanup = typeof cleanup === 'function' ? cleanup : null;
+      } catch (error) {
+        console.error('页面渲染失败：', error);
+        showRenderError();
+      }
+      mainContainer?.scrollTo?.({ top: 0 });
+      return;
+    }
+
+    // 未知路由 → 生图
+    navigate('/generate');
+  }
+
+  function init(container, items) {
+    mainContainer = container;
+    navItems = items;
+    windowRef.addEventListener('hashchange', dispatch);
+    dispatch();
+  }
+
+  function navigate(path) {
+    const target = path.startsWith('#') ? path : '#' + (path.startsWith('/') ? path : '/' + path);
+    if (windowRef.location.hash === target) {
+      dispatch(); // 同址也刷新
+    } else {
+      windowRef.location.hash = target;
+    }
+  }
+
+  return { init, navigate, dispatch };
+}
+
+const appRouter = createRouter();
 
 export function initRouter(container, items) {
-  mainContainer = container;
-  navItems = items;
-  window.addEventListener('hashchange', dispatch);
-  dispatch();
+  appRouter.init(container, items);
 }
 
 export function navigate(path) {
-  if (!path.startsWith('#')) path = '#' + (path.startsWith('/') ? path : '/' + path);
-  if (window.location.hash === path) {
-    dispatch(); // 同址也刷新
-  } else {
-    window.location.hash = path;
-  }
-}
-
-function parseHash() {
-  let h = window.location.hash.replace(/^#/, '');
-  if (!h) h = '/generate';
-  if (!h.startsWith('/')) h = '/' + h;
-  return h;
-}
-
-function updateNav(activeKey) {
-  navItems.forEach((item) => {
-    const key = item.getAttribute('data-nav-key');
-    item.setAttribute('data-active', String(key === activeKey));
-  });
-}
-
-function dispatch() {
-  const path = parseHash();
-  // 计算高亮的导航项
-  let activeKey = 'generate';
-  if (path.startsWith('/projects') || path.startsWith('/project')) activeKey = 'projects';
-  else if (path.startsWith('/history')) activeKey = 'history';
-  else if (path.startsWith('/settings')) activeKey = 'settings';
-  else if (path.startsWith('/detail')) activeKey = 'history'; // 详情页高亮"历史"
-  updateNav(activeKey);
-
-  for (const route of ROUTES) {
-    const match = route.pattern.exec(path);
-    if (match) {
-      const params = match.slice(1);
-      route.render(mainContainer, params);
-      // 滚动到顶部
-      mainContainer.scrollTo({ top: 0 });
-      return;
-    }
-  }
-  // 未知路由 → 生图
-  navigate('/generate');
+  appRouter.navigate(path);
 }

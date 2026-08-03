@@ -178,8 +178,18 @@ export function renderGenerate(container) {
 
   // ===== 通用下拉控制 =====
   let openDropdown = null;
+  let dropdownCloseTimer = null;
+  let dropdownCloseListener = null;
 
   function closeDropdown() {
+    if (dropdownCloseTimer !== null) {
+      clearTimeout(dropdownCloseTimer);
+      dropdownCloseTimer = null;
+    }
+    if (dropdownCloseListener) {
+      document.removeEventListener('click', dropdownCloseListener);
+      dropdownCloseListener = null;
+    }
     if (openDropdown) {
       openDropdown.remove();
       openDropdown = null;
@@ -195,15 +205,13 @@ export function renderGenerate(container) {
     renderIcons(dd);
     openDropdown = dd;
 
-    // 点击外部关闭
-    setTimeout(() => {
-      const handler = (e) => {
-        if (!chip.contains(e.target)) {
-          closeDropdown();
-          document.removeEventListener('click', handler);
-        }
+    // 延迟注册，避免当前点击立即关闭下拉框。
+    dropdownCloseTimer = setTimeout(() => {
+      dropdownCloseTimer = null;
+      dropdownCloseListener = (event) => {
+        if (!chip.contains(event.target)) closeDropdown();
       };
-      document.addEventListener('click', handler);
+      document.addEventListener('click', dropdownCloseListener);
     }, 0);
   }
 
@@ -592,7 +600,10 @@ export function renderGenerate(container) {
     });
   }
 
+  let closeLightbox = null;
+
   function openLightbox(t) {
+    closeLightbox?.();
     const providerText = t.providerName || '未知供应商';
     const modelText = t.modelId || '未知模型';
     const overlay = htmlToElement(`
@@ -624,12 +635,18 @@ export function renderGenerate(container) {
     `);
     document.body.appendChild(overlay);
     renderIcons(overlay);
-    const close = () => overlay.remove();
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+    const esc = (event) => {
+      if (event.key === 'Escape') close();
+    };
+    const close = () => {
+      overlay.remove();
+      document.removeEventListener('keydown', esc);
+      if (closeLightbox === close) closeLightbox = null;
+    };
+    closeLightbox = close;
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
     overlay.querySelector('#lightbox-close').addEventListener('click', close);
-    document.addEventListener('keydown', function esc(e) {
-      if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); }
-    });
+    document.addEventListener('keydown', esc);
     overlay.querySelector('#lb-download').addEventListener('click', () => downloadImage(t.result.image, t.result.id));
     overlay.querySelector('#lb-copy').addEventListener('click', async () => {
       try { await navigator.clipboard.writeText(t.prompt); toast('提示词已复制', 'success'); } catch { toast('复制失败', 'error'); }
@@ -639,13 +656,11 @@ export function renderGenerate(container) {
   const unsubscribe = queue.subscribe(renderTasks);
   renderTasks(queue.getTasks());
 
-  const observer = new MutationObserver(() => {
-    if (!document.contains(root)) {
-      unsubscribe();
-      observer.disconnect();
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
+  return () => {
+    closeDropdown();
+    closeLightbox?.();
+    unsubscribe();
+  };
 }
 
 async function downloadImage(src, id) {

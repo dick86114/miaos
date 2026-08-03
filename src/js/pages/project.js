@@ -49,7 +49,8 @@ export function renderProject(container, params) {
     return;
   }
 
-  renderWorkbench(container, project);
+  let workbenchCleanup = null;
+  return renderWorkbench(container, project);
 
   // 根据版本获取其父图（供 buildTimelineHtml 和 renderWorkbench 共用）
   function getParentImage(ver, proj) {
@@ -113,6 +114,8 @@ export function renderProject(container, params) {
   }
 
   function renderWorkbench(container, project) {
+    workbenchCleanup?.();
+    workbenchCleanup = null;
     const curVer = project.versions.find((v) => v.id === project.currentVersionId) || project.versions[0];
     const isChild = !!curVer.parentId;
     const providers = getProviders();
@@ -350,6 +353,7 @@ export function renderProject(container, params) {
     renderIcons(root);
 
     // ============= 交互 =============
+    let closeLightbox = null;
     const promptInput = root.querySelector('#version-prompt');
     const btnGenerate = root.querySelector('#btn-generate');
     const btnNewRoot = root.querySelector('#btn-new-root');
@@ -425,7 +429,17 @@ export function renderProject(container, params) {
 
     // 通用下拉
     let openDropdown = null;
+    let dropdownCloseTimer = null;
+    let dropdownCloseListener = null;
     function closeDropdown() {
+      if (dropdownCloseTimer !== null) {
+        clearTimeout(dropdownCloseTimer);
+        dropdownCloseTimer = null;
+      }
+      if (dropdownCloseListener) {
+        document.removeEventListener('click', dropdownCloseListener);
+        dropdownCloseListener = null;
+      }
       if (openDropdown) { openDropdown.remove(); openDropdown = null; }
       root.querySelectorAll('.composer-chip.is-open').forEach((c) => c.classList.remove('is-open'));
     }
@@ -436,11 +450,13 @@ export function renderProject(container, params) {
       chip.classList.add('is-open');
       renderIcons(dd);
       openDropdown = dd;
-      setTimeout(() => {
-        const handler = (e) => {
-          if (!chip.contains(e.target)) { closeDropdown(); document.removeEventListener('click', handler); }
+      // 延迟注册，避免当前点击立即关闭下拉框。
+      dropdownCloseTimer = setTimeout(() => {
+        dropdownCloseTimer = null;
+        dropdownCloseListener = (event) => {
+          if (!chip.contains(event.target)) closeDropdown();
         };
-        document.addEventListener('click', handler);
+        document.addEventListener('click', dropdownCloseListener);
       }, 0);
     }
 
@@ -765,7 +781,7 @@ export function renderProject(container, params) {
         const fresh = getProject(project.id);
         const v = fresh.versions.find((x) => x.id === fresh.currentVersionId);
         const img = v.images.find((i) => i.id === imgId);
-        if (img) openLightbox(img, v);
+        if (img) { closeLightbox?.(); closeLightbox = openLightbox(img, v); }
         return;
       }
       if (!btn) return;
@@ -780,7 +796,8 @@ export function renderProject(container, params) {
       if (!img) return;
 
       if (act === 'zoom') {
-        openLightbox(img, v);
+        closeLightbox?.();
+        closeLightbox = openLightbox(img, v);
       } else if (act === 'derive') {
         openDeriveDialog(project.id, v.id, container, renderWorkbench, img.id);
       } else if (act === 'cover') {
@@ -856,10 +873,6 @@ export function renderProject(container, params) {
       }
     }
     const unsubscribe = queue.subscribe(refreshGallery);
-    const observer = new MutationObserver(() => {
-      if (!document.contains(root)) { unsubscribe(); observer.disconnect(); }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
 
     // ========== 项目设置 / 删除 ==========
     root.querySelector('#btn-settings').addEventListener('click', () => {
@@ -874,6 +887,14 @@ export function renderProject(container, params) {
       toast('项目已删除', 'success');
       navigate('/projects');
     });
+
+    const cleanup = () => {
+      closeDropdown();
+      closeLightbox?.();
+      unsubscribe();
+    };
+    workbenchCleanup = cleanup;
+    return cleanup;
   }
 }
 
@@ -997,17 +1018,22 @@ function openLightbox(img, version) {
   `);
   document.body.appendChild(overlay);
   renderIcons(overlay);
-  const close = () => overlay.remove();
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  const esc = (event) => {
+    if (event.key === 'Escape') close();
+  };
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener('keydown', esc);
+  };
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
   overlay.querySelector('#lightbox-close').addEventListener('click', close);
-  document.addEventListener('keydown', function esc(e) {
-    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); }
-  });
+  document.addEventListener('keydown', esc);
   overlay.querySelector('#lb-download').addEventListener('click', () => downloadImage(img.image, img.id));
   overlay.querySelector('#lb-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
     catch { toast('复制失败', 'error'); }
   });
+  return close;
 }
 function openSettingsDialog(project, onUpdated) {
   const overlay = htmlToElement(`

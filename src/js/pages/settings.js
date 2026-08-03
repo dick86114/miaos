@@ -82,7 +82,11 @@ export function renderSettings(container) {
 
   refresh();
   loadVersion();
-  bindUpdateEvents();
+  const unsubscribeUpdateStatus = bindUpdateEvents();
+
+  return () => {
+    unsubscribeUpdateStatus?.();
+  };
 
   function getInner() { return root.querySelector('.settings-layout'); }
 
@@ -980,8 +984,8 @@ export function renderSettings(container) {
   }
 
   function bindUpdateEvents() {
-    if (!window.api || !window.api.onUpdateStatus) return;
-    window.api.onUpdateStatus((payload) => {
+    if (!window.api || !window.api.onUpdateStatus) return null;
+    return window.api.onUpdateStatus((payload) => {
       handleUpdateEvent(payload);
     });
   }

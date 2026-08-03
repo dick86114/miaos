@@ -46,11 +46,39 @@ export function htmlToElement(html) {
   return tpl.content.firstElementChild;
 }
 
-// 渲染容器内图标 + 触发进入动画
-export function mountPage(container, element) {
-  container.innerHTML = '';
+// 创建可恢复的页面渲染错误状态，避免异常后只留下空白区域。
+export function createPageErrorState() {
+  const root = document.createElement('section');
+  root.className = 'page-error-state';
+
+  const title = document.createElement('h1');
+  title.className = 'page-title';
+  title.textContent = '页面加载失败';
+  root.appendChild(title);
+
+  const message = document.createElement('p');
+  message.className = 'page-subtitle';
+  message.textContent = '页面出现异常，请重新加载后再试。';
+  root.appendChild(message);
+
+  const retryButton = document.createElement('button');
+  retryButton.type = 'button';
+  retryButton.className = 'btn btn-primary';
+  retryButton.setAttribute('data-page-retry', 'true');
+  retryButton.textContent = '重新加载';
+  root.appendChild(retryButton);
+
+  return root;
+}
+
+// 渲染容器内图标 + 触发进入动画。传入 retry 时绑定错误状态的重试按钮。
+export function mountPage(container, element, options = {}) {
+  container.replaceChildren(element);
   element.classList.add('page-enter');
-  container.appendChild(element);
+  if (typeof options.retry === 'function') {
+    const retryButton = element.querySelector('[data-page-retry]');
+    retryButton?.addEventListener('click', options.retry);
+  }
   renderIcons(container);
 }
 
