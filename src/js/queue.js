@@ -8,10 +8,19 @@ import { generateImage, generateSmart, uid } from './store.js';
 let tasks = [];
 let running = false;
 const listeners = new Set();
+let notifyScheduled = false;
 
-function notify() {
-  // 拷贝一份给订阅者，避免外部误改
-  const snapshot = tasks.map((t) => ({ ...t }));
+function createSnapshot(taskList = tasks) {
+  // 任务结果可能包含嵌套数据，必须深拷贝，避免订阅方反向污染队列内部状态。
+  if (typeof structuredClone === 'function') return structuredClone(taskList);
+  return JSON.parse(JSON.stringify(taskList));
+}
+
+function flushNotifications() {
+  notifyScheduled = false;
+  if (listeners.size === 0) return;
+  const snapshot = createSnapshot();
+  // 使用当前 listener 集合，已取消订阅的 listener 不会收到待发送的旧通知。
   listeners.forEach((fn) => {
     try {
       fn(snapshot);
@@ -19,6 +28,13 @@ function notify() {
       console.warn('queue listener error', e);
     }
   });
+}
+
+function notify() {
+  // 同一事件循环内的状态变化只发送一次最终快照，减少页面重复全量渲染。
+  if (notifyScheduled) return;
+  notifyScheduled = true;
+  queueMicrotask(flushNotifications);
 }
 
 function findNext() {
@@ -149,12 +165,12 @@ export function removeTask(taskId) {
 
 // 获取全部任务（倒序）
 export function getTasks() {
-  return tasks.map((t) => ({ ...t }));
+  return createSnapshot();
 }
 
 // 按项目版本过滤（用于项目画廊占位卡片）
 export function getTasksByVersion(versionId) {
-  return tasks.filter((t) => t.versionId === versionId).map((t) => ({ ...t }));
+  return createSnapshot(tasks.filter((task) => task.versionId === versionId));
 }
 
 // 订阅状态变化，返回取消订阅函数

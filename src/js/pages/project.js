@@ -1,6 +1,6 @@
 // 项目工作台：横向时间轴（主线节点+分支卡片） + 详情面板
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, withButtonLoading, createEventLoopGuard } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, withButtonLoading, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
 import {
   getProject,
   updateProject,
@@ -238,22 +238,6 @@ export function renderProject(container, params) {
         </div>`;
     }
 
-    function renderGalleryContent(versionId, images) {
-      const visibleTasks = queue.getTasksByVersion(versionId).filter(
-        (t) => t.status === 'queued' || t.status === 'running' || t.status === 'failed'
-      );
-      const placeholders = visibleTasks.map(taskPlaceholderHtml).join('');
-      const imgs = images.length ? images.map(galleryItemHtml).join('') : '';
-      if (!placeholders && !imgs) {
-        return `<div class="gallery-empty">${icon('image', 32)}<span>${isChild
-          ? '此分支基于父图派生，修改提示词后点击「生成图片」图生图迭代'
-          : '该主线还没有生成图片，填写提示词后点击「生成图片」'}</span></div>`;
-      }
-      return placeholders + imgs;
-    }
-
-    const galleryHtml = renderGalleryContent(curVer.id, curVer.images);
-
     // ============= 详情面板 =============
     const typeBadge = isChild
       ? `<span class="pwb-type-badge branch">${icon('git-branch', 12)}分支</span>`
@@ -368,7 +352,10 @@ export function renderProject(container, params) {
                 <span class="gallery-title">生成结果</span>
                 <span class="gallery-count" id="gallery-count">${curVer.images.length} 张图片</span>
               </div>
-              <div class="gallery-grid" id="gallery-grid">${galleryHtml}</div>
+              <div class="gallery-empty" id="gallery-empty" hidden>${icon('image', 32)}<span>${isChild
+                ? '此分支基于父图派生，修改提示词后点击「生成图片」图生图迭代'
+                : '该主线还没有生成图片，填写提示词后点击「生成图片」'}</span></div>
+              <div class="gallery-grid" id="gallery-grid"></div>
             </div>
           </div>
         </div>
@@ -376,6 +363,49 @@ export function renderProject(container, params) {
     `);
     mountPage(container, root);
     renderIcons(root);
+
+    // 画廊图片与队列占位卡片使用同一稳定列表；队列变化只更新受影响项，不重建已有图片节点。
+    const galleryGrid = root.querySelector('#gallery-grid');
+    const galleryEmpty = root.querySelector('#gallery-empty');
+    const galleryRenderer = createKeyedListRenderer(galleryGrid, {
+      getKey: (record) => record.key,
+      getSignature: (record) => record.signature,
+      createNode: (record) => htmlToElement(record.html),
+      updateNode: (node, record) => updateGalleryNode(node, record.html),
+      afterNode: (node) => renderIcons(node),
+    });
+
+    function updateGalleryNode(node, html) {
+      const next = htmlToElement(html);
+      node.className = next.className;
+      ['data-task-id', 'data-image-id'].forEach((attribute) => node.removeAttribute(attribute));
+      Array.from(next.attributes).forEach((attribute) => node.setAttribute(attribute.name, attribute.value));
+      node.replaceChildren(...Array.from(next.childNodes));
+    }
+
+    function getGalleryRecords(version, tasks = queue.getTasks()) {
+      const taskRecords = tasks
+        .filter((task) => task.versionId === version.id && ['queued', 'running', 'failed'].includes(task.status))
+        .map((task) => ({
+          key: `task:${task.id}`,
+          signature: JSON.stringify(task),
+          html: taskPlaceholderHtml(task),
+        }));
+      const imageRecords = version.images.map((image) => ({
+        key: `image:${image.id}`,
+        signature: JSON.stringify(image),
+        html: galleryItemHtml(image),
+      }));
+      return [...taskRecords, ...imageRecords];
+    }
+
+    function renderGalleryCards(version, tasks) {
+      const records = getGalleryRecords(version, tasks);
+      galleryRenderer.render(records);
+      galleryEmpty.hidden = records.length > 0;
+    }
+
+    renderGalleryCards(curVer, queue.getTasks());
 
     // ============= 交互 =============
     const pageLifecycle = createProjectPageLifecycle();
@@ -793,7 +823,6 @@ export function renderProject(container, params) {
     });
 
     // ========== 画廊操作 ==========
-    const galleryGrid = root.querySelector('#gallery-grid');
     galleryGrid.addEventListener('click', async (e) => {
       // 取消排队任务
       const cancelBtn = e.target.closest('.task-cancel');
@@ -847,13 +876,12 @@ export function renderProject(container, params) {
     });
 
     // ========== 刷新画廊（队列变化时） ==========
-    function refreshGallery() {
+    function refreshGallery(tasks = queue.getTasks()) {
       const fresh = getProject(project.id);
       if (!fresh) return;
       const v = fresh.versions.find((x) => x.id === fresh.currentVersionId);
       if (!v) return;
-      galleryGrid.innerHTML = renderGalleryContent(v.id, v.images);
-      renderIcons(galleryGrid);
+      renderGalleryCards(v, tasks);
       const countEl = root.querySelector('#gallery-count');
       if (countEl) countEl.textContent = `${v.images.length} 张图片`;
 

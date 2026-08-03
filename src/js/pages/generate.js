@@ -1,6 +1,6 @@
 // 生图页：豆包风格 Composer 布局 + 全局任务队列
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, withButtonLoading, createEventLoopGuard } from '../ui.js';
+import { mountPage, htmlToElement, toast, withButtonLoading, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
 import {
   getProviders,
   getDefaultProvider,
@@ -430,52 +430,75 @@ export function renderGenerate(container) {
   // 初始化
   updateModelChip();
 
-  // ===== 订阅队列，渲染结果区 =====
-  function renderTasks(tasks) {
-    const quick = tasks.filter((t) => t.source === 'quick');
-    if (quick.length === 0) {
-      resultArea.innerHTML = `
-        <div class="empty-state">
-          ${icon('image', 40)}
-          <span class="empty-state-text">生成的图片将显示在这里</span>
-        </div>`;
-      renderIcons(resultArea);
-      return;
-    }
+  // ===== 订阅队列，局部更新结果区 =====
+  // 结构只创建一次；后续队列通知仅批量移动、创建或更新对应任务卡片。
+  const queueView = htmlToElement(`
+    <div class="queue-result-view">
+      <div class="empty-state" data-queue-empty>
+        ${icon('image', 40)}
+        <span class="empty-state-text">生成的图片将显示在这里</span>
+      </div>
+      <section class="queue-section" data-queue-active hidden>
+        <div class="queue-header">
+          <span class="queue-title">${icon('loader', 14)}生成中</span>
+          <span class="queue-count" data-queue-active-count>0 个任务</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-queue-cancel-all hidden>${icon('x', 14)}<span>取消未开始</span></button>
+        </div>
+        <div class="queue-list" data-queue-active-list></div>
+      </section>
+      <section class="queue-section" data-queue-finished hidden>
+        <div class="queue-header">
+          <span class="queue-title">最近完成</span>
+          <button type="button" class="btn btn-ghost btn-sm" data-queue-clear-finished>${icon('trash-2', 14)}<span>清空</span></button>
+        </div>
+        <div class="queue-list" data-queue-finished-list></div>
+      </section>
+    </div>
+  `);
+  resultArea.replaceChildren(queueView);
+  renderIcons(queueView);
 
-    const active = quick.filter((t) => t.status === 'queued' || t.status === 'running');
-    const finished = quick.filter((t) => t.status === 'done' || t.status === 'failed' || t.status === 'canceled')
+  const emptyQueueState = queueView.querySelector('[data-queue-empty]');
+  const activeSection = queueView.querySelector('[data-queue-active]');
+  const activeCount = queueView.querySelector('[data-queue-active-count]');
+  const cancelAllQueued = queueView.querySelector('[data-queue-cancel-all]');
+  const finishedSection = queueView.querySelector('[data-queue-finished]');
+  const activeTaskRenderer = createKeyedListRenderer(queueView.querySelector('[data-queue-active-list]'), {
+    getKey: (task) => task.id,
+    getSignature: (task) => JSON.stringify(task),
+    createNode: (task) => htmlToElement(taskCardHtml(task)),
+    updateNode: (node, task) => updateTaskCard(node, task),
+    afterNode: (node) => renderIcons(node),
+  });
+  const finishedTaskRenderer = createKeyedListRenderer(queueView.querySelector('[data-queue-finished-list]'), {
+    getKey: (task) => task.id,
+    getSignature: (task) => JSON.stringify(task),
+    createNode: (task) => htmlToElement(taskCardHtml(task)),
+    updateNode: (node, task) => updateTaskCard(node, task),
+    afterNode: (node) => renderIcons(node),
+  });
+
+  function updateTaskCard(node, task) {
+    const next = htmlToElement(taskCardHtml(task));
+    node.className = next.className;
+    node.setAttribute('data-task-id', task.id);
+    node.replaceChildren(...Array.from(next.childNodes));
+  }
+
+  function renderTasks(tasks) {
+    const quick = tasks.filter((task) => task.source === 'quick');
+    const active = quick.filter((task) => task.status === 'queued' || task.status === 'running');
+    const finished = quick
+      .filter((task) => task.status === 'done' || task.status === 'failed' || task.status === 'canceled')
       .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
 
-    const activeHtml = active.map(taskCardHtml).join('');
-    const finishedHtml = finished.map(taskCardHtml).join('');
-
-    const parts = [];
-    if (activeHtml) {
-      parts.push(`
-        <div class="queue-section">
-          <div class="queue-header">
-            <span class="queue-title">${icon('loader', 14)}生成中</span>
-            <span class="queue-count">${active.length} 个任务</span>
-            ${active.some((t) => t.status === 'queued') ? `<button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-all-queued">${icon('x', 14)}<span>取消未开始</span></button>` : ''}
-          </div>
-          <div class="queue-list">${activeHtml}</div>
-        </div>`);
-    }
-    if (finishedHtml) {
-      parts.push(`
-        <div class="queue-section">
-          <div class="queue-header">
-            <span class="queue-title">最近完成</span>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-clear-finished">${icon('trash-2', 14)}<span>清空</span></button>
-          </div>
-          <div class="queue-list">${finishedHtml}</div>
-        </div>`);
-    }
-
-    resultArea.innerHTML = parts.join('');
-    renderIcons(resultArea);
-    bindTaskActions();
+    activeTaskRenderer.render(active);
+    finishedTaskRenderer.render(finished);
+    emptyQueueState.hidden = quick.length > 0;
+    activeSection.hidden = active.length === 0;
+    finishedSection.hidden = finished.length === 0;
+    activeCount.textContent = `${active.length} 个任务`;
+    cancelAllQueued.hidden = !active.some((task) => task.status === 'queued');
   }
 
   function taskCardHtml(t) {
@@ -556,54 +579,45 @@ export function renderGenerate(container) {
       </div>`;
   }
 
-  function bindTaskActions() {
-    resultArea.querySelectorAll('.task-cancel').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        queue.cancel(btn.getAttribute('data-task-id'));
-      });
-    });
-    resultArea.querySelectorAll('.task-dismiss').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        queue.removeTask(btn.getAttribute('data-task-id'));
-      });
-    });
-    const cancelAllBtn = resultArea.querySelector('#btn-cancel-all-queued');
-    if (cancelAllBtn) {
-      cancelAllBtn.addEventListener('click', () => {
-        queue.cancelAll((t) => t.source === 'quick' && t.status === 'queued');
-        toast('已取消未开始的任务', 'success');
-      });
+  // 统一委托队列卡片操作，列表局部更新时不重复绑定每张卡片的事件监听器。
+  resultArea.addEventListener('click', async (event) => {
+    const target = event.target;
+    const cancelButton = target.closest?.('.task-cancel');
+    if (cancelButton) {
+      queue.cancel(cancelButton.getAttribute('data-task-id'));
+      return;
     }
-    const clearBtn = resultArea.querySelector('#btn-clear-finished');
-    if (clearBtn) {
-      clearBtn.addEventListener('click', () => {
-        queue.clearFinished(0);
-      });
+    const dismissButton = target.closest?.('.task-dismiss');
+    if (dismissButton) {
+      queue.removeTask(dismissButton.getAttribute('data-task-id'));
+      return;
     }
-    resultArea.querySelectorAll('[data-act]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const act = btn.getAttribute('data-act');
-        const id = btn.getAttribute('data-task-id');
-        const t = queue.getTasks().find((x) => x.id === id);
-        if (!t || !t.result) return;
-        if (act === 'zoom') {
-          openLightbox(t);
-        } else if (act === 'download') {
-          await downloadImage(t.result.image, t.result.id);
-        } else if (act === 'detail') {
-          navigate(`/detail/${t.result.id}`);
-        }
-      });
-    });
-    resultArea.querySelectorAll('.task-done img').forEach((img) => {
-      img.addEventListener('click', () => {
-        const card = img.closest('.task-card');
-        const id = card.getAttribute('data-task-id');
-        const t = queue.getTasks().find((x) => x.id === id);
-        if (t && t.result) openLightbox(t);
-      });
-    });
-  }
+    if (target.closest?.('[data-queue-cancel-all]')) {
+      queue.cancelAll((task) => task.source === 'quick' && task.status === 'queued');
+      toast('已取消未开始的任务', 'success');
+      return;
+    }
+    if (target.closest?.('[data-queue-clear-finished]')) {
+      queue.clearFinished(0);
+      return;
+    }
+    const actionButton = target.closest?.('[data-act]');
+    if (actionButton) {
+      const action = actionButton.getAttribute('data-act');
+      const id = actionButton.getAttribute('data-task-id');
+      const task = queue.getTasks().find((item) => item.id === id);
+      if (!task?.result) return;
+      if (action === 'zoom') openLightbox(task);
+      else if (action === 'download') await downloadImage(task.result.image, task.result.id);
+      else if (action === 'detail') navigate(`/detail/${task.result.id}`);
+      return;
+    }
+    const image = target.closest?.('.task-done img');
+    if (!image) return;
+    const taskId = image.closest('.task-card')?.getAttribute('data-task-id');
+    const task = queue.getTasks().find((item) => item.id === taskId);
+    if (task?.result) openLightbox(task);
+  });
 
   let closeLightbox = null;
 

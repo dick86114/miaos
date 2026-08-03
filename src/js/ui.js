@@ -271,6 +271,59 @@ export function htmlToElement(html) {
   return tpl.content.firstElementChild;
 }
 
+// 使用稳定 key 批量更新列表：仅更新变化项，复用未变化节点，避免高频状态通知触发整页重建。
+export function createKeyedListRenderer(container, options) {
+  const getKey = options?.getKey;
+  const createNode = options?.createNode;
+  const updateNode = options?.updateNode;
+  const getSignature = options?.getSignature || ((item) => JSON.stringify(item));
+  const afterNode = options?.afterNode;
+  let records = new Map();
+
+  if (!container || typeof getKey !== 'function' || typeof createNode !== 'function') {
+    throw new Error('稳定列表渲染器参数无效');
+  }
+
+  return {
+    render(items = []) {
+      const fragment = container.ownerDocument?.createDocumentFragment?.() || document.createDocumentFragment();
+      const nextRecords = new Map();
+
+      items.forEach((item) => {
+        const key = String(getKey(item));
+        const signature = getSignature(item);
+        const previous = records.get(key);
+        let node;
+        let changed = false;
+
+        if (previous) {
+          node = previous.node;
+          if (previous.signature !== signature) {
+            updateNode?.(node, item);
+            changed = true;
+          }
+        } else {
+          node = createNode(item);
+          changed = true;
+        }
+
+        if (!node) throw new Error('稳定列表渲染器未返回节点');
+        node.dataset.itemKey = key;
+        if (changed) afterNode?.(node, item);
+        nextRecords.set(key, { node, signature });
+        fragment.appendChild(node);
+      });
+
+      container.replaceChildren(fragment);
+      records = nextRecords;
+    },
+    clear() {
+      records.clear();
+      container.replaceChildren();
+    },
+  };
+}
+
 // 创建可恢复的页面渲染错误状态，避免异常后只留下空白区域。
 export function createPageErrorState() {
   const root = document.createElement('section');
