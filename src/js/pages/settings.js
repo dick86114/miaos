@@ -1,6 +1,7 @@
 // 设置页面：通用设置 / 模型供应商 / 关于与更新
 import { icon, renderIcons } from '../icons.js';
 import { mountPage, htmlToElement, toast, confirmDialog } from '../ui.js';
+import { renderReleaseNotes } from '../release-notes.js';
 import {
   getProviders,
   getProvider,
@@ -1019,7 +1020,7 @@ export function renderSettings(container) {
         if (payload.releaseNotes && notesEl) {
           notesEl.style.display = 'block';
           const body = document.getElementById('update-notes-body');
-          if (body) body.innerHTML = formatNotes(payload.releaseNotes);
+          if (body) renderReleaseNotes(body, payload.releaseNotes);
         }
         if (btnCheck) btnCheck.style.display = 'none';
         if (btnDownload) btnDownload.style.display = 'inline-flex';
@@ -1052,61 +1053,7 @@ function formatDate(ts) {
   } catch { return ''; }
 }
 
-function formatNotes(raw) {
-  if (!raw) return '';
-  if (Array.isArray(raw)) return raw.map((x) => (typeof x === 'string' ? formatNotes(x) : formatNotes(x.note || ''))).join('');
-  if (typeof raw !== 'string') { try { raw = String(raw); } catch { return ''; } }
-  if (/<[a-z][\s\S]*>/i.test(raw)) return raw;
-  return markdownToHtml(raw);
-}
 
-function markdownToHtml(md) {
-  const lines = escapeHtml(md).split('\n');
-  const html = [];
-  let inList = false;
-  let inCode = false;
-  let codeLines = [];
-  const closeList = () => { if (inList) { html.push('</ul>'); inList = false; } };
-  const inline = (text) => text
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:6px;margin:6px 0" />')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/__(.+?)__/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/_(.+?)_/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/~~(.+?)~~/g, '<del>$1</del>');
-
-  for (const line of lines) {
-    if (line.trim().startsWith('```')) {
-      if (inCode) { html.push(`<pre><code>${codeLines.join('\n')}</code></pre>`); codeLines = []; inCode = false; }
-      else { closeList(); inCode = true; }
-      continue;
-    }
-    if (inCode) { codeLines.push(line); continue; }
-    if (!line.trim()) { closeList(); continue; }
-    const h = line.match(/^(#{1,6})\s+(.*)$/);
-    if (h) { closeList(); html.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); continue; }
-    if (/^(\*\*\*|---|___)\s*$/.test(line)) { closeList(); html.push('<hr/>'); continue; }
-    if (line.startsWith('&gt; ')) { closeList(); html.push(`<blockquote>${inline(line.slice(5))}</blockquote>`); continue; }
-    const li = line.match(/^[\s]*[-*+]\s+(.*)$/);
-    if (li) { if (!inList) { html.push('<ul>'); inList = true; } html.push(`<li>${inline(li[1])}</li>`); continue; }
-    const ol = line.match(/^[\s]*\d+\.\s+(.*)$/);
-    if (ol) { if (!inList) { html.push('<ul>'); inList = true; } html.push(`<li>${inline(ol[1])}</li>`); continue; }
-    closeList();
-    html.push(`<p>${inline(line)}</p>`);
-  }
-  if (inCode) html.push(`<pre><code>${codeLines.join('\n')}</code></pre>`);
-  closeList();
-  return html.join('');
-}
-
-function escapeHtml(s) {
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-function escapeAttr(s) {
-  return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-}
 function setBtnLoading(btn, text) {
   btn.disabled = true;
   btn._oldHTML = btn.innerHTML;

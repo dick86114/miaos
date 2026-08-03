@@ -110,6 +110,8 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
     showItemInFolder: [],
     openDialogOptions: [],
     networkRequests: [],
+    externalUrls: [],
+    windowOpenHandler: null,
   };
 
   class BrowserWindowMock {
@@ -119,7 +121,7 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
       this.webContents = {
         id: 100,
         send() {},
-        setWindowOpenHandler() {},
+        setWindowOpenHandler(handler) { calls.windowOpenHandler = handler; },
       };
     }
 
@@ -181,7 +183,7 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
       },
     },
     shell: {
-      openExternal() {},
+      openExternal(url) { calls.externalUrls.push(url); return Promise.resolve(); },
       showItemInFolder(filePath) { calls.showItemInFolder.push(filePath); },
     },
     safeStorage: safeStorageImpl || {
@@ -257,6 +259,32 @@ async function runMainWithMock(options = {}) {
 function trustedEvent() {
   return { sender: { id: 100 } };
 }
+
+
+test('窗口仅在白名单 HTTPS 地址上打开系统浏览器', async () => {
+  const homePath = createTempHome('miaos-home-external-link-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    assert.equal(typeof calls.windowOpenHandler, 'function');
+
+    assert.deepEqual(calls.windowOpenHandler({ url: 'https://github.com/dick86114/miaos' }), { action: 'deny' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls.externalUrls, ['https://github.com/dick86114/miaos']);
+
+    for (const url of [
+      'javascript:alert(1)',
+      'https://github.com.evil.example/',
+      'https://github.com@evil.example/',
+      'http://github.com/dick86114/miaos',
+    ]) {
+      assert.deepEqual(calls.windowOpenHandler({ url }), { action: 'deny' });
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(calls.externalUrls, ['https://github.com/dick86114/miaos']);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
 
 function createGrsaiMetadata(endpoint) {
   return {

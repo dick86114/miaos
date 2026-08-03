@@ -14,6 +14,7 @@ const {
   validateSuggestedName,
 } = require('./src/main/security/validators');
 const { registerSecureHandler } = require('./src/main/security/ipc');
+const { isAllowedExternalUrl } = require('./src/main/security/external-links');
 const { requestJson } = require('./src/main/services/http-client');
 const { createImageFileAccess } = require('./src/main/security/image-files');
 const { createImageDecoder } = require('./src/main/security/image-decoder');
@@ -128,6 +129,9 @@ registerSecureHandler({
   validate: () => {},
   handle: async () => {
   try {
+    if (!isAllowedExternalUrl(RELEASE_URL)) {
+      return { ok: false, error: '发布页面地址不受信任' };
+    }
     await shell.openExternal(RELEASE_URL);
     return { ok: true };
   } catch (e) {
@@ -257,7 +261,9 @@ function createWindow() {
 
   // 打开外部链接在系统浏览器中
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url).catch(() => {});
+    }
     return { action: 'deny' };
   });
 }
