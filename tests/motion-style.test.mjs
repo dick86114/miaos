@@ -212,9 +212,15 @@ function getDirectDeclarations(content) {
   for (const fragment of splitDeclarations(content)) {
     const colon = findDeclarationColon(fragment);
     if (colon < 0) continue;
-    const property = fragment.slice(0, colon).trim().toLowerCase();
+    const rawProperty = fragment.slice(0, colon).trim();
+    const property = rawProperty.toLowerCase();
     const value = fragment.slice(colon + 1).trim();
-    if (/^[a-z-]+$/u.test(property) && value) declarations.push({ property, value });
+    if (!value) continue;
+    if (rawProperty.includes('\\')) {
+      declarations.push({ property, value, hasPropertyEscape: true });
+    } else if (/^[a-z-]+$/u.test(property)) {
+      declarations.push({ property, value, hasPropertyEscape: false });
+    }
   }
 
   return declarations;
@@ -321,6 +327,60 @@ function isReduceMotionRule(rule) {
   return rule.contexts.some((context) => /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/u.test(context));
 }
 
+function getRuleSelector(rule) {
+  return rule.header.replace(/^[^:\n]+\.css:\s*/u, '');
+}
+
+function isGlobalReduceMotionRule(rule) {
+  return getRuleSelector(rule).replace(/\s+/gu, '') === '*,*::before,*::after';
+}
+
+function isSafeReducedMotionAnimationDeclaration(rule, declaration) {
+  if (!isReduceMotionRule(rule)) return false;
+  if (isGlobalReduceMotionRule(rule)) {
+    return (
+      (declaration.property === 'animation-duration' && declaration.value === '1ms !important')
+      || (declaration.property === 'animation-delay' && declaration.value === '0ms !important')
+      || (declaration.property === 'animation-iteration-count' && declaration.value === '1 !important')
+    );
+  }
+  return (
+    getRuleSelector(rule) === '.composer-wave-bar::before'
+    && declaration.property === 'animation'
+    && declaration.value === 'none !important'
+    && rule.declarations.some(({ property, value }) => property === 'transform' && value === 'translateX(0)')
+  );
+}
+
+function getReducedMotionOverrideProblems(rules) {
+  const problems = [];
+  const protectedProperties = new Set([
+    'animation', ...animationLonghandProperties, 'transition-duration', 'transition-delay',
+  ]);
+
+  for (const rule of rules) {
+    if (!isReduceMotionRule(rule)) continue;
+    for (const declaration of rule.declarations) {
+      if (!protectedProperties.has(declaration.property)) continue;
+      const isSafeGlobalTransition = isGlobalReduceMotionRule(rule) && (
+        (declaration.property === 'transition-duration' && declaration.value === '1ms !important')
+        || (declaration.property === 'transition-delay' && declaration.value === '0ms !important')
+      );
+      if (!isSafeReducedMotionAnimationDeclaration(rule, declaration) && !isSafeGlobalTransition) {
+        problems.push(`${rule.header}: reduced-motion 中存在未批准的 ${declaration.property}`);
+      }
+    }
+  }
+
+  return problems;
+}
+
+function getEscapedPropertyProblems(rules) {
+  return rules.flatMap((rule) => rule.declarations
+    .filter(({ hasPropertyEscape }) => hasPropertyEscape)
+    .map(({ property }) => `${rule.header}: 属性名不能包含 CSS escape ${property}`));
+}
+
 function getTransitionProblems(rules) {
   const problems = [];
 
@@ -335,6 +395,10 @@ function getTransitionProblems(rules) {
       }
 
       if (declaration.property === 'transition-property') {
+        if (/\bvar\s*\(/iu.test(declaration.value)) {
+          problems.push(`${rule.header}: transition-property 不得使用 var`);
+          continue;
+        }
         for (const property of splitCssList(declaration.value)) {
           const normalized = property.trim().toLowerCase();
           if (normalized === 'all') problems.push(`${rule.header}: transition-property 使用 all`);
@@ -353,8 +417,9 @@ function getAnimationProblems(rules, keyframeNames) {
   const problems = [];
 
   for (const rule of rules) {
-    if (isReduceMotionRule(rule)) continue;
-    const animationDeclarations = rule.declarations.filter(({ property }) => property === 'animation' || animationLonghandProperties.has(property));
+    const animationDeclarations = rule.declarations
+      .filter(({ property }) => property === 'animation' || animationLonghandProperties.has(property))
+      .filter((declaration) => !isSafeReducedMotionAnimationDeclaration(rule, declaration));
     if (animationDeclarations.length === 0) continue;
 
     const shorthandDeclarations = animationDeclarations.filter(({ property }) => property === 'animation');
@@ -501,7 +566,10 @@ test('样式只过渡明确的非布局属性', async () => {
   const rules = files.flatMap(({ fileName, content }) => {
     return getCssRules(content).map((rule) => ({ ...rule, header: `${fileName}: ${rule.header}` }));
   });
-  const problems = getTransitionProblems(rules);
+  const problems = [
+    ...getEscapedPropertyProblems(rules),
+    ...getTransitionProblems(rules),
+  ];
 
   assert.deepEqual(problems, []);
 
@@ -551,6 +619,15 @@ test('嵌套容器中的全部关键帧步骤仍受合成属性白名单约束',
   assert.deepEqual(getKeyframeProblems(css), [
     '@keyframes nested-unsafe 修改了不允许的属性 filter',
   ]);
+});
+
+test('减少动态效果容器只保留明确安全的动画与过渡覆盖', async () => {
+  const files = await readCssFiles();
+  const rules = files.flatMap(({ fileName, content }) => {
+    return getCssRules(content).map((rule) => ({ ...rule, header: `${fileName}: ${rule.header}` }));
+  });
+
+  assert.deepEqual(getReducedMotionOverrideProblems(rules), []);
 });
 
 test('减少动态效果模式会让波浪进度保持可见且不循环', async () => {
@@ -636,4 +713,43 @@ test('嵌套 selector 保持独立规则，不会被父规则当作 declaration'
   assert.equal(rules.some((rule) => rule.header === '.parent'), true);
   assert.equal(rules.some((rule) => rule.header === '& .child'), true);
   assert.equal(getTransitionProblems(rules).some((problem) => problem.includes('transition-property 使用 all')), true);
+});
+
+test('nested reduced-motion 只豁免明确安全覆盖，非法 animation 仍失败', () => {
+  const css = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      @supports (display: grid) {
+        .bad { animation: pulse 999ms linear infinite; }
+      }
+    }
+    @keyframes pulse { from { opacity: 0; } to { opacity: 1; } }
+  `);
+  const rules = getCssRules(css);
+  const keyframeNames = new Set(getKeyframes(css).map(({ name }) => name.toLowerCase()));
+
+  assert.equal(getAnimationProblems(rules, keyframeNames).some((problem) => problem.includes('必须使用运动时长变量')), true);
+});
+
+test('声明属性名中的 CSS escape 不得绕过 transition 与 animation 门禁', () => {
+  const css = stripCssComments(`
+    .bad {
+      transition\\2d property: all;
+      animation\\2d name: pulse;
+    }
+    .normal { transition-property: opacity; animation-name: pulse; }
+  `);
+  const rules = getCssRules(css);
+
+  assert.equal(rules.some((rule) => rule.header === '.normal'), true);
+  assert.equal(getEscapedPropertyProblems(rules).length, 2);
+});
+
+test('transition-property 不能通过 var 值间接指定 all 或布局属性', () => {
+  const css = stripCssComments(`
+    .all { --unsafe: all; transition-property: var(--unsafe); }
+    .width { --unsafe: width; transition-property: var(--unsafe); }
+  `);
+  const problems = getTransitionProblems(getCssRules(css));
+
+  assert.equal(problems.filter((problem) => problem.includes('不得使用 var')).length, 2);
 });
