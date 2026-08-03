@@ -204,3 +204,44 @@ test('跨源 302 不会将 Authorization 转发到目标服务', async () => {
     assert.equal(targetAuthorization, null);
   });
 });
+
+test('302 源响应持续输出时会关闭源连接后再完成下一跳', async () => {
+  let sourceBaseUrl = '';
+  let sourceResponse = null;
+  let sourceClosed = false;
+  let sourceWrites = 0;
+  let sourceWritesAtClose = 0;
+  let sourceTimer = null;
+
+  await withServers([
+    (_req, res) => {
+      sourceResponse = res;
+      res.writeHead(302, { location: `${sourceBaseUrl}/target` });
+      sourceTimer = setInterval(() => {
+        sourceWrites += 1;
+        res.write(' ');
+      }, 5);
+      res.on('close', () => {
+        sourceClosed = true;
+        sourceWritesAtClose = sourceWrites;
+        clearInterval(sourceTimer);
+      });
+    },
+    (_req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ redirected: true }));
+    },
+  ], async ([sourceUrl, targetUrl]) => {
+    sourceBaseUrl = targetUrl;
+    try {
+      const result = await requestJson({ url: sourceUrl, method: 'GET', timeoutMs: 1000 });
+      assert.deepEqual(result, { status: 200, data: { redirected: true } });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(sourceClosed, true);
+      assert.equal(sourceWrites, sourceWritesAtClose);
+    } finally {
+      clearInterval(sourceTimer);
+      sourceResponse?.destroy();
+    }
+  });
+});

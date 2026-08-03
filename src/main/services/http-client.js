@@ -123,6 +123,7 @@ function performRequest(context) {
     }
 
     let settled = false;
+    let handedOff = false;
     let timedOut = false;
     let aborted = false;
     let req;
@@ -162,7 +163,7 @@ function performRequest(context) {
         const location = res.headers && res.headers.location;
         if (status >= 300 && status < 400 && location) {
           if (context.redirects >= context.maxRedirects) {
-            res.resume?.();
+            destroyRequestAndResponse();
             settle(reject, new AppError('TOO_MANY_REDIRECTS', '服务重定向次数过多', { status, retryable: false }));
             return;
           }
@@ -171,18 +172,19 @@ function performRequest(context) {
           try {
             nextUrl = new URL(location, context.url);
           } catch (error) {
-            res.resume?.();
+            destroyRequestAndResponse();
             settle(reject, new AppError('REDIRECT_INVALID', '服务返回了无效重定向地址', { cause: error, status, retryable: false }));
             return;
           }
           if (!['http:', 'https:'].includes(nextUrl.protocol)) {
-            res.resume?.();
+            destroyRequestAndResponse();
             settle(reject, new AppError('REDIRECT_INVALID', '服务返回了不安全的重定向地址', { status, retryable: false }));
             return;
           }
 
-          res.resume?.();
+          handedOff = true;
           releaseResources();
+          destroyRequestAndResponse();
           const switchToGet = status === 303 || ((status === 301 || status === 302) && context.method === 'POST');
           performRequest({
             ...context,
@@ -243,7 +245,7 @@ function performRequest(context) {
     }
 
     req.on('error', (error) => {
-      if (timedOut || aborted) return;
+      if (handedOff || timedOut || aborted) return;
       settle(reject, createNetworkError(error));
     });
     const remainingMs = Math.max(0, context.deadlineAt - Date.now());
