@@ -148,6 +148,7 @@ test('外部链接仅允许精确白名单 HTTPS 主机', () => {
     'https://www.github.com/dick86114/miaos',
     'https://grsai.ai/',
     'https://www.grsai.ai/',
+    'https://github.com/更新?关键词=测试#说明',
   ]) {
     assert.equal(isAllowedExternalUrl(url), true, url);
   }
@@ -185,6 +186,8 @@ test('外部链接仅允许精确白名单 HTTPS 主机', () => {
     'https://github.com/a\u007fb',
     'https://github.com/a\u00a0b',
     'https://github.com/a\u2028b',
+    'https://github.com/a\u0085b',
+    'https://github.com/a\ufeffb',
   ]) {
     assert.equal(isAllowedExternalUrl(url), false, url);
   }

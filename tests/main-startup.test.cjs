@@ -297,6 +297,8 @@ test('窗口仅在白名单 HTTPS 地址上打开系统浏览器', async () => {
       'https://github.com/a\u0000b',
       'https://github.com/a\u000bb',
       'https://github.com/a\u001fb',
+      'https://github.com/a\u0085b',
+      'https://github.com/a\ufeffb',
     ]) {
       assert.deepEqual(calls.windowOpenHandler({ url }), { action: 'deny' });
     }
