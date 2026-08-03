@@ -9,7 +9,7 @@ function createFileError(message, code) {
   return error;
 }
 
-function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath }) {
+function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath, decodeImageBuffer }) {
   const authorizedPaths = new Map();
 
   function isWithinPath(candidatePath, parentPath, allowParent = false) {
@@ -152,7 +152,15 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath }) {
       }
       const mime = detectImageMime(buffer, { allowBmp: true });
       if (!mime) {
-        throw createFileError('参考图不是完整的 PNG、JPEG、WebP 或 BMP 图片', 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+        throw createFileError('参考图不是受支持的 PNG、JPEG、WebP 或 BMP 图片', 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+      }
+      try {
+        decodeImageBuffer(buffer, { mime, allowBmpFileFallback: true });
+      } catch (error) {
+        throw createFileError(
+          error && error.message ? error.message : '参考图内容不是可解码的有效图片',
+          'IPC_SOURCE_IMAGE_INVALID_IMAGE',
+        );
       }
       return { buffer, identity, mime };
     } finally {
@@ -187,7 +195,7 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath }) {
 
   function readSourceImageAsDataUrl(value) {
     if (typeof value === 'string' && value.startsWith('data:')) {
-      return validateDataUrl(value);
+      return validateDataUrl(value, { decodeImageBuffer });
     }
 
     const { canonicalPath, identity } = resolveAuthorizedSourceFile(value);

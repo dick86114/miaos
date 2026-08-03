@@ -63,12 +63,12 @@ function validateRepoSlug(value) {
   return slug;
 }
 
-function validateDataUrl(value) {
+function validateDataUrl(value, { decodeImageBuffer } = {}) {
   const dataUrl = validateString(value, { field: '图片数据', minLength: 1, maxLength: Math.ceil(MAX_DATA_URL_BYTES * 4 / 3) + 128 });
   const match = DATA_URL_PATTERN.exec(dataUrl);
   if (!match) {
     if (/^data:image\/(?!png;|jpeg;|webp;)/i.test(dataUrl)) {
-      throw validationError('图片格式仅支持 PNG、JPEG 或 WebP');
+      throw validationError('图片数据声明仅允许 PNG、JPEG 或 WebP');
     }
     throw validationError('图片数据 base64 格式不正确');
   }
@@ -93,6 +93,14 @@ function validateDataUrl(value) {
   }
   if (detectedMime !== match[1]) {
     throw validationError('图片声明的 MIME 与实际内容不一致');
+  }
+  if (typeof decodeImageBuffer !== 'function') {
+    throw validationError('图片解码器不可用');
+  }
+  try {
+    decodeImageBuffer(buffer, { mime: detectedMime });
+  } catch (error) {
+    throw validationError(error && error.message ? error.message : '图片内容不是可解码的有效图片');
   }
   return dataUrl;
 }

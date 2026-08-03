@@ -7,7 +7,12 @@ const Module = require('node:module');
 const { EventEmitter } = require('node:events');
 
 const mainPath = path.resolve(__dirname, '..', 'main.js');
-const { REAL_IMAGE_BYTES, FAKE_IMAGE_BYTES, dataUrl } = require('./image-fixtures.cjs');
+const {
+  REAL_IMAGE_BYTES,
+  FAKE_IMAGE_BYTES,
+  createNativeImageMock,
+  dataUrl,
+} = require('./image-fixtures.cjs');
 
 const EXPECTED_CHANNELS = [
   'update-get-current-version',
@@ -29,8 +34,11 @@ const PNG_BYTES = REAL_IMAGE_BYTES.png;
 const PNG_REPLACEMENT_BYTES = REAL_IMAGE_BYTES.pngReplacement;
 const PNG_DATA_URL = dataUrl('image/png', PNG_BYTES);
 const JPEG_BYTES = REAL_IMAGE_BYTES.jpeg;
+const PROGRESSIVE_JPEG_BYTES = REAL_IMAGE_BYTES.progressiveJpeg;
+const ADAM7_PNG_BYTES = REAL_IMAGE_BYTES.adam7Png;
 const WEBP_BYTES = REAL_IMAGE_BYTES.webp;
 const BMP_BYTES = REAL_IMAGE_BYTES.bmp;
+const TOP_DOWN_BMP_BYTES = REAL_IMAGE_BYTES.topDownBmp;
 
 function createTempHome(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -92,6 +100,7 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult } = {}) {
     failures: [],
     ipcHandlers: {},
     showItemInFolder: [],
+    openDialogOptions: [],
     networkRequests: [],
   };
 
@@ -158,7 +167,8 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult } = {}) {
     dialog: {
       showErrorBox(title, message) { calls.errorBox.push([title, message]); },
       showSaveDialog() {},
-      showOpenDialog() {
+      showOpenDialog(windowOrOptions, maybeOptions) {
+        calls.openDialogOptions.push(maybeOptions || windowOrOptions);
         return Promise.resolve(openDialogResult || { canceled: true, filePaths: [] });
       },
     },
@@ -166,7 +176,10 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult } = {}) {
       openExternal() {},
       showItemInFolder(filePath) { calls.showItemInFolder.push(filePath); },
     },
-    nativeImage: { createFromPath() { return { isEmpty() { return true; } }; } },
+    nativeImage: {
+      ...createNativeImageMock(),
+      createFromPath() { return { isEmpty() { return true; } }; },
+    },
   };
 
   return { electronMock, calls, networkMock: createNetworkMock(calls) };
@@ -361,6 +374,9 @@ test('真实 generate handler 在网络前拒绝空、伪造、MIME 不匹配和
       dataUrl('image/png', FAKE_IMAGE_BYTES.png),
       dataUrl('image/jpeg', FAKE_IMAGE_BYTES.jpeg),
       dataUrl('image/webp', FAKE_IMAGE_BYTES.webp),
+      dataUrl('image/png', FAKE_IMAGE_BYTES.missingPltePng),
+      dataUrl('image/jpeg', FAKE_IMAGE_BYTES.invalidSofSosJpeg),
+      dataUrl('image/webp', FAKE_IMAGE_BYTES.zeroVp8Webp),
     ];
 
     for (const sourceImage of rejectedDataUrls) {
@@ -384,13 +400,17 @@ test('真实 generate handler 在网络前拒绝 PNG、JPEG、WebP 和 BMP 伪�
       ['fake.jpg', FAKE_IMAGE_BYTES.jpeg],
       ['fake.webp', FAKE_IMAGE_BYTES.webp],
       ['fake.bmp', FAKE_IMAGE_BYTES.bmp],
+      ['missing-plte.png', FAKE_IMAGE_BYTES.missingPltePng],
+      ['invalid-sof-sos.jpg', FAKE_IMAGE_BYTES.invalidSofSosJpeg],
+      ['zero-vp8.webp', FAKE_IMAGE_BYTES.zeroVp8Webp],
+      ['invalid-bitfields.bmp', FAKE_IMAGE_BYTES.invalidBitfieldsBmp],
     ];
 
     for (const [name, contents] of invalidFiles) {
       const sourceImage = path.join(generatedDir, name);
       fs.writeFileSync(sourceImage, contents);
       const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(sourceImage));
-      assert.equal(result.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+      assert.equal(result.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE', name);
       assert.equal(calls.networkRequests.length, 0);
     }
   } finally {
@@ -456,11 +476,68 @@ test('真实 generate handler 允许 generated、选择器授权、粘贴授权�
     assert.equal(dataUrlResult.code, 'IPC_HANDLER_FAILED');
     assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
 
+    const baselineJpegDataUrl = dataUrl('image/jpeg', JPEG_BYTES);
+    const baselineJpegResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(baselineJpegDataUrl));
+    assert.equal(baselineJpegResult.code, 'IPC_HANDLER_FAILED');
+    assert.deepEqual(getRequestBody(calls).images, [baselineJpegDataUrl]);
+
+    const progressiveDataUrl = dataUrl('image/jpeg', PROGRESSIVE_JPEG_BYTES);
+    const progressiveResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(progressiveDataUrl));
+    assert.equal(progressiveResult.code, 'IPC_HANDLER_FAILED');
+    assert.deepEqual(getRequestBody(calls).images, [progressiveDataUrl]);
+
+    const adam7DataUrl = dataUrl('image/png', ADAM7_PNG_BYTES);
+    const adam7Result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(adam7DataUrl));
+    assert.equal(adam7Result.code, 'IPC_HANDLER_FAILED');
+    assert.deepEqual(getRequestBody(calls).images, [adam7DataUrl]);
+
     const bmpImage = path.join(generatedDir, 'generated.bmp');
     fs.writeFileSync(bmpImage, BMP_BYTES);
     const bmpResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(bmpImage));
     assert.equal(bmpResult.code, 'IPC_HANDLER_FAILED');
     assert.deepEqual(getRequestBody(calls).images, [dataUrl('image/bmp', BMP_BYTES)]);
+
+    const topDownBmpImage = path.join(generatedDir, 'top-down.bmp');
+    fs.writeFileSync(topDownBmpImage, TOP_DOWN_BMP_BYTES);
+    const topDownBmpResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(topDownBmpImage));
+    assert.equal(topDownBmpResult.code, 'IPC_HANDLER_FAILED');
+    assert.deepEqual(getRequestBody(calls).images, [dataUrl('image/bmp', TOP_DOWN_BMP_BYTES)]);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('真实 generate handler 对 nativeImage 不支持的 WebP 明确拒绝且不请求网络', async () => {
+  const homePath = createTempHome('miaos-webp-unsupported-');
+  const pickedWebpPath = path.join(homePath, 'picked.webp');
+  fs.writeFileSync(pickedWebpPath, WEBP_BYTES);
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      openDialogResult: { canceled: false, filePaths: [pickedWebpPath] },
+    });
+    const directResult = await calls.ipcHandlers['generate-image'](
+      trustedEvent(),
+      createGenerateParams(dataUrl('image/webp', WEBP_BYTES)),
+    );
+    assert.equal(directResult.code, 'IPC_VALIDATION_FAILED');
+    assert.match(directResult.error, /WebP/);
+    assert.equal(calls.networkRequests.length, 0);
+
+    const generatedDir = path.join(homePath, '.miaos', 'generated');
+    fs.mkdirSync(generatedDir, { recursive: true });
+    const webpPath = path.join(generatedDir, 'real.webp');
+    fs.writeFileSync(webpPath, WEBP_BYTES);
+    const fileResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(webpPath));
+    assert.equal(fileResult.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+    assert.match(fileResult.error, /WebP/);
+    assert.equal(calls.networkRequests.length, 0);
+
+    const pickedResult = await calls.ipcHandlers['pick-image-file'](trustedEvent());
+    assert.equal(pickedResult.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
+    assert.match(pickedResult.error, /WebP/);
+    assert.equal(calls.openDialogOptions.length, 1);
+    assert.deepEqual(calls.openDialogOptions[0].filters[0].extensions, ['png', 'jpg', 'jpeg', 'bmp']);
   } finally {
     cleanupTempHome(homePath);
   }

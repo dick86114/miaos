@@ -7,8 +7,23 @@ const {
   validateDataUrl,
   validateSuggestedName,
 } = require('../src/main/security/validators');
+const { createImageDecoder } = require('../src/main/security/image-decoder');
 
-const { REAL_IMAGE_BYTES, FAKE_IMAGE_BYTES, dataUrl } = require('./image-fixtures.cjs');
+const {
+  REAL_IMAGE_BYTES,
+  FAKE_IMAGE_BYTES,
+  createNativeImageMock,
+  dataUrl,
+} = require('./image-fixtures.cjs');
+
+const decodeImageBuffer = createImageDecoder({
+  nativeImageImpl: createNativeImageMock(),
+  platform: 'linux',
+});
+
+function validateImageDataUrl(value) {
+  return validateDataUrl(value, { decodeImageBuffer });
+}
 
 test('拒绝危险协议和非法仓库名', () => {
   assert.throws(() => validateHttpUrl('file:///etc/passwd'), /仅支持 HTTP/);
@@ -33,21 +48,28 @@ test('字符串校验限制长度和枚举值', () => {
 test('图片 data URL 仅允许完整且 MIME 一致的受支持图片，并按解码后体积限制', () => {
   const png = dataUrl('image/png', REAL_IMAGE_BYTES.png);
   const jpeg = dataUrl('image/jpeg', REAL_IMAGE_BYTES.jpeg);
+  const progressiveJpeg = dataUrl('image/jpeg', REAL_IMAGE_BYTES.progressiveJpeg);
+  const adam7Png = dataUrl('image/png', REAL_IMAGE_BYTES.adam7Png);
   const webp = dataUrl('image/webp', REAL_IMAGE_BYTES.webp);
-  assert.equal(validateDataUrl(png), png);
-  assert.equal(validateDataUrl(jpeg), jpeg);
-  assert.equal(validateDataUrl(webp), webp);
-  assert.throws(() => validateDataUrl('data:image/png;base64,'), /不能为空|完整/);
-  assert.throws(() => validateDataUrl('data:image/png;base64,aGVsbG8='), /完整/);
-  assert.throws(() => validateDataUrl(dataUrl('image/jpeg', REAL_IMAGE_BYTES.png)), /MIME/);
-  assert.throws(() => validateDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.png)), /完整/);
-  assert.throws(() => validateDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.jpeg)), /完整/);
-  assert.throws(() => validateDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.webp)), /完整/);
-  assert.throws(() => validateDataUrl(dataUrl('image/bmp', REAL_IMAGE_BYTES.bmp)), /图片格式/);
-  assert.throws(() => validateDataUrl('data:image/gif;base64,aGVsbG8='), /图片格式/);
-  assert.throws(() => validateDataUrl('data:image/png;base64,%%%'), /base64/);
+  assert.equal(validateImageDataUrl(png), png);
+  assert.equal(validateImageDataUrl(jpeg), jpeg);
+  assert.equal(validateImageDataUrl(progressiveJpeg), progressiveJpeg);
+  assert.equal(validateImageDataUrl(adam7Png), adam7Png);
+  assert.throws(() => validateImageDataUrl(webp), /WebP/);
+  assert.throws(() => validateImageDataUrl('data:image/png;base64,'), /不能为空|有效/);
+  assert.throws(() => validateImageDataUrl('data:image/png;base64,aGVsbG8='), /完整|有效/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/jpeg', REAL_IMAGE_BYTES.png)), /MIME/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.png)), /有效/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.jpeg)), /有效/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.webp)), /WebP/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/png', FAKE_IMAGE_BYTES.missingPltePng)), /有效/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/jpeg', FAKE_IMAGE_BYTES.invalidSofSosJpeg)), /有效/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/webp', FAKE_IMAGE_BYTES.zeroVp8Webp)), /WebP/);
+  assert.throws(() => validateImageDataUrl(dataUrl('image/bmp', REAL_IMAGE_BYTES.bmp)), /图片.*允许/);
+  assert.throws(() => validateImageDataUrl('data:image/gif;base64,aGVsbG8='), /图片.*允许/);
+  assert.throws(() => validateImageDataUrl('data:image/png;base64,%%%'), /base64/);
   const tooLarge = `data:image/png;base64,${Buffer.alloc(50 * 1024 * 1024 + 1).toString('base64')}`;
-  assert.throws(() => validateDataUrl(tooLarge), /50 MiB/);
+  assert.throws(() => validateImageDataUrl(tooLarge), /50 MiB/);
 });
 
 test('下载文件名移除路径字符并限制长度', () => {

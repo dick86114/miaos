@@ -15,13 +15,16 @@ const {
 } = require('./src/main/security/validators');
 const { registerSecureHandler } = require('./src/main/security/ipc');
 const { createImageFileAccess } = require('./src/main/security/image-files');
+const { createImageDecoder } = require('./src/main/security/image-decoder');
 
 let mainWindow = null;
 let updateInfoCache = null;
+const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
 const imageFileAccess = createImageFileAccess({
   fsImpl: fs,
   pathImpl: path,
   getUserDataPath: () => app.getPath('userData'),
+  decodeImageBuffer,
 });
 
 // GitHub Release 页面地址
@@ -293,7 +296,7 @@ function validateGenerateParams(params) {
     throw new Error('参考图路径必须是文本');
   }
   if (typeof params.sourceImage === 'string' && params.sourceImage.startsWith('data:')) {
-    validateDataUrl(params.sourceImage);
+    validateDataUrl(params.sourceImage, { decodeImageBuffer });
   }
 }
 
@@ -325,7 +328,7 @@ registerSecureHandler({
   ipcMain,
   channel: 'save-image',
   getMainWindow: () => mainWindow,
-  validate: (dataUrl, suggestedName) => { validateDataUrl(dataUrl); validateSuggestedName(suggestedName); },
+  validate: (dataUrl, suggestedName) => { validateDataUrl(dataUrl, { decodeImageBuffer }); validateSuggestedName(suggestedName); },
   handle: async (_event, dataUrl, suggestedName) => {
   try {
     const safeSuggestedName = validateSuggestedName(suggestedName);
@@ -1046,7 +1049,7 @@ registerSecureHandler({
   ipcMain,
   channel: 'save-pasted-image',
   getMainWindow: () => mainWindow,
-  validate: (dataUrl) => { validateDataUrl(dataUrl); },
+  validate: (dataUrl) => { validateDataUrl(dataUrl, { decodeImageBuffer }); },
   handle: async (_event, dataUrl) => {
   try {
     const match = /^data:(image\/(\w+));base64,(.*)$/.exec(dataUrl);
@@ -1075,7 +1078,7 @@ registerSecureHandler({
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择参考图片',
     properties: ['openFile'],
-    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'bmp'] }],
   });
   if (result.canceled || !result.filePaths.length) return { canceled: true };
   const filePath = imageFileAccess.authorizePickedImage(result.filePaths[0]);
