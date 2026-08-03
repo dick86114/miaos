@@ -95,7 +95,7 @@ DMG 构建产物位于 `release/` 目录，双击挂载后运行「安装妙生.
 
 | 层级 | 技术 |
 |------|------|
-| 框架 | Electron 31 |
+| 框架 | Electron 43 |
 | 主进程 | Node.js（HTTPS / fs / IPC） |
 | 渲染层 | 原生 ES Modules + CSS（无前端框架） |
 | 路由 | Hash 路由（自实现） |
