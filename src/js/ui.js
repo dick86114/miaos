@@ -19,6 +19,7 @@ export function escapeAttr(value) {
 // 轻量 Toast。相同 key 的状态会原位更新，避免高频请求堆叠重复提示。
 const toastRecordsByDocument = new WeakMap();
 const loadingButtons = new WeakSet();
+let activeConfirm = null;
 
 function normalizeToastOptions(options) {
   if (typeof options === 'number') return { duration: options };
@@ -128,8 +129,9 @@ export async function withButtonLoading(button, label, operation) {
   if (!button || typeof operation !== 'function' || loadingButtons.has(button) || button.disabled) return undefined;
   loadingButtons.add(button);
   const originalDisabled = button.disabled;
-  const target = button.querySelector?.('span') || button;
-  const originalLabel = target.textContent;
+  const labelTarget = button.querySelector?.('span') || null;
+  const originalLabel = labelTarget?.textContent;
+  const originalNodes = labelTarget ? null : Array.from(button.childNodes || button.children || []);
   const originalMinWidth = button.style?.minWidth || '';
   const originalMinHeight = button.style?.minHeight || '';
   const rect = button.getBoundingClientRect?.();
@@ -137,18 +139,46 @@ export async function withButtonLoading(button, label, operation) {
   if (rect?.height) button.style.minHeight = `${Math.ceil(rect.height)}px`;
   button.disabled = true;
   button.classList?.add('is-loading');
-  target.textContent = label;
+  if (labelTarget) {
+    labelTarget.textContent = label;
+  } else {
+    const loadingLabel = button.ownerDocument?.createElement?.('span') || document.createElement('span');
+    loadingLabel.className = 'button-loading-label';
+    loadingLabel.textContent = label;
+    button.replaceChildren?.(loadingLabel);
+  }
 
   try {
     return await operation();
   } finally {
-    target.textContent = originalLabel;
+    if (labelTarget) labelTarget.textContent = originalLabel;
+    else button.replaceChildren?.(...originalNodes);
     button.disabled = originalDisabled;
     button.classList?.remove('is-loading');
     button.style.minWidth = originalMinWidth || (rect?.width ? `${Math.ceil(rect.width)}px` : '');
     button.style.minHeight = originalMinHeight || (rect?.height ? `${Math.ceil(rect.height)}px` : '');
     loadingButtons.delete(button);
   }
+}
+
+// 同一事件循环内只允许一次同步动作；用于避免双击把同一请求重复加入队列。
+export function createEventLoopGuard(onDuplicate) {
+  let locked = false;
+  return (operation) => {
+    if (locked) {
+      onDuplicate?.();
+      return false;
+    }
+    locked = true;
+    queueMicrotask(() => { locked = false; });
+    operation?.();
+    return true;
+  };
+}
+
+// 关闭当前确认会话。路由切换时调用，保证旧页面不会继续执行删除操作。
+export function dismissActiveConfirm() {
+  activeConfirm?.dismiss();
 }
 
 // 确认对话框：有 DOM 时使用应用内对话框；无 DOM 测试环境保留原生 confirm 回退。
@@ -158,10 +188,9 @@ export function confirmDialog(message, options = {}) {
     : typeof window !== 'undefined' && typeof window.confirm === 'function'
       ? window.confirm.bind(window)
       : () => false;
-  if (typeof document === 'undefined' || !document.body || !document.createElement) {
-    return Boolean(fallback(message));
-  }
+  if (typeof document === 'undefined' || !document.body || !document.createElement) return Boolean(fallback(message));
 
+  dismissActiveConfirm();
   const documentRef = document;
   const previousFocus = documentRef.activeElement;
   const overlay = documentRef.createElement('div');
@@ -198,15 +227,21 @@ export function confirmDialog(message, options = {}) {
   documentRef.body.appendChild(overlay);
 
   return new Promise((resolve) => {
-    let settled = false;
-    const finish = (accepted) => {
-      if (settled) return;
-      settled = true;
+    const record = { settled: false, canceled: false, dismiss: null };
+    const cleanup = () => {
       overlay.removeEventListener?.('keydown', onKeydown);
       documentRef.removeEventListener?.('keydown', onKeydown);
       overlay.remove();
       previousFocus?.focus?.();
-      resolve(accepted);
+    };
+    const finish = (accepted) => {
+      if (record.settled) return;
+      record.settled = true;
+      queueMicrotask(() => {
+        cleanup();
+        if (activeConfirm === record) activeConfirm = null;
+        resolve(Boolean(accepted) && !record.canceled);
+      });
     };
     const onKeydown = (event) => {
       if (event.key === 'Escape') {
@@ -214,6 +249,12 @@ export function confirmDialog(message, options = {}) {
         finish(false);
       }
     };
+    record.dismiss = () => {
+      record.canceled = true;
+      cleanup();
+      finish(false);
+    };
+    activeConfirm = record;
     cancelButton.addEventListener('click', () => finish(false));
     confirmButton.addEventListener('click', () => finish(true));
     overlay.addEventListener('click', (event) => { if (event.target === overlay) finish(false); });

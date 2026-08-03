@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toast, withButtonLoading, confirmDialog } from '../src/js/ui.js';
+import { toast, withButtonLoading, confirmDialog, dismissActiveConfirm, createEventLoopGuard } from '../src/js/ui.js';
+import { syncUpdateCheckButton } from '../src/js/pages/settings.js';
 
 class FakeClassList {
   constructor() { this.values = new Set(); }
@@ -20,7 +21,7 @@ class FakeElement {
     this.classList = new FakeClassList();
     this.style = {};
     this.listeners = new Map();
-    this.textContent = '';
+    this._textContent = '';
     this.disabled = false;
     this.type = '';
     this.tabIndex = 0;
@@ -41,6 +42,15 @@ class FakeElement {
   }
 
   append(...children) { children.forEach((child) => this.appendChild(child)); }
+
+  replaceChildren(...children) {
+    this.children.forEach((child) => { child.parentNode = null; });
+    this.children = [];
+    this._textContent = '';
+    children.forEach((child) => this.appendChild(child));
+  }
+
+  get childNodes() { return this.children; }
 
   remove() {
     if (!this.parentNode) return;
@@ -66,6 +76,16 @@ class FakeElement {
     const payload = { target: this, preventDefault() {}, ...event };
     (this.listeners.get(payload.type) || []).forEach((listener) => listener(payload));
     return true;
+  }
+
+  set textContent(value) {
+    this.children.forEach((child) => { child.parentNode = null; });
+    this.children = [];
+    this._textContent = String(value);
+  }
+
+  get textContent() {
+    return this._textContent + this.children.map((child) => child.textContent).join('');
   }
 
   focus() { this.focused = true; this.ownerDocument.activeElement = this; }
@@ -205,4 +225,125 @@ test('无 DOM 环境保留原生 confirm fallback 的布尔结果', () => {
     globalThis.document = previousDocument;
     globalThis.window = previousWindow;
   }
+});
+
+
+test('图标型按钮加载不会因 textContent 清空 SVG，完成后恢复完整子节点', async () => {
+  await withFakeDom(async (documentRef) => {
+    const button = documentRef.createElement('button');
+    const icon = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('data-original-icon', 'true');
+    button.appendChild(icon);
+
+    await withButtonLoading(button, '处理中…', async () => {
+      assert.equal(button.children.length, 1);
+      assert.equal(button.children[0].tagName, 'SPAN');
+    });
+
+    assert.equal(button.children.length, 1);
+    assert.equal(button.children[0].tagName, 'SVG');
+    assert.equal(button.children[0].getAttribute('data-original-icon'), 'true');
+
+    await assert.rejects(
+      withButtonLoading(button, '处理中…', async () => { throw new Error('失败'); }),
+      /失败/,
+    );
+    assert.equal(button.children.length, 1);
+    assert.equal(button.children[0].tagName, 'SVG');
+  });
+});
+
+test('更新状态按 checking → not-available/error 顺序恢复检查按钮', () => {
+  withFakeDom((documentRef) => {
+    const button = documentRef.createElement('button');
+    const label = documentRef.createElement('span');
+    label.textContent = '检查更新';
+    button.appendChild(label);
+
+    syncUpdateCheckButton(button, 'checking');
+    assert.equal(button.disabled, true);
+    assert.equal(label.textContent, '检查中…');
+
+    syncUpdateCheckButton(button, 'not-available');
+    assert.equal(button.disabled, false);
+    assert.equal(label.textContent, '检查更新');
+
+    syncUpdateCheckButton(button, 'checking');
+    syncUpdateCheckButton(button, 'error');
+    assert.equal(button.disabled, false);
+    assert.equal(label.textContent, '检查更新');
+  });
+});
+
+test('确认取消与确认均只结算一次，集中关闭后保持 false', async () => {
+  await withFakeDom(async (documentRef) => {
+    const accepted = confirmDialog('确定删除吗？');
+    const accept = documentRef.body.querySelector('[data-confirm-accept]');
+    accept.dispatchEvent({ type: 'click' });
+    accept.dispatchEvent({ type: 'click' });
+    assert.equal(await accepted, true);
+
+    const pending = confirmDialog('确定删除吗？');
+    const pendingAccept = documentRef.body.querySelector('[data-confirm-accept]');
+    pendingAccept.dispatchEvent({ type: 'click' });
+    dismissActiveConfirm();
+    assert.equal(await pending, false);
+  });
+});
+
+test('同一事件循环内的生成防重只执行一次，下一轮允许再次执行', async () => {
+  let calls = 0;
+  const guard = createEventLoopGuard(() => { calls += 100; });
+  const handler = () => guard(() => { calls += 1; });
+  handler();
+  handler();
+  assert.equal(calls, 101);
+
+  await Promise.resolve();
+  handler();
+  assert.equal(calls, 102);
+});
+
+async function loadRouterForConfirmTest() {
+  const moduleUrl = new URL(`../src/js/router.js?confirm-lifecycle=${Date.now()}-${Math.random()}`, import.meta.url);
+  return import(moduleUrl.href);
+}
+
+test('路由切换会集中关闭未决确认，旧确认不能删除或覆盖新路由', async () => {
+  await withFakeDom(async (documentRef) => {
+    globalThis.window.location = { hash: '#/first' };
+    globalThis.window.addEventListener = () => {};
+    const { createRouter } = await loadRouterForConfirmTest();
+    const container = documentRef.createElement('main');
+    let deleted = 0;
+    let oldConfirmHandler;
+    const router = createRouter({
+      windowRef: globalThis.window,
+      routes: [
+        {
+          pattern: /^\/first\/?$/,
+          render() {
+            oldConfirmHandler = async () => {
+              if (await confirmDialog('确定删除吗？')) deleted += 1;
+            };
+            return () => {};
+          },
+        },
+        { pattern: /^\/second\/?$/, render() { return () => {}; } },
+      ],
+    });
+
+    router.init(container, []);
+    const pending = oldConfirmHandler();
+    const oldAccept = documentRef.body.querySelector('[data-confirm-accept]');
+    assert.ok(oldAccept);
+
+    globalThis.window.location.hash = '#/second';
+    router.dispatch();
+    oldAccept.dispatchEvent({ type: 'click' });
+    await pending;
+
+    assert.equal(deleted, 0);
+    assert.equal(documentRef.body.querySelector('.confirm-dialog-overlay'), null);
+  });
 });

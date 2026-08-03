@@ -947,23 +947,16 @@ export function renderSettings(container) {
 
   function bindAboutEvents() {
     const inner = getInner();
-    // 检查更新按钮
     const btnCheck = inner.querySelector('#btn-check');
     if (btnCheck) {
       btnCheck.addEventListener('click', async () => {
         if (!window.api || !window.api.updateCheck) { toast('运行环境异常', 'error'); return; }
-        await withButtonLoading(btnCheck, '检查中…', async () => {
         try {
           const res = await window.api.updateCheck();
-          if (res && res.ok === false) {
-            handleUpdateEvent({ state: 'error', message: res.error });
-          }
-        } catch (e) {
-          handleUpdateEvent({ state: 'error', message: e.message || '检查失败' });
-        } finally {
-          resetBtn(btnCheck);
+          if (res && res.ok === false) handleUpdateEvent({ state: 'error', message: res.error });
+        } catch (error) {
+          handleUpdateEvent({ state: 'error', message: error.message || '检查失败' });
         }
-        });
       });
     }
     const btnDownload = inner.querySelector('#btn-download');
@@ -1017,11 +1010,10 @@ export function renderSettings(container) {
     if (notesEl) notesEl.style.display = 'none';
     if (btnCheck) btnCheck.style.display = 'inline-flex';
     if (btnDownload) btnDownload.style.display = 'none';
-    if (btnCheck) resetBtn(btnCheck);
+    syncUpdateCheckButton(btnCheck, s);
 
     switch (s) {
       case 'checking':
-        if (btnCheck) setBtnLoading(btnCheck, '检查中…');
         break;
       case 'available': {
         const ver = payload.version || '未知';
@@ -1065,12 +1057,14 @@ function formatDate(ts) {
 }
 
 
-function setBtnLoading(btn, text) {
-  btn.disabled = true;
-  btn._oldHTML = btn.innerHTML;
-  btn.innerHTML = icon('loader', 14) + '<span>' + text + '</span>';
-}
-function resetBtn(btn) {
-  btn.disabled = false;
-  if (btn._oldHTML) btn.innerHTML = btn._oldHTML;
+// 更新事件只能切换已有按钮状态，避免重建图标或与异步包装器冲突。
+export function syncUpdateCheckButton(button, state) {
+  if (!button) return;
+  const label = button.querySelector?.('span') || button;
+  const checking = state === 'checking';
+  button.disabled = checking;
+  if (button.classList?.toggle) button.classList.toggle('is-loading', checking);
+  else if (checking) button.classList?.add?.('is-loading');
+  else button.classList?.remove?.('is-loading');
+  label.textContent = checking ? '检查中…' : '检查更新';
 }

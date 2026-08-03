@@ -1,6 +1,6 @@
 // 生图页：豆包风格 Composer 布局 + 全局任务队列
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, withButtonLoading } from '../ui.js';
+import { mountPage, htmlToElement, toast, withButtonLoading, createEventLoopGuard } from '../ui.js';
 import {
   getProviders,
   getDefaultProvider,
@@ -373,11 +373,15 @@ export function renderGenerate(container) {
     promptInput.focus();
   });
 
+  const runGenerateOnce = createEventLoopGuard(() => {
+    toast('已加入生成队列', 'info', { key: 'quick-generate-enqueue' });
+  });
+
   // ===== 快捷键 =====
   promptInput.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault();
-      doGenerate();
+      runGenerateOnce(doGenerate);
     }
   });
 
@@ -418,10 +422,10 @@ export function renderGenerate(container) {
       sourceImage: sourceImagePath || null,
       isImageToImage: !!sourceImagePath,
     });
-    toast(sourceImagePath ? '已加入生成队列（图生图）' : '已加入生成队列', 'info');
+    toast(sourceImagePath ? '已加入生成队列（图生图）' : '已加入生成队列', 'info', { key: 'quick-generate-enqueue' });
   }
 
-  btnGenerate.addEventListener('click', doGenerate);
+  btnGenerate.addEventListener('click', () => runGenerateOnce(doGenerate));
 
   // 初始化
   updateModelChip();

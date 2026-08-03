@@ -6,7 +6,7 @@ import { renderProject } from './pages/project.js';
 import { renderHistory } from './pages/history.js';
 import { renderDetail } from './pages/detail.js';
 import { renderSettings } from './pages/settings.js';
-import { createPageErrorState, mountPage } from './ui.js';
+import { createPageErrorState, mountPage, dismissActiveConfirm } from './ui.js';
 
 const ROUTES = [
   { pattern: /^\/generate\/?$/, render: renderGenerate },
@@ -37,6 +37,7 @@ export function createRouter({ routes = ROUTES, windowRef = window } = {}) {
   }
 
   function cleanupCurrentPage() {
+    dismissActiveConfirm();
     try {
       if (typeof currentCleanup === 'function') currentCleanup();
     } catch (error) {

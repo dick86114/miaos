@@ -1,6 +1,6 @@
 // 项目工作台：横向时间轴（主线节点+分支卡片） + 详情面板
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, withButtonLoading } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, withButtonLoading, createEventLoopGuard } from '../ui.js';
 import {
   getProject,
   updateProject,
@@ -615,7 +615,7 @@ export function renderProject(container, params) {
     promptInput.addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        doGenerate();
+        runGenerateOnce(doGenerate);
       }
     });
 
@@ -666,6 +666,10 @@ export function renderProject(container, params) {
       });
     }
 
+    const runGenerateOnce = createEventLoopGuard(() => {
+      toast('已加入生成队列', 'info', { key: `project-generate-enqueue:${project.id}` });
+    });
+
     // ========== 生成图片 ==========
     function doGenerate() {
       const editedPrompt = promptInput.value.trim();
@@ -699,9 +703,9 @@ export function renderProject(container, params) {
         sourceImage: sourceImagePath || null,
       });
 
-      toast(willCreateRoot ? '已创建新主线并加入生成队列' : '已加入生成队列', 'info');
+      toast(willCreateRoot ? '已创建新主线并加入生成队列' : '已加入生成队列', 'info', { key: `project-generate-enqueue:${project.id}` });
     }
-    btnGenerate.addEventListener('click', doGenerate);
+    btnGenerate.addEventListener('click', () => runGenerateOnce(doGenerate));
 
     // ========== 新主线按钮 ==========
     btnNewRoot.addEventListener('click', () => {
