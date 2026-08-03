@@ -1,31 +1,52 @@
 #!/usr/bin/env node
-const { execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const appPath = process.argv[2];
 if (!appPath) {
-  console.error('Usage: node postbuild.js <path-to-miaos.app>');
+  console.error('用法：node scripts/postbuild.js <miaos.app 路径>');
   process.exit(1);
 }
 
-function run(cmd) {
-  try {
-    return execSync(cmd, { stdio: 'pipe', encoding: 'utf8' });
-  } catch (e) {
-    return e.stderr || e.stdout || '';
+const resolvedAppPath = path.resolve(appPath);
+const entitlementsPath = path.join(process.cwd(), '.miaos-postbuild-entitlements.plist');
+
+function fail(message) {
+  console.error(`❌ ${message}`);
+  process.exitCode = 1;
+  throw new Error(message);
+}
+
+function assertExists(targetPath, label) {
+  if (!fs.existsSync(targetPath)) {
+    fail(`${label}不存在：${targetPath}`);
   }
 }
 
-console.log('🔧 Post-build signing for miaos');
-console.log('   App:', appPath);
+function run(command, args) {
+  console.log(`  $ ${command} ${args.map((arg) => JSON.stringify(arg)).join(' ')}`);
+  const result = spawnSync(command, args, { encoding: 'utf8' });
+  if (result.error) {
+    fail(`${command} 无法执行：${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim();
+    fail(`${command} 失败（退出码 ${result.status}）${output ? `：\n${output}` : ''}`);
+  }
+  return result.stdout || '';
+}
 
-// === 1. Remove all extended attributes and quarantine ===
-console.log('\n🔓 Removing quarantine and extended attributes...');
-run(`xattr -cr "${appPath}"`);
-console.log('   ✅ Extended attributes removed');
+function signAndVerify(label, targetPath, { entitlements = false } = {}) {
+  assertExists(targetPath, label);
+  const signArgs = ['--force', '--sign', '-'];
+  if (entitlements) signArgs.push('--entitlements', entitlementsPath);
+  signArgs.push(targetPath);
+  run('codesign', signArgs);
+  run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', targetPath]);
+  console.log(`  ✅ ${label}`);
+}
 
-// === 2. Create entitlements plist ===
 const entitlements = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -35,106 +56,45 @@ const entitlements = `<?xml version="1.0" encoding="UTF-8"?>
   <key>com.apple.security.files.user-selected.read-write</key><true/>
 </dict></plist>`;
 
-const entitlementsPath = '/tmp/miaos-entitlements.plist';
-fs.writeFileSync(entitlementsPath, entitlements);
+const frameworksDir = path.join(resolvedAppPath, 'Contents', 'Frameworks');
+const frameworkBundles = [
+  'Electron Framework.framework',
+  'Mantle.framework',
+  'ReactiveObjC.framework',
+  'Squirrel.framework',
+].map((name) => ({ label: name, targetPath: path.join(frameworksDir, name) }));
+const helperApps = [
+  'miaos Helper.app',
+  'miaos Helper (GPU).app',
+  'miaos Helper (Plugin).app',
+  'miaos Helper (Renderer).app',
+].map((name) => ({ label: name, targetPath: path.join(frameworksDir, name) }));
 
-// === 3. Sign nested code first (from inside out) ===
-console.log('\n✍️  Signing nested components...');
-
-const frameworksDir = path.join(appPath, 'Contents/Frameworks');
-if (fs.existsSync(frameworksDir)) {
-  // Sign dylibs first
-  const items = fs.readdirSync(frameworksDir);
-  for (const item of items) {
-    const fullPath = path.join(frameworksDir, item);
-    try {
-      const stat = fs.statSync(fullPath);
-      if (item.endsWith('.dylib')) {
-        run(`codesign --force --sign - "${fullPath}"`);
-      }
-    } catch (e) {}
+try {
+  assertExists(resolvedAppPath, '主应用');
+  assertExists(frameworksDir, 'Frameworks 目录');
+  for (const framework of frameworkBundles) {
+    assertExists(framework.targetPath, framework.label);
   }
 
-  // Sign frameworks (deep inside)
-  for (const item of items) {
-    const fullPath = path.join(frameworksDir, item);
-    if (item.endsWith('.framework')) {
-      // Sign framework version
-      const versionsDir = path.join(fullPath, 'Versions/A');
-      if (fs.existsSync(versionsDir)) {
-        // Sign Libraries inside framework
-        const libsDir = path.join(versionsDir, 'Libraries');
-        if (fs.existsSync(libsDir)) {
-          try {
-            const libs = fs.readdirSync(libsDir);
-            for (const lib of libs) {
-              if (lib.endsWith('.dylib')) {
-                run(`codesign --force --sign - "${path.join(libsDir, lib)}"`);
-              }
-            }
-          } catch (e) {}
-        }
-        // Sign Helpers inside framework
-        const helpersDir = path.join(versionsDir, 'Helpers');
-        if (fs.existsSync(helpersDir)) {
-          try {
-            const helpers = fs.readdirSync(helpersDir);
-            for (const h of helpers) {
-              const hPath = path.join(helpersDir, h);
-              try {
-                const hStat = fs.statSync(hPath);
-                if (hStat.isDirectory() && h.endsWith('.app')) {
-                  run(`codesign --force --sign - --entitlements "${entitlementsPath}" --deep "${hPath}"`);
-                } else {
-                  run(`codesign --force --sign - "${hPath}"`);
-                }
-              } catch (e) {}
-            }
-          } catch (e) {}
-        }
-        // Sign framework binary
-        const fwName = item.replace('.framework', '');
-        const fwBin = path.join(versionsDir, fwName);
-        if (fs.existsSync(fwBin)) {
-          run(`codesign --force --sign - "${fwBin}"`);
-        }
-      }
-      run(`codesign --force --sign - "${fullPath}"`);
-      console.log(`   ✅ ${item}`);
-    }
+  console.log('🔧 开始为 miaos 执行失败即停止的签名流程');
+  console.log(`   主应用：${resolvedAppPath}`);
+
+  run('xattr', ['-cr', resolvedAppPath]);
+  fs.writeFileSync(entitlementsPath, entitlements, 'utf8');
+
+  // 先签所有 Renderer/Plugin/GPU 等 Helper，再签全部 Framework，最后签主应用。
+  for (const helper of helperApps) {
+    signAndVerify(helper.label, helper.targetPath, { entitlements: true });
   }
-
-  // Sign helper apps
-  for (const item of items) {
-    const fullPath = path.join(frameworksDir, item);
-    if (item.endsWith('.app')) {
-      run(`codesign --force --sign - --entitlements "${entitlementsPath}" --deep "${fullPath}"`);
-      console.log(`   ✅ ${item}`);
-    }
+  for (const framework of frameworkBundles) {
+    signAndVerify(framework.label, framework.targetPath);
   }
+  signAndVerify('miaos.app', resolvedAppPath, { entitlements: true });
+
+  // 对主应用做最终整包校验，确保嵌套代码和外层签名共同有效。
+  run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', resolvedAppPath]);
+  console.log('✅ 签名与逐项验证完成');
+} finally {
+  fs.rmSync(entitlementsPath, { force: true });
 }
-
-// === 4. Sign main app binary ===
-console.log('\n✍️  Signing main app...');
-const mainBin = path.join(appPath, 'Contents/MacOS/miaos');
-if (fs.existsSync(mainBin)) {
-  run(`codesign --force --sign - --entitlements "${entitlementsPath}" "${mainBin}"`);
-}
-
-// Sign the main app bundle
-run(`codesign --force --sign - --entitlements "${entitlementsPath}" --deep "${appPath}"`);
-console.log(`   ✅ miaos.app`);
-
-// === 5. Verify ===
-console.log('\n🔍 Verifying...');
-const verifyResult = run(`codesign --verify --deep --strict --verbose=2 "${appPath}" 2>&1`);
-if (verifyResult.includes('valid on disk')) {
-  console.log('   ✅ Signature verification passed');
-} else {
-  console.log('   ℹ️ ', verifyResult.trim().split('\n').pop());
-}
-
-// Remove xattr after signing
-run(`xattr -cr "${appPath}"`);
-
-console.log('\n✅ Post-build signing complete!');

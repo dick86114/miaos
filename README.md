@@ -45,7 +45,7 @@
 
 ### 环境要求
 
-- macOS 12+（Apple Silicon / Intel）
+- macOS 12+（Apple Silicon，arm64）
 - Node.js 18+
 - pnpm 10.33.3+
 
@@ -141,7 +141,7 @@ DMG 构建产物位于 `release/` 目录，双击挂载后运行「安装妙生.
 | `~/.miaos/generated/` | 生成的图片文件 |
 | `~/Library/Application Support/miaos/` | Electron 运行时数据（缓存等） |
 
-API Key 存储在 localStorage 中，仅本地访问，不会上传到任何服务器。
+API Key 使用系统安全存储加密后保存在本地，仅在请求对应供应商时使用，不会上传到其他服务器。
 
 ## 许可证
 

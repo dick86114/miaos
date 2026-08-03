@@ -55,7 +55,8 @@
       "extendInfo": {
         "CFBundleDisplayName": "妙生",
         "CFBundleName": "miaos"
-      }
+      },
+      "minimumSystemVersion": "12.0.0"
     },
     "publish": {
       "provider": "github",

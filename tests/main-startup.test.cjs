@@ -112,11 +112,13 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
     networkRequests: [],
     externalUrls: [],
     windowOpenHandler: null,
+    browserWindowOptions: [],
   };
 
   class BrowserWindowMock {
-    constructor() {
+    constructor(options) {
       calls.browserWindow += 1;
+      calls.browserWindowOptions.push(options);
       calls.sequence.push('createWindow');
       this.webContents = {
         id: 100,
@@ -216,6 +218,12 @@ async function runMainWithMock(options = {}) {
 
   const originalLoad = Module._load;
   const originalExitCode = process.exitCode;
+  const hadLegacyRenderer = Object.hasOwn(process.env, 'MIAOS_LEGACY_RENDERER');
+  const originalLegacyRenderer = process.env.MIAOS_LEGACY_RENDERER;
+  if (Object.hasOwn(options, 'legacyRenderer')) {
+    if (options.legacyRenderer === undefined) delete process.env.MIAOS_LEGACY_RENDERER;
+    else process.env.MIAOS_LEGACY_RENDERER = options.legacyRenderer;
+  }
   process.exitCode = undefined;
   delete require.cache[mainPath];
   delete require.cache[httpClientPath];
@@ -253,6 +261,8 @@ async function runMainWithMock(options = {}) {
     delete require.cache[mainPath];
     delete require.cache[httpClientPath];
     process.exitCode = originalExitCode;
+    if (hadLegacyRenderer) process.env.MIAOS_LEGACY_RENDERER = originalLegacyRenderer;
+    else delete process.env.MIAOS_LEGACY_RENDERER;
   }
 }
 
@@ -374,6 +384,39 @@ test('正常路径先设置用户数据目录再启动窗口', async () => {
     assert.equal(calls.whenReady, 1);
     assert.equal(calls.browserWindow, 1);
     assert.deepEqual(calls.sequence.slice(0, 3), ['setPath', 'whenReady', 'createWindow']);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+
+test('默认运行时保持 sandbox、硬件加速与安全 webPreferences', async () => {
+  const homePath = createTempHome('miaos-runtime-secure-');
+  try {
+    const { calls } = await runMainWithMock({ homePath, legacyRenderer: undefined });
+
+    assert.equal(calls.disableHardwareAcceleration, undefined);
+    assert.deepEqual(calls.appendSwitch || [], []);
+    assert.equal(calls.browserWindowOptions.length, 1);
+    assert.equal(calls.browserWindowOptions[0].webPreferences.sandbox, true);
+    assert.equal(calls.browserWindowOptions[0].webPreferences.contextIsolation, true);
+    assert.equal(calls.browserWindowOptions[0].webPreferences.nodeIntegration, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('仅显式兼容模式允许关闭 sandbox 和硬件加速', async () => {
+  const homePath = createTempHome('miaos-runtime-legacy-');
+  try {
+    const { calls } = await runMainWithMock({ homePath, legacyRenderer: '1' });
+
+    assert.equal(calls.disableHardwareAcceleration, true);
+    assert.deepEqual(calls.appendSwitch, ['no-sandbox']);
+    assert.equal(calls.browserWindowOptions.length, 1);
+    assert.equal(calls.browserWindowOptions[0].webPreferences.sandbox, false);
+    assert.equal(calls.browserWindowOptions[0].webPreferences.contextIsolation, true);
+    assert.equal(calls.browserWindowOptions[0].webPreferences.nodeIntegration, false);
   } finally {
     cleanupTempHome(homePath);
   }

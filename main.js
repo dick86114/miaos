@@ -20,6 +20,7 @@ const { createImageFileAccess } = require('./src/main/security/image-files');
 const { createImageDecoder } = require('./src/main/security/image-decoder');
 const { createSecretsVault } = require('./src/main/secrets-vault');
 const { assertProviderId } = require('./src/main/provider-id');
+const { getRuntimeSecurityConfig } = require('./src/main/runtime-security');
 const crypto = require('crypto');
 
 let mainWindow = null;
@@ -43,9 +44,6 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
-  // ad-hoc 签名应用跳过代码签名校验，避免更新检查失败
-  autoUpdater.verifyUpdateCodeSignature = false;
-
   // 默认绑定到 dick86114/miaos GitHub 仓库
   try {
     autoUpdater.setFeedURL({
@@ -200,11 +198,15 @@ secretsVault = createSecretsVault({
   fsImpl: fs,
 });
 
-// 本应用为本地 file:// 应用，禁用硬件加速与渲染沙箱，
-// 避免 ad-hoc 签名环境下 GPU/Helper 进程因缺少 entitlements 而崩溃。
-app.disableHardwareAcceleration();
-app.commandLine.appendSwitch('no-sandbox');
-app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+// 默认面向 macOS 12+ Apple Silicon 启用 sandbox 和硬件加速。
+// 仅当用户明确设置 MIAOS_LEGACY_RENDERER=1 时，才为历史环境临时降级。
+const runtimeSecurityConfig = getRuntimeSecurityConfig(process.env);
+if (runtimeSecurityConfig.disableHardwareAcceleration) {
+  app.disableHardwareAcceleration();
+}
+if (runtimeSecurityConfig.appendNoSandbox) {
+  app.commandLine.appendSwitch('no-sandbox');
+}
 
 // 加载应用图标（兼容开发环境与打包后路径）
 function loadAppIcon() {
@@ -247,7 +249,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: runtimeSecurityConfig.sandbox,
       spellcheck: false,
     },
   });

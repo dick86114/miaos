@@ -66,6 +66,11 @@ jobs:
       - name: Build DMG
         run: pnpm dist
 
+      - name: Verify app signature and architecture
+        run: |
+          codesign --verify --deep --strict release/mac-arm64/miaos.app
+          file release/mac-arm64/miaos.app/Contents/MacOS/miaos | grep arm64
+
       - name: Verify artifacts
         run: |
           echo "=== 构建产物 ==="
