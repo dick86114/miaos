@@ -22,6 +22,7 @@ class FakeNode {
     this.parentNode = null;
     this.dataset = {};
     this._textContent = '';
+    this.listeners = new Map();
   }
 
   appendChild(node) {
@@ -45,6 +46,30 @@ class FakeNode {
     if (!this.parentNode) return;
     this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
     this.parentNode = null;
+  }
+
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) || [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatchEvent(event) {
+    const payload = { preventDefault() {}, ...event };
+    (this.listeners.get(payload.type) || []).forEach((listener) => listener(payload));
+  }
+
+  closest(selector) {
+    let current = this;
+    const attribute = selector.match(/^\[data-([^=\]]+)(?:=\"([^\"]*)\")?\]$/);
+    while (current) {
+      if (attribute) {
+        const key = attribute[1].replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+        if (Object.hasOwn(current.dataset, key) && (attribute[2] == null || current.dataset[key] === attribute[2])) return current;
+      }
+      current = current.parentNode;
+    }
+    return null;
   }
 
   set textContent(value) {
@@ -183,10 +208,179 @@ test('队列卡片和历史图片列表使用稳定 key、批量渲染与事件�
 
 test('固定 fixture 的局部列表构造使用一次批量提交，并输出可重复基线', (t) => {
   const baseline = measureInteractionBaseline();
-  assert.equal(baseline.historyNodeCount, 200);
-  assert.equal(baseline.fragmentCount, 1);
-  assert.equal(baseline.projectCount, 50);
-  assert.equal(baseline.versionCount, 100);
-  assert.ok(baseline.medianMs >= 0);
+  assert.equal(baseline.history.nodeCount, 200);
+  assert.equal(baseline.history.fragmentCount, 1);
+  assert.equal(baseline.projects.nodeCount, 50);
+  assert.equal(baseline.projects.fragmentCount, 1);
+  assert.equal(baseline.versions.nodeCount, 100);
+  assert.equal(baseline.versions.fragmentCount, 1);
+  assert.ok(baseline.history.medianMs >= 0);
+  assert.ok(baseline.projects.medianMs >= 0);
+  assert.ok(baseline.versions.medianMs >= 0);
   t.diagnostic(`本地基线：${JSON.stringify(baseline)}`);
+});
+
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushQueueMicrotasks(times = 6) {
+  for (let index = 0; index < times; index += 1) await flushMicrotasks();
+}
+
+async function createControlledQueue(options = {}) {
+  const queueModule = await import('../src/js/queue.js');
+  assert.equal(typeof queueModule.createQueue, 'function', '队列应提供可注入 worker 的工厂');
+  return queueModule.createQueue({
+    uid: (() => {
+      let count = 0;
+      return (prefix) => `${prefix}_${++count}`;
+    })(),
+    schedulePump: (run) => queueMicrotask(run),
+    ...options,
+  });
+}
+
+test('受控 worker 维持 running→done/failed 串行执行，并合并首任务完成与次任务运行快照', async () => {
+  const first = createDeferred();
+  const second = createDeferred();
+  const workerCalls = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const controlledQueue = await createControlledQueue({
+    generateImage: () => {
+      const deferred = workerCalls.length === 0 ? first : second;
+      workerCalls.push(deferred);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return deferred.promise.finally(() => { inFlight -= 1; });
+    },
+  });
+  const snapshots = [];
+  controlledQueue.subscribe((snapshot) => snapshots.push(snapshot));
+
+  const firstId = controlledQueue.enqueue({ source: 'quick', prompt: '第一张' });
+  const secondId = controlledQueue.enqueue({ source: 'quick', prompt: '第二张' });
+  await flushQueueMicrotasks();
+
+  assert.equal(workerCalls.length, 1);
+  assert.equal(maxInFlight, 1);
+  // 队列沿用既有 unshift 顺序：后入队的任务先执行。
+  assert.equal(controlledQueue.getTasks().find((task) => task.id === secondId).status, 'running');
+  assert.equal(controlledQueue.getTasks().find((task) => task.id === firstId).status, 'queued');
+
+  first.resolve({ id: 'image-first', image: 'data:first' });
+  await flushQueueMicrotasks();
+
+  assert.equal(workerCalls.length, 2);
+  assert.equal(maxInFlight, 1);
+  const handoffSnapshot = snapshots.find((snapshot) => (
+    snapshot.find((task) => task.id === secondId)?.status === 'done'
+    && snapshot.find((task) => task.id === firstId)?.status === 'running'
+  ));
+  assert.ok(handoffSnapshot, '首任务完成与次任务开始必须合并为同一快照');
+
+  second.reject(new Error('受控失败'));
+  await flushQueueMicrotasks();
+
+  assert.equal(controlledQueue.getTasks().find((task) => task.id === firstId).status, 'failed');
+  assert.equal(maxInFlight, 1);
+});
+
+test('listener 重入产生下一批快照，异常 listener 不影响其他 listener 与后续通知', async () => {
+  const controlledQueue = await createControlledQueue({ schedulePump: () => {} });
+  const snapshots = [];
+  let reentered = false;
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    controlledQueue.subscribe(() => { throw new Error('listener 异常'); });
+    controlledQueue.subscribe((snapshot) => {
+      snapshots.push(snapshot);
+      if (!reentered) {
+        reentered = true;
+        controlledQueue.enqueue({ source: 'quick', prompt: '重入任务' });
+      }
+    });
+
+    controlledQueue.enqueue({ source: 'quick', prompt: '初始任务' });
+    await flushQueueMicrotasks();
+
+    assert.equal(snapshots.length, 2);
+    assert.equal(snapshots[0].length, 1);
+    assert.equal(snapshots[1].length, 2);
+
+    controlledQueue.cancel(snapshots[1][0].id);
+    await flushQueueMicrotasks();
+    assert.equal(snapshots.length, 3);
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test('受控队列取消订阅后不会收到已排队的 flush', async () => {
+  const controlledQueue = await createControlledQueue({ schedulePump: () => {} });
+  let calls = 0;
+  const unsubscribe = controlledQueue.subscribe(() => { calls += 1; });
+  controlledQueue.enqueue({ source: 'quick', prompt: '待取消订阅' });
+  unsubscribe();
+  await flushQueueMicrotasks();
+  assert.equal(calls, 0);
+});
+
+test('项目画廊的稳定 key 重排后复用节点，委托取消与删除各只触发一次', async () => {
+  const documentRef = createFakeDocument();
+  const container = documentRef.createElement('section');
+  let cancelCalls = 0;
+  let deleteCalls = 0;
+  container.addEventListener('click', (event) => {
+    const cancelButton = event.target.closest('[data-action="cancel"]');
+    const deleteButton = event.target.closest('[data-action="delete"]');
+    if (cancelButton) cancelCalls += 1;
+    if (deleteButton) deleteCalls += 1;
+  });
+  const { createKeyedListRenderer } = await import('../src/js/ui.js');
+  const renderer = createKeyedListRenderer(container, {
+    getKey: (item) => item.key,
+    getSignature: (item) => item.status,
+    createNode: (item) => {
+      const card = documentRef.createElement('article');
+      card.dataset.itemKey = item.key;
+      const action = documentRef.createElement('button');
+      action.dataset.action = item.type === 'task' ? 'cancel' : 'delete';
+      action.dataset.itemId = item.key;
+      card.appendChild(action);
+      return card;
+    },
+  });
+
+  renderer.render([
+    { key: 'task-a', type: 'task', status: 'queued' },
+    { key: 'image-b', type: 'image', status: 'done' },
+  ]);
+  const taskA = container.children[0];
+  const imageB = container.children[1];
+  renderer.render([
+    { key: 'image-b', type: 'image', status: 'done' },
+    { key: 'task-a', type: 'task', status: 'queued' },
+  ]);
+
+  assert.equal(container.children[0], imageB);
+  assert.equal(container.children[1], taskA);
+  container.dispatchEvent({ type: 'click', target: taskA.children[0] });
+  container.dispatchEvent({ type: 'click', target: imageB.children[0] });
+  assert.equal(cancelCalls, 1);
+  assert.equal(deleteCalls, 1);
+
+  const { readFile } = await import('node:fs/promises');
+  const projectSource = await readFile(new URL('../src/js/pages/project.js', import.meta.url), 'utf8');
+  assert.match(projectSource, /createKeyedListRenderer/);
+  assert.match(projectSource, /galleryGrid\.addEventListener\('click'/);
 });

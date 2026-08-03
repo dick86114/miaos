@@ -78,42 +78,51 @@ export function createInteractionBaselineFixture() {
   };
 }
 
-// 在 Node 环境重复测量稳定列表的首轮批量构造；用于趋势对比，不代替 GUI 帧率验收。
-export function measureInteractionBaseline(rounds = 20) {
-  const fixture = createInteractionBaselineFixture();
+function measureStableList(items, rounds, getKey, getLabel) {
   const samples = [];
-  let historyNodeCount = 0;
+  let nodeCount = 0;
   let fragmentCount = 0;
 
   for (let round = 0; round < rounds; round += 1) {
     const documentRef = createBaselineDocument();
     const container = documentRef.createElement('section');
     const renderer = createKeyedListRenderer(container, {
-      getKey: (item) => item.id,
+      getKey,
       createNode: (item) => {
-        const card = documentRef.createElement('article');
-        card.dataset.historyId = item.id;
-        card.textContent = item.prompt;
-        return card;
+        const node = documentRef.createElement('article');
+        node.dataset.benchmarkKey = getKey(item);
+        node.textContent = getLabel(item);
+        return node;
       },
-      updateNode: (node, item) => { node.textContent = item.prompt; },
+      updateNode: (node, item) => { node.textContent = getLabel(item); },
     });
     const startedAt = performance.now();
-    renderer.render(fixture.history);
+    renderer.render(items);
     samples.push(performance.now() - startedAt);
-    historyNodeCount = container.children.length;
+    nodeCount = container.children.length;
     fragmentCount = documentRef.fragmentCount;
   }
 
   const sortedSamples = [...samples].sort((left, right) => left - right);
-  const medianMs = sortedSamples[Math.floor(sortedSamples.length / 2)];
+  return {
+    nodeCount,
+    fragmentCount,
+    medianMs: Number(sortedSamples[Math.floor(sortedSamples.length / 2)].toFixed(3)),
+  };
+}
+
+// 在 Node 环境分开测量历史、项目与版本的首轮批量构造；用于人工趋势对比，不代替 GUI 帧率验收。
+export function measureInteractionBaseline(rounds = 20) {
+  const fixture = createInteractionBaselineFixture();
+  const versions = fixture.projects.flatMap((project) => project.versions.map((version) => ({
+    ...version,
+    projectId: project.id,
+  })));
+
   return {
     rounds,
-    medianMs: Number(medianMs.toFixed(3)),
-    historyNodeCount,
-    fragmentCount,
-    historyCount: fixture.history.length,
-    projectCount: fixture.projects.length,
-    versionCount: fixture.projects.reduce((count, project) => count + project.versions.length, 0),
+    history: measureStableList(fixture.history, rounds, (item) => item.id, (item) => item.prompt),
+    projects: measureStableList(fixture.projects, rounds, (item) => item.id, (item) => item.name),
+    versions: measureStableList(versions, rounds, (item) => item.id, (item) => item.id),
   };
 }
