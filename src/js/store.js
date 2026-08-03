@@ -1,8 +1,11 @@
 // 应用状态管理：供应商→模型层级结构，持久化到 localStorage
 // 版本 v5：统一供应商模型（支持 image/text/video 分类模型），新增默认模型选择
 
-const STORAGE_KEY = 'miaos.state.v5';
-const LEGACY_KEYS = ['miaos.state.v4', 'miaos.state.v3'];
+import {
+  createStatePersistence,
+  DEFAULT_ENABLED_IMAGE,
+  GRSAI_IMAGE_MODELS,
+} from './state-schema.js';
 
 const RANDOM_PROMPTS = [
   '清晨的湖边，薄雾缭绕，极简风格，远山倒影在水面上',
@@ -17,175 +20,45 @@ const RANDOM_PROMPTS = [
   '复古胶片质感的城市街景，暖色调，雨夜',
 ];
 
-// Grsai 内置已知模型（生图）
-const GRSAI_IMAGE_MODELS = [
-  { id: 'gpt-image-2', name: 'gpt-image-2' },
-  { id: 'gpt-image-2-vip', name: 'gpt-image-2-vip' },
-  { id: 'nano-banana', name: 'nano-banana' },
-  { id: 'nano-banana-fast', name: 'nano-banana-fast' },
-  { id: 'nano-banana-2', name: 'nano-banana-2' },
-  { id: 'nano-banana-2-cl', name: 'nano-banana-2-cl' },
-  { id: 'nano-banana-pro', name: 'nano-banana-pro' },
-  { id: 'nano-banana-pro-vt', name: 'nano-banana-pro-vt' },
-  { id: 'nano-banana-pro-cl', name: 'nano-banana-pro-cl' },
-  { id: 'nano-banana-pro-vip', name: 'nano-banana-pro-vip' },
-];
-
-const DEFAULT_ENABLED_IMAGE = ['gpt-image-2', 'nano-banana-2', 'nano-banana-pro'];
-
-const DEFAULT_PROVIDERS = [
-  {
-    id: 'p_grsai',
-    name: 'Grsai',
-    type: 'grsai',
-    endpoint: 'https://grsaiapi.com/v1/api/generate',
-    apiKey: '',
-    capabilities: ['image'],
-    imageModels: GRSAI_IMAGE_MODELS.map((m) => ({
-      ...m,
-      enabled: DEFAULT_ENABLED_IMAGE.includes(m.id),
-    })),
-    textModels: [],
-    videoModels: [],
-    lastTestResult: null,
-  },
-];
-
-let state = load();
-
-function migrate(parsed) {
-  // 如果已经是 v5 格式（providers 有 imageModels 字段），直接返回，不做迁移
-  if (parsed.providers && parsed.providers.length && parsed.providers[0].imageModels) {
-    // 确保每个 provider 都有完整的 v5 字段
-    return {
-      ...parsed,
-      providers: parsed.providers.map((p) => ({
-        ...p,
-        capabilities: p.capabilities || ['image'],
-        imageModels: p.imageModels || [],
-        textModels: p.textModels || [],
-        videoModels: p.videoModels || [],
-        lastTestResult: p.lastTestResult || null,
-      })),
-    };
-  }
-
-  // 从 v4 迁移：旧版 providers 只有 models 数组（全是生图模型），textProvider 独立
-  const providers = parsed.providers && parsed.providers.length
-    ? parsed.providers.map((p) => {
-      const oldModels = Array.isArray(p.models) ? p.models : [];
-      return {
-        id: p.id,
-        name: p.name,
-        type: p.type,
-        endpoint: p.endpoint,
-        apiKey: p.apiKey || '',
-        capabilities: ['image'],
-        imageModels: oldModels.map((m) => ({ id: m.id, name: m.name || m.id, enabled: !!m.enabled })),
-        textModels: [],
-        videoModels: [],
-        lastTestResult: null,
-      };
-    })
-    : structuredClone(DEFAULT_PROVIDERS);
-
-  // 旧版 textProvider 迁移为一个独立的文本模型供应商
-  if (parsed.textProvider && parsed.textProvider.endpoint) {
-    const tp = parsed.textProvider;
-    const textModelId = tp.model || 'text-model';
-    providers.push({
-      id: 'p_text_migrated',
-      name: '文本模型',
-      type: 'openai',
-      endpoint: tp.endpoint,
-      apiKey: tp.apiKey || '',
-      capabilities: ['text'],
-      imageModels: [],
-      textModels: [{ id: textModelId, name: textModelId, enabled: true }],
-      videoModels: [],
-      lastTestResult: null,
-    });
-  }
-
-  // 默认模型选择
-  const defaults = parsed.defaults || {};
-  let defaultImageProvider = defaults.defaultImageProvider || '';
-  let defaultImageModel = defaults.defaultImageModel || '';
-  let defaultTextProvider = defaults.defaultTextProvider || '';
-  let defaultTextModel = defaults.defaultTextModel || '';
-  let defaultVideoProvider = defaults.defaultVideoProvider || '';
-  let defaultVideoModel = defaults.defaultVideoModel || '';
-
-  // 如果没设置默认生图模型，用第一个有启用模型的
-  if (!defaultImageProvider) {
-    const firstWithImg = providers.find((p) => p.imageModels.some((m) => m.enabled));
-    if (firstWithImg) {
-      defaultImageProvider = firstWithImg.id;
-      defaultImageModel = firstWithImg.imageModels.find((m) => m.enabled)?.id || '';
-    }
-  }
-  // 如果迁移了文本模型，设为默认文本
-  if (!defaultTextProvider && parsed.textProvider && parsed.textProvider.endpoint) {
-    defaultTextProvider = 'p_text_migrated';
-    defaultTextModel = parsed.textProvider.model || '';
-  }
-
+function createRuntimeStorage() {
+  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+  const map = new Map();
   return {
-    providers,
-    history: parsed.history || [],
-    lastSettings: parsed.lastSettings || null,
-    projects: Array.isArray(parsed.projects) ? parsed.projects : [],
-    defaults: {
-      defaultImageProvider,
-      defaultImageModel,
-      defaultTextProvider,
-      defaultTextModel,
-      defaultVideoProvider,
-      defaultVideoModel,
-    },
-    updateRepo: typeof parsed.updateRepo === 'string' ? parsed.updateRepo : 'dick86114/miaos',
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
   };
 }
 
-function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return migrate(JSON.parse(raw));
-    for (const k of LEGACY_KEYS) {
-      const legacyRaw = localStorage.getItem(k);
-      if (legacyRaw) {
-        const s = migrate(JSON.parse(legacyRaw));
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (_) {}
-        return s;
-      }
-    }
-  } catch (e) {
-    console.warn('状态读取失败，使用默认值', e);
-  }
-  // 全新安装：Grsai 作为默认
-  return {
-    providers: structuredClone(DEFAULT_PROVIDERS),
-    history: [],
-    lastSettings: null,
-    projects: [],
-    defaults: {
-      defaultImageProvider: 'p_grsai',
-      defaultImageModel: 'gpt-image-2',
-      defaultTextProvider: '',
-      defaultTextModel: '',
-      defaultVideoProvider: '',
-      defaultVideoModel: '',
-    },
-    updateRepo: 'dick86114/miaos',
-  };
-}
+const statePersistence = createStatePersistence(createRuntimeStorage());
+const loadResult = statePersistence.load();
+let state = loadResult.state;
+if (loadResult.warning) console.warn(loadResult.warning);
 
 function save() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    statePersistence.saveNow(state);
   } catch (e) {
     console.warn('状态保存失败', e);
   }
+}
+
+function scheduleSave() {
+  try {
+    statePersistence.scheduleSave(state);
+  } catch (e) {
+    console.warn('状态保存失败', e);
+  }
+}
+
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('beforeunload', () => {
+    try {
+      statePersistence.flush();
+    } catch (e) {
+      console.warn('状态保存失败', e);
+    }
+  });
 }
 
 export function uid(prefix = 'id') {
@@ -571,7 +444,7 @@ export function ratioToSize(ratio) {
   return map[ratio] || '1024x1024';
 }
 
-export function saveLastSettings(settings) { state.lastSettings = settings; save(); }
+export function saveLastSettings(settings) { state.lastSettings = settings; scheduleSave(); }
 export function getLastSettings() { return state.lastSettings; }
 
 export async function imageToDataUrl(src) {
