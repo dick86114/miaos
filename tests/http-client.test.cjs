@@ -15,6 +15,20 @@ async function withServer(handler, run) {
   }
 }
 
+async function withServers(handlers, run) {
+  const servers = await Promise.all(handlers.map(async (handler) => {
+    const server = http.createServer(handler);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    return { server, baseUrl: `http://127.0.0.1:${port}` };
+  }));
+  try {
+    await run(servers.map(({ baseUrl }) => baseUrl));
+  } finally {
+    await Promise.all(servers.map(({ server }) => new Promise((resolve) => server.close(resolve))));
+  }
+}
+
 test('成功响应会解析 JSON 并保留状态码', async () => {
   await withServer((_req, res) => {
     res.setHeader('content-type', 'application/json');
@@ -129,5 +143,64 @@ test('公开错误模型不暴露非受信任异常消息', () => {
     code: 'NETWORK_TIMEOUT',
     error: '请求超时，请稍后重试',
     retryable: true,
+  });
+});
+
+test('持续缓慢输出仍受整个请求生命周期 timeoutMs 限制', async () => {
+  await withServer((_req, res) => {
+    res.setHeader('content-type', 'application/json');
+    const timer = setInterval(() => res.write(' '), 5);
+    const finish = () => clearInterval(timer);
+    res.on('close', finish);
+    setTimeout(() => {
+      finish();
+      res.end(JSON.stringify({ slow: true }));
+    }, 120);
+  }, async (baseUrl) => {
+    await assert.rejects(
+      requestJson({ url: baseUrl, timeoutMs: 30 }),
+      (error) => error.code === 'NETWORK_TIMEOUT' && error.retryable === true,
+    );
+  });
+});
+
+test('403 映射为 AUTH_FAILED，且不暴露上游错误正文', async () => {
+  const secret = 'sk-review-secret';
+  await withServer((_req, res) => {
+    res.statusCode = 403;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ error: `Authorization: Bearer ${secret}` }));
+  }, async (baseUrl) => {
+    await assert.rejects(requestJson({ url: baseUrl }), (error) => {
+      const publicError = toPublicError(error);
+      return error.code === 'AUTH_FAILED'
+        && publicError.retryable === false
+        && !JSON.stringify(publicError).includes(secret);
+    });
+  });
+});
+
+test('跨源 302 不会将 Authorization 转发到目标服务', async () => {
+  let targetAuthorization = null;
+  let targetBaseUrl = '';
+  await withServers([
+    (_req, res) => {
+      res.writeHead(302, { location: `${targetBaseUrl}/target` });
+      res.end();
+    },
+    (req, res) => {
+      targetAuthorization = req.headers.authorization || null;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: true }));
+    },
+  ], async ([sourceBaseUrl, targetBaseUrlValue]) => {
+    targetBaseUrl = targetBaseUrlValue;
+    const result = await requestJson({
+      url: sourceBaseUrl,
+      method: 'GET',
+      headers: { Authorization: 'Bearer sk-review-secret' },
+    });
+    assert.deepEqual(result, { status: 200, data: { ok: true } });
+    assert.equal(targetAuthorization, null);
   });
 });

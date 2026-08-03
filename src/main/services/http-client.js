@@ -94,7 +94,7 @@ function requestJson(options) {
     method: String(settings.method || 'POST').toUpperCase(),
     headers: { ...settings.headers },
     bodyBuffer,
-    timeoutMs: settings.timeoutMs,
+    deadlineAt: Date.now() + settings.timeoutMs,
     maxRedirects: settings.maxRedirects,
     maxResponseBytes: settings.maxResponseBytes,
     signal: settings.signal,
@@ -106,6 +106,10 @@ function performRequest(context) {
   return new Promise((resolve, reject) => {
     if (context.signal?.aborted) {
       reject(new AppError('REQUEST_ABORTED', '请求已取消', { retryable: false }));
+      return;
+    }
+    if (Date.now() >= context.deadlineAt) {
+      reject(new AppError('NETWORK_TIMEOUT', '请求超时，请稍后重试', { retryable: true }));
       return;
     }
 
@@ -122,12 +126,25 @@ function performRequest(context) {
     let timedOut = false;
     let aborted = false;
     let req;
+    let res;
     let onAbort;
+    let deadlineTimer;
 
+    const releaseResources = () => {
+      if (deadlineTimer) {
+        clearTimeout(deadlineTimer);
+        deadlineTimer = null;
+      }
+      if (context.signal && onAbort) context.signal.removeEventListener('abort', onAbort);
+    };
+    const destroyRequestAndResponse = () => {
+      res?.destroy?.();
+      req?.destroy?.();
+    };
     const settle = (callback, value) => {
       if (settled) return;
       settled = true;
-      if (context.signal && onAbort) context.signal.removeEventListener('abort', onAbort);
+      releaseResources();
       callback(value);
     };
 
@@ -139,7 +156,8 @@ function performRequest(context) {
         path: `${context.url.pathname}${context.url.search}`,
         method: context.method,
         headers,
-      }, (res) => {
+      }, (response) => {
+        res = response;
         const status = Number(res.statusCode || 0);
         const location = res.headers && res.headers.location;
         if (status >= 300 && status < 400 && location) {
@@ -164,6 +182,7 @@ function performRequest(context) {
           }
 
           res.resume?.();
+          releaseResources();
           const switchToGet = status === 303 || ((status === 301 || status === 302) && context.method === 'POST');
           performRequest({
             ...context,
@@ -227,14 +246,15 @@ function performRequest(context) {
       if (timedOut || aborted) return;
       settle(reject, createNetworkError(error));
     });
-    req.setTimeout?.(context.timeoutMs, () => {
+    const remainingMs = Math.max(0, context.deadlineAt - Date.now());
+    deadlineTimer = setTimeout(() => {
       timedOut = true;
-      req.destroy();
+      destroyRequestAndResponse();
       settle(reject, new AppError('NETWORK_TIMEOUT', '请求超时，请稍后重试', { retryable: true }));
-    });
+    }, remainingMs);
     onAbort = () => {
       aborted = true;
-      req.destroy();
+      destroyRequestAndResponse();
       settle(reject, new AppError('REQUEST_ABORTED', '请求已取消', { retryable: false }));
     };
     context.signal?.addEventListener('abort', onAbort, { once: true });
