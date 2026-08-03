@@ -5,7 +5,10 @@
  * 仅为排查历史渲染器兼容问题保留显式的临时降级开关，不能以其他真值形式触发。
  */
 function getRuntimeSecurityConfig(env = {}) {
-  const legacyMode = env.MIAOS_LEGACY_RENDERER === '1';
+  const hasLegacyRendererFlag = env !== null
+    && typeof env === 'object'
+    && Object.prototype.hasOwnProperty.call(env, 'MIAOS_LEGACY_RENDERER');
+  const legacyMode = hasLegacyRendererFlag && env.MIAOS_LEGACY_RENDERER === '1';
 
   return {
     legacyMode,
