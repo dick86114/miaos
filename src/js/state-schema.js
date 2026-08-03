@@ -174,29 +174,46 @@ export function migrateState(parsed) {
 }
 
 
-// 将旧 localStorage 中的明文密钥交给主进程保存。只有主进程确认全部完成后才清理状态。
+// 构造不包含明文密钥的可信供应商元数据，用于主进程一次性绑定网络目标。
+function providerMetadata(provider) {
+  return {
+    id: provider.id,
+    name: provider.name || '',
+    type: provider.type || '',
+    endpoint: provider.endpoint || '',
+    capabilities: Array.isArray(provider.capabilities) ? [...provider.capabilities] : [],
+    imageModels: Array.isArray(provider.imageModels) ? provider.imageModels.map((model) => ({ ...model })) : [],
+    textModels: Array.isArray(provider.textModels) ? provider.textModels.map((model) => ({ ...model })) : [],
+    videoModels: Array.isArray(provider.videoModels) ? provider.videoModels.map((model) => ({ ...model })) : [],
+  };
+}
+
+// 将旧 localStorage 中的明文密钥与供应商绑定信息交给主进程。只有主进程确认全部完成后才清理状态。
 export async function migrateLegacyProviderSecrets(state, migrateSecrets) {
   const providers = Array.isArray(state?.providers) ? state.providers : [];
-  const secrets = providers
-    .filter((provider) => typeof provider?.apiKey === 'string' && provider.apiKey.length > 0)
-    .map((provider) => ({ providerId: provider.id, apiKey: provider.apiKey }));
+  const entries = providers.map((provider) => ({
+    providerId: provider.id,
+    metadata: providerMetadata(provider),
+    ...(typeof provider.apiKey === 'string' && provider.apiKey.length > 0 ? { apiKey: provider.apiKey } : {}),
+  }));
 
-  if (secrets.length > 0) {
-    const result = await migrateSecrets(secrets);
+  if (entries.length > 0) {
+    const result = await migrateSecrets(entries);
     if (!result || result.ok !== true) {
       return { ok: false, error: result?.error || 'API Key 安全迁移失败' };
     }
+    for (const provider of providers) {
+      if (typeof provider.apiKey === 'string') {
+        provider.hasApiKey = provider.apiKey.length > 0 || !!provider.hasApiKey;
+        delete provider.apiKey;
+      } else if (provider.hasApiKey === undefined) {
+        provider.hasApiKey = false;
+      }
+    }
+    return { ok: true, migrated: entries.some((entry) => !!entry.apiKey), transactionId: result.transactionId };
   }
 
-  for (const provider of providers) {
-    if (typeof provider.apiKey === 'string') {
-      provider.hasApiKey = provider.apiKey.length > 0 || !!provider.hasApiKey;
-      delete provider.apiKey;
-    } else if (provider.hasApiKey === undefined) {
-      provider.hasApiKey = false;
-    }
-  }
-  return { ok: true, migrated: secrets.length > 0 };
+  return { ok: true, migrated: false };
 }
 
 export function validateState(value) {

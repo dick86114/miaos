@@ -13,9 +13,10 @@ contextBridge.exposeInMainWorld('api', {
   savePastedImage: (dataUrl) => ipcRenderer.invoke('save-pasted-image', dataUrl),
   optimizePrompt: (params) => ipcRenderer.invoke('optimize-prompt', params),
   summarizePrompt: (params) => ipcRenderer.invoke('summarize-prompt', params),
-  setProviderSecret: (providerId, value) => ipcRenderer.invoke('provider-secret-set', providerId, value),
+  setProviderSecret: (providerId, value, metadata, options) => ipcRenderer.invoke('provider-secret-set', providerId, value, metadata, options),
   hasProviderSecret: (providerId) => ipcRenderer.invoke('provider-secret-has', providerId),
-  deleteProviderSecret: (providerId) => ipcRenderer.invoke('provider-secret-delete', providerId),
+  deleteProviderSecret: (providerId, options) => ipcRenderer.invoke('provider-secret-delete', providerId, options),
+  completeProviderSecretTransaction: (operation, transactionId) => ipcRenderer.invoke('provider-secret-migrate', { operation, transactionId }),
   migrateProviderSecrets: (entries) => ipcRenderer.invoke('provider-secret-migrate', entries),
 
   // ===== 自动更新（仅检测，跳转 GitHub 下载） =====

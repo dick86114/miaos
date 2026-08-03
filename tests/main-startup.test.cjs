@@ -228,8 +228,13 @@ async function runMainWithMock(options = {}) {
     require(mainPath);
     await Promise.resolve();
     await new Promise((resolve) => setImmediate(resolve));
-    if (options.seedProviderSecret !== false && calls.ipcHandlers['provider-secret-set']) {
-      await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_grsai', 'test-key');
+    if (options.seedProviderSecret !== false && calls.ipcHandlers['provider-secret-migrate']) {
+      const seeded = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+        providerId: 'p_grsai',
+        apiKey: 'test-key',
+        metadata: createGrsaiMetadata('https://example.invalid/generate'),
+      }]);
+      await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'commit', transactionId: seeded.transactionId });
     }
     return { calls, exitCode: process.exitCode };
   } catch (error) {
@@ -246,15 +251,23 @@ function trustedEvent() {
   return { sender: { id: 100 } };
 }
 
+function createGrsaiMetadata(endpoint) {
+  return {
+    id: 'p_grsai', name: 'Grsai', type: 'grsai', endpoint,
+    capabilities: ['image'],
+    imageModels: [{ id: 'gpt-image-2', name: 'gpt-image-2', enabled: true }],
+    textModels: [{ id: 'text-model', name: 'text-model', enabled: true }],
+    videoModels: [],
+  };
+}
+
 function createGenerateParams(sourceImage) {
   return {
     prompt: '测试提示词',
-    provider: 'grsai',
     modelName: 'gpt-image-2',
     ratio: '1:1',
     quality: '高清',
     size: '1024x1024',
-    endpoint: 'https://example.invalid/generate',
     providerId: 'p_grsai',
     sourceImage,
   };
@@ -356,13 +369,46 @@ test('密钥 IPC 通过安全 wrapper 保存、查询、迁移和删除密文', 
     const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
     assert.deepEqual(await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_one', 'sk-one'), { ok: true });
     assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_one'), { ok: true, has: true });
-    assert.deepEqual(await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [
+    const migrated = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [
       { providerId: 'p_two', apiKey: 'sk-two' },
-    ]), { ok: true });
+    ]);
+    assert.equal(migrated.ok, true);
+    assert.ok(migrated.transactionId);
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'commit', transactionId: migrated.transactionId }), { ok: true });
     assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_two'), { ok: true, has: true });
     assert.deepEqual(await calls.ipcHandlers['provider-secret-delete'](trustedEvent(), 'p_one'), { ok: true });
     assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_one'), { ok: true, has: false });
     assert.doesNotMatch(fs.readFileSync(path.join(homePath, '.miaos', 'secrets.json'), 'utf8'), /sk-one|sk-two/);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('供应商密钥事务在本地元数据失败时可回滚新增、编辑与删除的 vault 绑定', async () => {
+  const homePath = createTempHome('miaos-provider-transaction-');
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    const created = await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_tx', 'sk-new', {
+      ...createGrsaiMetadata('https://new.invalid/generate'), id: 'p_tx',
+    }, { transactional: true });
+    assert.equal(created.ok, true);
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'rollback', transactionId: created.transactionId }), { ok: true });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_tx'), { ok: true, has: false });
+
+    const seeded = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+      providerId: 'p_grsai', apiKey: 'sk-old', metadata: createGrsaiMetadata('https://old.invalid/generate'),
+    }]);
+    await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'commit', transactionId: seeded.transactionId });
+    const edited = await calls.ipcHandlers['provider-secret-set'](trustedEvent(), 'p_grsai', 'sk-new', createGrsaiMetadata('https://new.invalid/generate'), { transactional: true });
+    await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'rollback', transactionId: edited.transactionId });
+    const request = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(null));
+    assert.equal(request.ok, false);
+    assert.equal(calls.networkRequests.at(-1).options.hostname, 'old.invalid');
+    assert.equal(calls.networkRequests.at(-1).options.headers.Authorization, 'Bearer sk-old');
+
+    const deleted = await calls.ipcHandlers['provider-secret-delete'](trustedEvent(), 'p_grsai', { transactional: true });
+    await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'rollback', transactionId: deleted.transactionId });
+    assert.deepEqual(await calls.ipcHandlers['provider-secret-has'](trustedEvent(), 'p_grsai'), { ok: true, has: true });
   } finally {
     cleanupTempHome(homePath);
   }
@@ -408,6 +454,69 @@ test('已保存供应商的所有请求路径都通过 providerId 从 vault 读�
       isImageToImage: false,
     });
     assert.equal(calls.networkRequests.at(-1).options.headers.Authorization, 'Bearer test-key');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('已保存供应商将 key 绑定到可信 metadata，不能被 renderer 指向任意 HTTPS', async () => {
+  const homePath = createTempHome('miaos-provider-binding-');
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    const trustedEndpoint = 'https://trusted.invalid/v1/api/generate';
+    const migrate = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+      providerId: 'p_grsai',
+      apiKey: 'test-key',
+      metadata: createGrsaiMetadata(trustedEndpoint),
+    }]);
+    assert.equal(migrate.ok, true);
+
+    const tampered = await calls.ipcHandlers['generate-image'](trustedEvent(), {
+      ...createGenerateParams(null),
+        provider: 'openai',
+    });
+    assert.equal(tampered.ok, false);
+    assert.equal(calls.networkRequests.length, 0);
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(null));
+    assert.equal(result.ok, false);
+    assert.equal(calls.networkRequests.length, 1);
+    assert.equal(calls.networkRequests[0].options.hostname, 'trusted.invalid');
+    assert.equal(calls.networkRequests[0].options.path, '/v1/api/generate');
+    assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer test-key');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('公开 provider 没有密钥时仍可使用可信 metadata 发起无 Authorization 请求', async () => {
+  const homePath = createTempHome('miaos-public-provider-');
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    const result = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+      providerId: 'p_public',
+      metadata: {
+        ...createGrsaiMetadata('https://public.invalid/generate'),
+        id: 'p_public', name: '公开接口', textModels: [],
+      },
+    }]);
+    assert.equal(result.ok, true);
+    await calls.ipcHandlers['test-connection'](trustedEvent(), { providerId: 'p_public' });
+    assert.equal(calls.networkRequests.at(-1).options.hostname, 'public.invalid');
+    assert.equal(calls.networkRequests.at(-1).options.path, '/generate');
+    assert.equal('Authorization' in calls.networkRequests.at(-1).options.headers, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('密钥迁移拒绝 __proto__，旧 renderer 状态因此不会清理密钥', async () => {
+  const homePath = createTempHome('miaos-provider-id-');
+  try {
+    const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
+    const result = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{ providerId: '__proto__', apiKey: 'sk-legacy' }]);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'IPC_VALIDATION_FAILED');
   } finally {
     cleanupTempHome(homePath);
   }

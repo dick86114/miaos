@@ -17,10 +17,13 @@ const { registerSecureHandler } = require('./src/main/security/ipc');
 const { createImageFileAccess } = require('./src/main/security/image-files');
 const { createImageDecoder } = require('./src/main/security/image-decoder');
 const { createSecretsVault } = require('./src/main/secrets-vault');
+const { assertProviderId } = require('./src/main/provider-id');
+const crypto = require('crypto');
 
 let mainWindow = null;
 let updateInfoCache = null;
 let secretsVault = null;
+const providerTransactions = new Map();
 const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
 const imageFileAccess = createImageFileAccess({
   fsImpl: fs,
@@ -272,50 +275,149 @@ function validateOptionalString(value, field, options = {}) {
 }
 
 function validateProviderId(providerId) {
-  return validateString(providerId, {
-    field: '供应商 ID',
-    minLength: 1,
-    maxLength: 200,
-    trim: true,
+  validateString(providerId, { field: '供应商 ID', minLength: 1, maxLength: 128, trim: true });
+  try {
+    return assertProviderId(providerId);
+  } catch (error) {
+    error.code = 'IPC_VALIDATION_FAILED';
+    throw error;
+  }
+}
+
+function validateModels(models, field) {
+  if (!Array.isArray(models) || models.length > 500) throw new Error(`${field}格式不正确`);
+  return models.map((model) => {
+    validateObject(model, field);
+    const id = validateString(model.id, { field: '模型', minLength: 1, maxLength: 200, trim: true });
+    validateOptionalString(model.name, '模型名称', { maxLength: 200, trim: true });
+    if (typeof model.enabled !== 'boolean') throw new Error('模型启用状态必须是布尔值');
+    return { id, name: model.name || id, enabled: model.enabled };
   });
+}
+
+function normalizeProviderMetadata(metadata) {
+  validateObject(metadata, '供应商元数据');
+  const id = validateProviderId(metadata.id);
+  const endpoint = validateHttpUrl(metadata.endpoint);
+  const type = validateString(metadata.type, { field: '供应商类型', minLength: 1, maxLength: 200, trim: true });
+  const name = validateOptionalString(metadata.name, '供应商名称', { maxLength: 200, trim: true }) || '';
+  if (!Array.isArray(metadata.capabilities) || metadata.capabilities.some((item) => !['image', 'text', 'video'].includes(item))) {
+    throw new Error('供应商能力格式不正确');
+  }
+  return {
+    id, name, type, endpoint,
+    capabilities: [...new Set(metadata.capabilities)],
+    imageModels: validateModels(metadata.imageModels || [], '生图模型'),
+    textModels: validateModels(metadata.textModels || [], '文本模型'),
+    videoModels: validateModels(metadata.videoModels || [], '视频模型'),
+  };
+}
+
+function isBindingChanged(previous, next) {
+  return !!previous && (previous.endpoint !== next.endpoint || previous.type !== next.type);
+}
+
+function getTrustedProvider(providerId, supplied = {}, { category, modelName } = {}) {
+  const metadata = secretsVault.getProviderMetadata(providerId);
+  if (!metadata) throw new Error('该供应商尚未安全保存配置');
+  if (supplied.endpoint !== undefined && validateHttpUrl(supplied.endpoint) !== metadata.endpoint) {
+    throw new Error('供应商 API 地址与已保存配置不一致');
+  }
+  const suppliedType = supplied.type || supplied.provider;
+  if (suppliedType !== undefined && String(suppliedType).trim() !== metadata.type) {
+    throw new Error('供应商类型与已保存配置不一致');
+  }
+  if (category && modelName) {
+    const models = metadata[`${category}Models`] || [];
+    if (!models.some((model) => model.id === modelName && model.enabled)) {
+      throw new Error('所选模型未在已保存供应商中启用');
+    }
+  }
+  return { ...metadata, apiKey: secretsVault.get(providerId) || '' };
 }
 
 function validateProvider(provider, { allowApiKeyOverride = false } = {}) {
   validateObject(provider, '供应商');
-  validateHttpUrl(provider.endpoint);
-  validateOptionalString(provider.type, '供应商类型', { maxLength: 200, trim: true });
-  validateOptionalString(provider.provider, '供应商类型', { maxLength: 200, trim: true });
+  const hasProviderId = provider.providerId !== undefined && provider.providerId !== null && provider.providerId !== '';
+  if (hasProviderId) validateProviderId(provider.providerId);
+  if (provider.endpoint !== undefined) validateHttpUrl(provider.endpoint);
+  if (provider.type !== undefined) validateOptionalString(provider.type, '供应商类型', { maxLength: 200, trim: true });
+  if (provider.provider !== undefined) validateOptionalString(provider.provider, '供应商类型', { maxLength: 200, trim: true });
   validateOptionalString(provider.name, '供应商名称', { maxLength: 200, trim: true });
-  if (provider.providerId !== undefined && provider.providerId !== null && provider.providerId !== '') {
-    validateProviderId(provider.providerId);
+  if (!hasProviderId) {
+    validateHttpUrl(provider.endpoint);
+    validateString(provider.type || provider.provider, { field: '供应商类型', minLength: 1, maxLength: 200, trim: true });
   }
   if (provider.apiKey !== undefined) throw new Error('不允许传递持久化 API Key');
   if (provider.apiKeyOverride !== undefined && provider.apiKeyOverride !== null && provider.apiKeyOverride !== '') {
-    if (!allowApiKeyOverride || provider.providerId) throw new Error('一次性 API Key 仅允许用于未保存的供应商');
+    if (!allowApiKeyOverride || hasProviderId) throw new Error('一次性 API Key 仅允许用于未保存的供应商');
     validateString(provider.apiKeyOverride, { field: '一次性 API Key', minLength: 1, maxLength: 10000 });
   }
 }
 
-function resolveProviderApiKey({ providerId, apiKeyOverride } = {}) {
-  if (providerId) {
-    const apiKey = secretsVault.get(providerId);
-    if (!apiKey) throw new Error('该供应商未安全保存 API Key');
-    return apiKey;
+function createProviderMetadataFromRenderer(provider) {
+  return normalizeProviderMetadata(provider);
+}
+
+function createTransaction(entries) {
+  const snapshots = entries.map(({ providerId }) => ({
+    providerId,
+    apiKey: secretsVault.get(providerId),
+    metadata: secretsVault.getProviderMetadata(providerId),
+  }));
+  secretsVault.setMany(entries);
+  const transactionId = crypto.randomUUID();
+  const timer = setTimeout(() => { rollbackTransaction(transactionId); }, 60 * 1000);
+  timer.unref?.();
+  providerTransactions.set(transactionId, { snapshots, timer });
+  return transactionId;
+}
+
+function rollbackTransaction(transactionId) {
+  const transaction = providerTransactions.get(transactionId);
+  if (!transaction) return { ok: false, error: '密钥事务不存在或已结束' };
+  clearTimeout(transaction.timer);
+  const entries = transaction.snapshots.map((snapshot) => ({
+    providerId: snapshot.providerId,
+    ...(snapshot.apiKey ? { value: snapshot.apiKey } : { deleteSecret: true }),
+    metadata: snapshot.metadata || null,
+  }));
+  try {
+    secretsVault.setMany(entries);
+    providerTransactions.delete(transactionId);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message || '密钥事务回滚失败' };
   }
-  if (apiKeyOverride) return apiKeyOverride;
-  return '';
+}
+
+function commitTransaction(transactionId) {
+  const transaction = providerTransactions.get(transactionId);
+  if (!transaction) return { ok: false, error: '密钥事务不存在或已结束' };
+  clearTimeout(transaction.timer);
+  providerTransactions.delete(transactionId);
+  return { ok: true };
 }
 
 function validateSecretEntries(entries) {
-  if (!Array.isArray(entries) || entries.length > 100) throw new Error('密钥迁移数据格式不正确');
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 100) throw new Error('密钥迁移数据格式不正确');
   const ids = new Set();
-  for (const entry of entries) {
+  return entries.map((entry) => {
     validateObject(entry, '密钥迁移项');
     const providerId = validateProviderId(entry.providerId);
-    validateString(entry.apiKey, { field: 'API Key', minLength: 1, maxLength: 10000 });
     if (ids.has(providerId)) throw new Error('密钥迁移包含重复供应商');
     ids.add(providerId);
-  }
+    const normalized = { providerId };
+    if (entry.apiKey !== undefined && entry.apiKey !== null && entry.apiKey !== '') {
+      normalized.value = validateString(entry.apiKey, { field: 'API Key', minLength: 1, maxLength: 10000 });
+    }
+    if (entry.metadata !== undefined) {
+      normalized.metadata = normalizeProviderMetadata(entry.metadata);
+      if (normalized.metadata.id !== providerId) throw new Error('供应商元数据 ID 不匹配');
+    }
+    if (!normalized.value && normalized.metadata === undefined) throw new Error('密钥迁移项不能为空');
+    return normalized;
+  });
 }
 
 function validateOptionalCategory(category) {
@@ -326,46 +428,29 @@ function validateOptionalCategory(category) {
 async function validateGenerateParams(params) {
   validateObject(params, '生图参数');
   validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
-  validateString(params.provider, { field: '供应商类型', minLength: 1, maxLength: 200, trim: true });
+  validateProviderId(params.providerId);
   validateString(params.modelName, { field: '模型', minLength: 1, maxLength: 200, trim: true });
   validateString(params.ratio, { field: '比例', allowedValues: ['1:1', '4:3', '16:9', '9:16'] });
   validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
   validateString(params.size, { field: '图片尺寸', minLength: 1, maxLength: 200, trim: true });
-  validateHttpUrl(params.endpoint);
-  validateProviderId(params.providerId);
-  if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) {
-    throw new Error('生图请求不允许传递 API Key');
-  }
-  if (params.sourceImage !== undefined && params.sourceImage !== null && typeof params.sourceImage !== 'string') {
-    throw new Error('参考图路径必须是文本');
-  }
-  if (typeof params.sourceImage === 'string' && params.sourceImage.startsWith('data:')) {
-    await validateDataUrl(params.sourceImage, { decodeImageBuffer });
-  }
+  if (params.endpoint !== undefined) validateHttpUrl(params.endpoint);
+  if (params.provider !== undefined) validateOptionalString(params.provider, '供应商类型', { maxLength: 200, trim: true });
+  if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) throw new Error('生图请求不允许传递 API Key');
+  if (params.sourceImage !== undefined && params.sourceImage !== null && typeof params.sourceImage !== 'string') throw new Error('参考图路径必须是文本');
+  if (typeof params.sourceImage === 'string' && params.sourceImage.startsWith('data:')) await validateDataUrl(params.sourceImage, { decodeImageBuffer });
 }
 
 function validateTextPromptParams(params) {
   validateObject(params, '文本模型参数');
-  validateHttpUrl(params.endpoint);
+  validateProviderId(params.providerId);
   validateString(params.model, { field: '文本模型', minLength: 1, maxLength: 200, trim: true });
   validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
   validateOptionalString(params.imageModel, '生图模型', { maxLength: 200, trim: true });
-  if (params.ratio !== undefined && params.ratio !== null && params.ratio !== '') {
-    validateString(params.ratio, { field: '比例', allowedValues: ['1:1', '4:3', '16:9', '9:16'] });
-  }
-  if (params.quality !== undefined && params.quality !== null && params.quality !== '') {
-    validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
-  }
-  if (params.language !== undefined && params.language !== null && params.language !== '') {
-    validateString(params.language, { field: '语言', allowedValues: ['zh', 'en'] });
-  }
-  validateProviderId(params.providerId);
-  if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) {
-    throw new Error('文本请求不允许传递 API Key');
-  }
-  if (params.isImageToImage !== undefined && typeof params.isImageToImage !== 'boolean') {
-    throw new Error('图生图标记必须是布尔值');
-  }
+  if (params.ratio !== undefined && params.ratio !== null && params.ratio !== '') validateString(params.ratio, { field: '比例', allowedValues: ['1:1', '4:3', '16:9', '9:16'] });
+  if (params.quality !== undefined && params.quality !== null && params.quality !== '') validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
+  if (params.language !== undefined && params.language !== null && params.language !== '') validateString(params.language, { field: '语言', allowedValues: ['zh', 'en'] });
+  if (params.endpoint !== undefined) validateHttpUrl(params.endpoint);
+  if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) throw new Error('文本请求不允许传递 API Key');
 }
 
 // ===== 安全密钥仓库 =====
@@ -373,12 +458,24 @@ registerSecureHandler({
   ipcMain,
   channel: 'provider-secret-set',
   getMainWindow: () => mainWindow,
-  validate: (providerId, value) => {
+  validate: (providerId, value, metadata, options) => {
     validateProviderId(providerId);
-    validateString(value, { field: 'API Key', minLength: 1, maxLength: 10000 });
+    if (value !== undefined && value !== null && value !== '') validateString(value, { field: 'API Key', minLength: 1, maxLength: 10000 });
+    if (metadata !== undefined && metadata !== null) {
+      const normalized = createProviderMetadataFromRenderer(metadata);
+      if (normalized.id !== providerId) throw new Error('供应商元数据 ID 不匹配');
+    }
+    if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options))) throw new Error('密钥事务选项格式不正确');
   },
-  handle: async (_event, providerId, value) => {
-    secretsVault.set(providerId, value);
+  handle: async (_event, providerId, value, metadata, options = {}) => {
+    const normalizedMetadata = metadata === undefined || metadata === null ? undefined : createProviderMetadataFromRenderer(metadata);
+    const previousMetadata = secretsVault.getProviderMetadata(providerId);
+    if (normalizedMetadata && isBindingChanged(previousMetadata, normalizedMetadata) && secretsVault.has(providerId) && !value) {
+      throw new Error('修改已保存供应商的地址或类型时，请重新输入 API Key');
+    }
+    const entry = { providerId, ...(value ? { value } : {}), ...(normalizedMetadata ? { metadata: normalizedMetadata } : {}) };
+    if (options.transactional) return { ok: true, transactionId: createTransaction([entry]) };
+    secretsVault.setMany([entry]);
     return { ok: true };
   },
 });
@@ -395,9 +492,14 @@ registerSecureHandler({
   ipcMain,
   channel: 'provider-secret-delete',
   getMainWindow: () => mainWindow,
-  validate: (providerId) => { validateProviderId(providerId); },
-  handle: async (_event, providerId) => {
-    secretsVault.delete(providerId);
+  validate: (providerId, options) => {
+    validateProviderId(providerId);
+    if (options !== undefined && (!options || typeof options !== 'object' || Array.isArray(options))) throw new Error('密钥事务选项格式不正确');
+  },
+  handle: async (_event, providerId, options = {}) => {
+    const entry = { providerId, deleteSecret: true, metadata: null };
+    if (options.transactional) return { ok: true, transactionId: createTransaction([entry]) };
+    secretsVault.setMany([entry]);
     return { ok: true };
   },
 });
@@ -406,10 +508,19 @@ registerSecureHandler({
   ipcMain,
   channel: 'provider-secret-migrate',
   getMainWindow: () => mainWindow,
-  validate: (entries) => { validateSecretEntries(entries); },
-  handle: async (_event, entries) => {
-    for (const entry of entries) secretsVault.set(entry.providerId, entry.apiKey);
-    return { ok: true };
+  validate: (payload) => {
+    if (payload && !Array.isArray(payload) && typeof payload === 'object') {
+      if (!['commit', 'rollback'].includes(payload.operation) || typeof payload.transactionId !== 'string') throw new Error('密钥事务操作格式不正确');
+      return;
+    }
+    validateSecretEntries(payload);
+  },
+  handle: async (_event, payload) => {
+    if (payload && !Array.isArray(payload) && typeof payload === 'object') {
+      return payload.operation === 'commit' ? commitTransaction(payload.transactionId) : rollbackTransaction(payload.transactionId);
+    }
+    const entries = validateSecretEntries(payload);
+    return { ok: true, transactionId: createTransaction(entries) };
   },
 });
 
@@ -596,13 +707,15 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: (provider) => { validateProvider(provider, { allowApiKeyOverride: true }); },
   handle: async (_event, provider) => {
-  if (!provider || !provider.endpoint) throw new Error('请填写 API 地址');
+  if (!provider || (!provider.providerId && !provider.endpoint)) throw new Error('请填写 API 地址');
 
-  const apiKey = resolveProviderApiKey(provider);
+  const trustedProvider = provider.providerId ? getTrustedProvider(provider.providerId, provider) : { endpoint: provider.endpoint, type: provider.type || provider.provider || '', apiKey: provider.apiKeyOverride || '' };
+  const apiKey = trustedProvider.apiKey;
   const headers = {};
   if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
-  const ptype = (provider.type || provider.provider || '').toLowerCase();
+  const ptype = String(trustedProvider.type).toLowerCase();
+  provider = { ...provider, endpoint: trustedProvider.endpoint };
 
   // ---- Grsai：发 POST 请求验证，只有成功响应或明确的认证/参数错误才说明端点可达 ----
   if (ptype === 'grsai') {
@@ -1015,8 +1128,9 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: (provider, category) => { validateProvider(provider, { allowApiKeyOverride: true }); validateOptionalCategory(category); },
   handle: async (_event, provider, category) => {
-  const { type, endpoint } = provider || {};
-  const apiKey = resolveProviderApiKey(provider);
+  const trustedProvider = provider?.providerId ? getTrustedProvider(provider.providerId, provider) : { type: provider?.type, endpoint: provider?.endpoint, apiKey: provider?.apiKeyOverride || '' };
+  const { type, endpoint } = trustedProvider;
+  const apiKey = trustedProvider.apiKey;
   if (!type) throw new Error('缺少供应商类型');
   if (!endpoint) throw new Error('请先填写 API 地址');
 
@@ -1086,8 +1200,9 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: async (params) => { await validateGenerateParams(params); },
   handle: async (_event, params) => {
-  const { prompt, provider, modelName, ratio, quality, size, endpoint, sourceImage } = params;
-  const apiKey = resolveProviderApiKey(params);
+  const { prompt, modelName, ratio, quality, size, sourceImage } = params;
+  const trustedProvider = getTrustedProvider(params.providerId, params, { category: 'image', modelName });
+  const { endpoint, type: provider, apiKey } = trustedProvider;
   if (!prompt) throw new Error('提示词不能为空');
   if (!endpoint) throw new Error('请先配置供应商 API 地址');
   if (!modelName) throw new Error('请选择模型');
@@ -1209,8 +1324,9 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: (params) => { validateTextPromptParams(params); },
   handle: async (_event, params) => {
-  const { endpoint, model, prompt, language } = params;
-  const apiKey = resolveProviderApiKey(params);
+  const { model, prompt, language } = params;
+  const trustedProvider = getTrustedProvider(params.providerId, params, { category: 'text', modelName: model });
+  const { endpoint, apiKey } = trustedProvider;
   if (!endpoint) throw new Error('请先在设置中配置文本模型 API 地址');
   if (!model) throw new Error('请先在设置中配置文本模型名称');
   if (!prompt || !prompt.trim()) throw new Error('请输入需要优化的提示词');
@@ -1262,8 +1378,9 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: (params) => { validateTextPromptParams(params); },
   handle: async (_event, params) => {
-  const { endpoint, model, prompt, ratio, quality, imageModel, isImageToImage } = params;
-  const apiKey = resolveProviderApiKey(params);
+  const { model, prompt, ratio, quality, imageModel, isImageToImage } = params;
+  const trustedProvider = getTrustedProvider(params.providerId, params, { category: 'text', modelName: model });
+  const { endpoint, apiKey } = trustedProvider;
   if (!endpoint) throw new Error('请先在设置中配置文本模型 API 地址');
   if (!model) throw new Error('请先在设置中配置文本模型名称');
   if (!prompt || !prompt.trim()) throw new Error('提示词为空');

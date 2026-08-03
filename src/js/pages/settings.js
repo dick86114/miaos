@@ -31,7 +31,20 @@ const CATEGORIES = [
   { key: 'image', label: '生图模型', icon: 'image', color: 'image' },
   { key: 'text', label: '文本模型', icon: 'file-text', color: 'text' },
   { key: 'video', label: '生视频模型', icon: 'video', color: 'video' },
-];
+ ];
+
+function toProviderMetadata(form) {
+  return {
+    id: form.id,
+    name: form.name,
+    type: form.type,
+    endpoint: form.endpoint,
+    capabilities: [...form.capabilities],
+    imageModels: form.imageModels.map((model) => ({ ...model })),
+    textModels: form.textModels.map((model) => ({ ...model })),
+    videoModels: form.videoModels.map((model) => ({ ...model })),
+  };
+}
 
 const UPDATE_STATE_TEXT = {
   idle: '尚未检查',
@@ -626,7 +639,7 @@ export function renderSettings(container) {
           name: nameInput?.value || f.name,
           type: typeInput?.value || f.type,
           endpoint: endpointInput?.value || f.endpoint,
-          ...(pageState.isAddingProvider && typedApiKey ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
+          ...(pageState.isAddingProvider ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
         };
         if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
         pageState.testLoading = true;
@@ -662,7 +675,7 @@ export function renderSettings(container) {
         const providerData = {
           type: typeInput?.value || f.type,
           endpoint: endpointInput?.value || f.endpoint,
-          ...(pageState.isAddingProvider && typedApiKey ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
+          ...(pageState.isAddingProvider ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
         };
         if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
         pageState.fetchLoadingCat = cat;
@@ -782,6 +795,7 @@ export function renderSettings(container) {
         const keyInput = inner.querySelector('#pf-key');
         const typeInput = inner.querySelector('#pf-type');
         const isNewProvider = pageState.isAddingProvider;
+        const previousProvider = isNewProvider ? null : getProvider(f.id);
         f.name = (nameInput?.value || f.name || '').trim();
         f.endpoint = (endpointInput?.value || f.endpoint || '').trim();
         const typedApiKey = keyInput?.value || '';
@@ -802,28 +816,42 @@ export function renderSettings(container) {
           }
         }
 
-        if (typedApiKey) {
-          const secretResult = await window.api?.setProviderSecret?.(f.id, typedApiKey);
-          if (!secretResult || !secretResult.ok) {
-            toast('密钥保存失败：' + (secretResult?.error || '系统钥匙串不可用'), 'error');
-            return;
-          }
-          f.hasApiKey = true;
+        const metadata = toProviderMetadata(f);
+        const secretResult = await window.api?.setProviderSecret?.(f.id, typedApiKey, metadata, { transactional: true });
+        if (!secretResult || !secretResult.ok || !secretResult.transactionId) {
+          toast('密钥保存失败：' + (secretResult?.error || '系统钥匙串不可用'), 'error');
+          return;
         }
-
-        const saved = saveProvider({
-          id: f.id,
-          name: f.name,
-          type: f.type,
-          endpoint: f.endpoint,
-          hasApiKey: !!f.hasApiKey,
-          capabilities: f.capabilities,
-          imageModels: f.imageModels,
-          textModels: f.textModels,
-          videoModels: f.videoModels,
-          lastTestResult: pageState.testStatus,
-        });
-        pageState.selectedProviderId = saved.id;
+        let localSaved = false;
+        try {
+          if (typedApiKey) f.hasApiKey = true;
+          const saved = saveProvider({
+            id: f.id,
+            name: f.name,
+            type: f.type,
+            endpoint: f.endpoint,
+            hasApiKey: !!f.hasApiKey,
+            capabilities: f.capabilities,
+            imageModels: f.imageModels,
+            textModels: f.textModels,
+            videoModels: f.videoModels,
+            lastTestResult: pageState.testStatus,
+          });
+          localSaved = true;
+          const committed = await window.api?.completeProviderSecretTransaction?.('commit', secretResult.transactionId);
+          if (!committed || !committed.ok) throw new Error(committed?.error || '密钥事务提交失败');
+          pageState.selectedProviderId = saved.id;
+        } catch (error) {
+          await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId);
+          if (localSaved) {
+            try {
+              if (previousProvider) saveProvider(previousProvider);
+              else deleteProvider(f.id);
+            } catch (_) {}
+          }
+          toast('供应商保存失败：' + (error.message || '本地状态写入失败'), 'error');
+          return;
+        }
         pageState.isAddingProvider = false;
         pageState.form = null;
         pageState.testStatus = null;
@@ -838,12 +866,26 @@ export function renderSettings(container) {
     if (delBtn) {
       delBtn.addEventListener('click', async () => {
         if (confirmDialog(`确定删除供应商「${f.name}」吗？该供应商下的所有模型配置将被移除。`)) {
-          const secretResult = await window.api?.deleteProviderSecret?.(f.id);
-          if (!secretResult || !secretResult.ok) {
+          const previousProvider = getProvider(f.id);
+          const secretResult = await window.api?.deleteProviderSecret?.(f.id, { transactional: true });
+          if (!secretResult || !secretResult.ok || !secretResult.transactionId) {
             toast('密钥删除失败：' + (secretResult?.error || '系统钥匙串不可用'), 'error');
             return;
           }
-          deleteProvider(f.id);
+          let localDeleted = false;
+          try {
+            deleteProvider(f.id);
+            localDeleted = true;
+            const committed = await window.api?.completeProviderSecretTransaction?.('commit', secretResult.transactionId);
+            if (!committed || !committed.ok) throw new Error(committed?.error || '密钥事务提交失败');
+          } catch (error) {
+            await window.api?.completeProviderSecretTransaction?.('rollback', secretResult.transactionId);
+            if (localDeleted && previousProvider) {
+              try { saveProvider(previousProvider); } catch (_) {}
+            }
+            toast('供应商删除失败：' + (error.message || '本地状态写入失败'), 'error');
+            return;
+          }
           pageState.selectedProviderId = null;
           pageState.form = null;
           pageState.defaults = getDefaults();

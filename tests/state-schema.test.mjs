@@ -137,10 +137,11 @@ test('旧密钥仅在主进程迁移全部成功后从状态清理', async () =>
     return { ok: true };
   });
 
-  assert.deepEqual(received, [
+  assert.deepEqual(received.map((entry) => ({ providerId: entry.providerId, apiKey: entry.apiKey })), [
     { providerId: 'p_one', apiKey: 'sk-one' },
     { providerId: 'p_two', apiKey: 'sk-two' },
   ]);
+  assert.equal(received.every((entry) => entry.metadata && entry.metadata.apiKey === undefined), true);
   assert.equal(result.ok, true);
   assert.deepEqual(state.providers.map((provider) => provider.hasApiKey), [true, true]);
   assert.equal('apiKey' in state.providers[0], false);
@@ -163,4 +164,14 @@ test('旧密钥迁移失败时状态保持原样', async () => {
   assert.deepEqual(result, { ok: false, error: '系统钥匙串不可用' });
   assert.equal(state.providers[0].apiKey, 'sk-keep');
   assert.equal(state.providers[0].hasApiKey, false);
+});
+
+
+test('非法 providerId 的迁移失败时旧状态密钥不会被清理', async () => {
+  const state = createDefaultState();
+  state.providers[0].id = '__proto__';
+  state.providers[0].apiKey = 'sk-legacy';
+  const result = await migrateLegacyProviderSecrets(state, async () => ({ ok: false, error: '供应商 ID 格式不正确' }));
+  assert.equal(result.ok, false);
+  assert.equal(state.providers[0].apiKey, 'sk-legacy');
 });
