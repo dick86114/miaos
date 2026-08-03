@@ -11,6 +11,11 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// 属性值与文本使用相同的 HTML 实体编码规则。
+export function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
 // 轻量 toast
 export function toast(message, type = 'info', duration = 2600) {
   let stack = document.querySelector('.toast-stack');

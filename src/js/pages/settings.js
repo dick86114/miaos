@@ -1,6 +1,6 @@
 // 设置页面：通用设置 / 模型供应商 / 关于与更新
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, escapeHtml } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, escapeHtml, escapeAttr } from '../ui.js';
 import { renderReleaseNotes } from '../release-notes.js';
 import {
   getProviders,
