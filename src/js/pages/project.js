@@ -32,6 +32,31 @@ import * as queue from '../queue.js';
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
 
+// 管理工作台存续期间的弹窗，避免离页后旧弹窗继续操作已销毁的页面。
+export function createProjectPageLifecycle() {
+  let active = true;
+  let activeDialogClose = null;
+
+  function closeActiveDialog() {
+    const close = activeDialogClose;
+    activeDialogClose = null;
+    close?.();
+  }
+
+  return {
+    isActive: () => active,
+    trackDialog(close) {
+      closeActiveDialog();
+      activeDialogClose = typeof close === 'function' ? close : null;
+      return close;
+    },
+    cleanup() {
+      active = false;
+      closeActiveDialog();
+    },
+  };
+}
+
 export function renderProject(container, params) {
   const projectId = params[0];
   const project = getProject(projectId);
@@ -353,6 +378,7 @@ export function renderProject(container, params) {
     renderIcons(root);
 
     // ============= 交互 =============
+    const pageLifecycle = createProjectPageLifecycle();
     let closeLightbox = null;
     const promptInput = root.querySelector('#version-prompt');
     const btnGenerate = root.querySelector('#btn-generate');
@@ -799,7 +825,9 @@ export function renderProject(container, params) {
         closeLightbox?.();
         closeLightbox = openLightbox(img, v);
       } else if (act === 'derive') {
-        openDeriveDialog(project.id, v.id, container, renderWorkbench, img.id);
+        pageLifecycle.trackDialog(openDeriveDialog(project.id, v.id, container, renderWorkbench, img.id, {
+          isPageActive: pageLifecycle.isActive,
+        }));
       } else if (act === 'cover') {
         setProjectCover(project.id, img.id);
         toast('已设为项目封面', 'success');
@@ -876,7 +904,9 @@ export function renderProject(container, params) {
 
     // ========== 项目设置 / 删除 ==========
     root.querySelector('#btn-settings').addEventListener('click', () => {
-      openSettingsDialog(project, (updated) => renderWorkbench(container, updated));
+      pageLifecycle.trackDialog(openSettingsDialog(project, (updated) => renderWorkbench(container, updated), {
+        isPageActive: pageLifecycle.isActive,
+      }));
     });
     root.querySelector('#back-projects').addEventListener('click', (e) => {
       e.preventDefault(); navigate('/projects');
@@ -891,6 +921,7 @@ export function renderProject(container, params) {
     const cleanup = () => {
       closeDropdown();
       closeLightbox?.();
+      pageLifecycle.cleanup();
       unsubscribe();
     };
     workbenchCleanup = cleanup;
@@ -899,12 +930,21 @@ export function renderProject(container, params) {
 }
 
 // ===== 派生对话框（选图） =====
-function openDeriveDialog(projectId, parentVersionId, container, renderWorkbench, preselectedImageId) {
-  const project = getProject(projectId);
-  if (!project) return;
+export function openDeriveDialog(projectId, parentVersionId, container, renderWorkbench, preselectedImageId, options = {}) {
+  const {
+    documentRef = document,
+    createOverlay = null,
+    renderIconsFn = renderIcons,
+    getProjectFn = getProject,
+    createVersionFn = createVersion,
+    toastFn = toast,
+    isPageActive = () => true,
+  } = options;
+  const project = getProjectFn(projectId);
+  if (!project) return null;
   const parent = project.versions.find((v) => v.id === parentVersionId);
-  if (!parent) return;
-  if (!parent.images.length) { toast('该版本还没有生成图片，无法派生分支', 'error'); return; }
+  if (!parent) return null;
+  if (!parent.images.length) { toastFn('该版本还没有生成图片，无法派生分支', 'error'); return null; }
 
   const defaultImgId = preselectedImageId || parent.images[0].id;
   const gridHtml = parent.images.map((img) => `
@@ -914,7 +954,7 @@ function openDeriveDialog(projectId, parentVersionId, container, renderWorkbench
     </div>
   `).join('');
 
-  const overlay = htmlToElement(`
+  const overlay = createOverlay ? createOverlay() : htmlToElement(`
     <div class="modal-overlay" id="derive-modal">
       <div class="modal-card modal-card-wide">
         <div class="modal-header">
@@ -932,33 +972,40 @@ function openDeriveDialog(projectId, parentVersionId, container, renderWorkbench
       </div>
     </div>
   `);
-  document.body.appendChild(overlay);
-  renderIcons(overlay);
+  documentRef.body.appendChild(overlay);
+  renderIconsFn(overlay);
 
   let selectedImageId = defaultImgId;
-  const close = () => overlay.remove();
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    overlay.remove();
+  };
   overlay.querySelector('#modal-close').addEventListener('click', close);
   overlay.querySelector('#modal-cancel').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  overlay.querySelector('#derive-image-grid').addEventListener('click', (e) => {
-    const item = e.target.closest('.derive-image-item');
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  overlay.querySelector('#derive-image-grid').addEventListener('click', (event) => {
+    const item = event.target.closest('.derive-image-item');
     if (!item) return;
     selectedImageId = item.getAttribute('data-image-id');
-    overlay.querySelectorAll('.derive-image-item').forEach((el) => el.classList.remove('selected'));
+    overlay.querySelectorAll('.derive-image-item').forEach((element) => element.classList.remove('selected'));
     item.classList.add('selected');
   });
   overlay.querySelector('#modal-submit').addEventListener('click', () => {
-    if (!selectedImageId) { toast('请选择参考图', 'error'); return; }
-    const newProj = createVersion(projectId, parentVersionId, selectedImageId, {
+    if (!isPageActive()) { close(); return; }
+    if (!selectedImageId) { toastFn('请选择参考图', 'error'); return; }
+    const newProj = createVersionFn(projectId, parentVersionId, selectedImageId, {
       prompt: parent.prompt,
       providerId: parent.providerId,
       providerName: parent.providerName,
       modelId: parent.modelId,
     });
     close();
-    toast('已派生出新分支', 'success');
+    toastFn('已派生出新分支', 'success');
     renderWorkbench(container, newProj);
   });
+  return close;
 }
 
 // ===== 工具函数 =====
@@ -1035,8 +1082,16 @@ function openLightbox(img, version) {
   });
   return close;
 }
-function openSettingsDialog(project, onUpdated) {
-  const overlay = htmlToElement(`
+export function openSettingsDialog(project, onUpdated, options = {}) {
+  const {
+    documentRef = document,
+    createOverlay = null,
+    renderIconsFn = renderIcons,
+    updateProjectFn = updateProject,
+    toastFn = toast,
+    isPageActive = () => true,
+  } = options;
+  const overlay = createOverlay ? createOverlay() : htmlToElement(`
     <div class="modal-overlay" id="settings-modal">
       <div class="modal-card">
         <div class="modal-header"><span class="modal-title">${icon('settings', 18)}<span>项目设置</span></span>
@@ -1054,23 +1109,31 @@ function openSettingsDialog(project, onUpdated) {
       </div>
     </div>
   `);
-  document.body.appendChild(overlay);
-  renderIcons(overlay);
+  documentRef.body.appendChild(overlay);
+  renderIconsFn(overlay);
   const nameInput = overlay.querySelector('#set-name');
   nameInput.focus(); nameInput.select();
-  const close = () => overlay.remove();
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    overlay.remove();
+  };
   overlay.querySelector('#modal-close').addEventListener('click', close);
   overlay.querySelector('#modal-cancel').addEventListener('click', close);
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
+  nameInput.addEventListener('keydown', (event) => { if (event.key === 'Escape') close(); });
   overlay.querySelector('#modal-submit').addEventListener('click', () => {
+    if (!isPageActive()) { close(); return; }
     const name = nameInput.value.trim();
     const description = overlay.querySelector('#set-desc').value.trim();
-    if (!name) { toast('请填写项目名称', 'error'); nameInput.focus(); return; }
-    const updated = updateProject(project.id, { name, description });
-    close(); toast('项目已更新', 'success');
+    if (!name) { toastFn('请填写项目名称', 'error'); nameInput.focus(); return; }
+    const updated = updateProjectFn(project.id, { name, description });
+    close();
+    toastFn('项目已更新', 'success');
     onUpdated(updated);
   });
+  return close;
 }
 function escapeHtml(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
