@@ -8,7 +8,10 @@
     "dev": "electron . --enable-logging",
     "build:dir": "electron-builder --mac dir && node scripts/postbuild.js release/mac-arm64/miaos.app",
     "dist": "node scripts/build-dmg.js",
-    "dist:zip": "electron-builder --mac dir && node scripts/postbuild.js release/mac-arm64/miaos.app && cd release/mac-arm64 && zip -r ../miaos-${npm_package_version}-arm64.zip miaos.app"
+    "dist:zip": "electron-builder --mac dir && node scripts/postbuild.js release/mac-arm64/miaos.app && cd release/mac-arm64 && zip -r ../miaos-${npm_package_version}-arm64.zip miaos.app",
+    "test": "node --test tests",
+    "check": "pnpm test",
+    "postinstall": "node scripts/ensure-electron-ready.mjs"
   },
   "author": "妙生",
   "license": "MIT",
@@ -36,11 +39,15 @@
       "target": [
         {
           "target": "zip",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         },
         {
           "target": "dmg",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         }
       ],
       "hardenedRuntime": false,
@@ -81,5 +88,11 @@
   },
   "dependencies": {
     "electron-updater": "^6.8.9"
+  },
+  "packageManager": "pnpm@10.33.3",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron"
+    ]
   }
 }

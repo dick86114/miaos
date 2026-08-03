@@ -47,16 +47,16 @@
 
 - macOS 12+（Apple Silicon / Intel）
 - Node.js 18+
-- npm 9+
+- pnpm 10.33.3+
 
 ### 开发运行
 
 ```bash
 # 安装依赖
-npm install
+pnpm install
 
 # 启动开发模式
-npm start
+pnpm start
 ```
 
 ### 配置供应商
@@ -80,13 +80,13 @@ npm start
 
 ```bash
 # 构建 .app + 签名
-npm run build:dir
+pnpm build:dir
 
 # 构建 DMG 安装包（含自动安装脚本）
-npm run dist
+pnpm dist
 
 # 构建 zip 分发包
-npm run dist:zip
+pnpm dist:zip
 ```
 
 DMG 构建产物位于 `release/` 目录，双击挂载后运行「安装妙生.command」脚本即可自动安装到 `/Applications` 并解除 macOS 安全限制。
