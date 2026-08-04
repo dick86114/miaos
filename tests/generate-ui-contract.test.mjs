@@ -178,15 +178,22 @@ test('模型 chip 在宽屏可扩展，并为完整模型名称提供 title 语�
   }
 });
 
-test('优化中的输入文字会真实弱化，模型 chip 在任意可用宽度内省略长名称', () => {
+test('优化中的输入文字会真实弱化，模型 chip 独占剩余宽度并在不足时省略长名称', () => {
   const textareaRule = getExactCssRuleBody(pagesCss, '.composer-textarea.is-optimizing');
+  const toolbarSpacerRule = getExactCssRuleBody(pagesCss, '.composer-toolbar-spacer');
   const modelChipRule = getExactCssRuleBody(pagesCss, '.composer-chip--model');
   const modelValueRule = getExactCssRuleBody(pagesCss, '.composer-chip--model .chip-value');
 
   assert.notEqual(textareaRule, '', '优化中的 textarea 必须有独立视觉弱化规则');
   assert.equal(hasCssDeclaration(textareaRule, 'opacity', '0.28'), true, '真实提示词必须弱于碎片层');
 
+  assert.notEqual(toolbarSpacerRule, '', '生成按钮前必须保留工具栏对齐占位节点');
+  assert.equal(hasCssDeclaration(toolbarSpacerRule, 'flex', '0 0 auto'), true, 'spacer 不得继续分摊工具栏剩余宽度');
+  assert.equal(hasCssDeclaration(toolbarSpacerRule, 'margin-left', 'auto'), true, '生成按钮必须继续被推到工具栏右侧');
+  assert.equal(hasCssDeclaration(toolbarSpacerRule, 'flex', '1'), false, 'spacer 不得继续与模型 chip 争抢伸展空间');
+
   assert.notEqual(modelChipRule, '', '模型 chip 必须定义独立可收缩约束');
+  assert.equal(hasCssDeclaration(modelChipRule, 'flex', '1 1 0'), true, '模型 chip 必须优先吃掉工具栏剩余空间');
   assert.equal(hasCssDeclaration(modelChipRule, 'min-width', '0'), true, '模型 chip 必须允许在工具栏剩余空间收缩');
   assert.equal(hasCssDeclaration(modelChipRule, 'max-width', 'none'), true, '模型 chip 不得被宽屏固定上限限制');
   assert.equal(hasCssDeclaration(modelValueRule, 'min-width', '0'), true, '模型名称必须允许在 chip 内收缩');

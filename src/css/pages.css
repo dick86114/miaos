@@ -117,7 +117,10 @@
   padding: 8px 12px 12px;
   flex-wrap: wrap;
 }
-.composer-toolbar-spacer { flex: 1; }
+.composer-toolbar-spacer {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
 
 /* chip 基础样式 */
 .composer-chip {

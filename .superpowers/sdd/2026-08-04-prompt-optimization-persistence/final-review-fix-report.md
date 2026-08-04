@@ -74,3 +74,49 @@ pnpm start
 
 - 未使用真实供应商凭据发起优化请求：避免触碰供应商配置和用户数据；请求完成、离页 Toast 清理、settle 时序均由可控异步行为测试覆盖。
 - 未在手工缩窄窗口中注入超长模型名称：未修改本地模型配置；chip 的 `min-width: 0`、剩余空间 flex、单行省略及完整 `title` 同步由 CSS/页面合约测试覆盖。
+
+## Round 2：工具栏 spacer 宽度争抢修复
+
+### 本轮范围
+
+仅修复 1 个 Important：`src/css/pages.css` 中 `.composer-toolbar-spacer` 与 `.composer-chip--model` 同时使用 `flex: 1` 分摊可用宽度，导致模型 chip 未优先占用工具栏剩余空间。
+
+### 代码修改
+
+- `src/css/pages.css`
+  - 将 `.composer-toolbar-spacer` 从 `flex: 1` 改为 `flex: 0 0 auto; margin-left: auto;`，让 spacer 只负责把生成按钮推到右侧，不再参与剩余空间伸展分配。
+- `tests/generate-ui-contract.test.mjs`
+  - 增加 spacer 合约断言：必须保留占位节点、不得继续 `flex: 1` 抢占宽度、必须通过 `margin-left: auto` 保持生成按钮右对齐。
+  - 补充模型 chip `flex: 1 1 0` 断言，确保模型 chip 继续优先占用剩余空间，并在不足时配合现有 `title` / 单行省略约束工作。
+
+### RED → GREEN
+
+#### RED
+
+```bash
+pnpm exec node --test tests/generate-ui-contract.test.mjs
+```
+
+结果：退出码 `1`，`10` 项测试中 `9` 通过、`1` 失败；失败断言为“spacer 不得继续分摊工具栏剩余宽度”，准确命中旧实现的 `flex: 1` 行为。
+
+#### GREEN：受影响测试
+
+```bash
+pnpm exec node --test tests/generate-ui-contract.test.mjs
+```
+
+结果：退出码 `0`，`10` 通过、`0` 失败。
+
+#### GREEN：完整校验
+
+```bash
+pnpm check
+git diff --check
+```
+
+结果：均退出码 `0`；`pnpm check` 为 `203` 通过、`0` 失败；`git diff --check` 无输出。
+
+### 风险与边界
+
+- 未改动模型 chip 的 `title` 同步逻辑、ellipsis 规则、队列逻辑、供应商配置或用户数据。
+- 未引入额外布局节点或媒体查询；本轮仅用最小 CSS 调整修复伸展优先级。
