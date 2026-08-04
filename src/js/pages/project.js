@@ -868,9 +868,11 @@ export function renderProject(container, params, routeOptions = {}) {
       const editedModelId = currentModelId;
       if (!editedPrompt) { toast('请输入提示词', 'error'); promptInput.focus(); return; }
       if (!editedModelId) { toast('请选择模型', 'error'); return; }
-      // 以用户当前选中的供应商为准，避免同 ID 模型跨供应商串到默认 GPT。
-      const provider = (currentProviderId && providers.find((p) => p.id === currentProviderId))
-        || modelToProvider.get(editedModelId);
+      // 以用户当前选中的供应商为准，避免同 ID 模型跨供应商串到默认 GPT；
+      // 选中供应商已删除/缺失时直接报错，不回退到其他供应商。
+      const provider = currentProviderId
+        ? providers.find((p) => p.id === currentProviderId)
+        : modelToProvider.get(editedModelId);
       if (!provider || !provider.imageModels.some((m) => m.id === editedModelId && m.enabled)) {
         toast('所选模型不可用', 'error');
         return;
@@ -909,8 +911,9 @@ export function renderProject(container, params, routeOptions = {}) {
     btnNewRoot.addEventListener('click', () => {
       const editedPrompt = promptInput.value.trim();
       const editedModelId = currentModelId;
-      const provider = (currentProviderId && providers.find((p) => p.id === currentProviderId))
-        || modelToProvider.get(editedModelId);
+      const provider = currentProviderId
+        ? providers.find((p) => p.id === currentProviderId)
+        : modelToProvider.get(editedModelId);
       const newProj = createRootVersion(project.id, {
         name: editedPrompt.slice(0, 10) || '新主线',
         prompt: editedPrompt,

@@ -220,6 +220,22 @@ test('优化中的输入文字会真实弱化，模型选择控件和下拉菜�
   }
 });
 
+test('项目页生成优先使用当前选中的供应商，不按模型 ID 跨供应商回退', () => {
+  const doGenerateBlock = getEnclosedBlock(
+    projectPage,
+    /function doGenerate\(\) \{/u,
+    '项目页必须包含 doGenerate',
+  );
+  const selectedProviderMatch = /providers\.find\(\(p\) => p\.id === currentProviderId\)/u.exec(doGenerateBlock);
+  const modelIdFallbackMatch = /modelToProvider\.get\(editedModelId\)/u.exec(doGenerateBlock);
+
+  assert.notEqual(selectedProviderMatch, null, '项目页生成必须优先使用下拉选中的供应商');
+  assert.ok(
+    !modelIdFallbackMatch || selectedProviderMatch.index < modelIdFallbackMatch.index,
+    '项目页生成不得先按模型 ID 在供应商映射表中推导，避免同 ID 模型串到默认供应商',
+  );
+});
+
 test('碎片动效在请求进行中循环经历碎裂与重组', () => {
   const fragmentRule = getExactCssRuleBody(pagesCss, `.composer-fragment,\n.prompt-fragment-overlay__fragment`);
 
