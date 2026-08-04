@@ -148,3 +148,13 @@ test('历史页复用项目画廊卡片，项目图片可打开统一预览并�
     restore();
   }
 });
+
+test('项目历史卡片的项目跳转按钮必须渲染可用文件夹图标', async () => {
+  const [iconsSource, historySource] = await Promise.all([
+    readFile(new URL('../src/js/icons.js', import.meta.url), 'utf8'),
+    readFile(new URL('../src/js/pages/history.js', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(historySource, /icon\('folder-open', 14\)/u);
+  assert.match(iconsSource, /'folder-open':/u);
+});
