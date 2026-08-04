@@ -127,30 +127,6 @@ function assertParticleFieldStructure(textareaWrap, textareaId, pageName) {
   assert.equal(particleTags.length, 4, `${pageName}粒子层必须仅包含 4 个直接子级 composer-particle 节点`);
 }
 
-function getWithButtonLoadingCallback(optimizeHandler, pageName) {
-  return getEnclosedBlock(
-    optimizeHandler,
-    /withButtonLoading\(btnOptimize,\s*'优化中…',\s*async \(\) => \{/u,
-    `${pageName}提示词优化处理器必须使用 withButtonLoading 异步回调`,
-  );
-}
-
-function assertParticleLifecycle(callback, pageName) {
-  const addMatch = /particleField\.classList\.add\('is-optimizing'\)/u.exec(callback);
-  const tryMatch = /\btry\s*\{/u.exec(callback);
-
-  assert.notEqual(addMatch, null, `${pageName}优化开始时必须激活粒子层`);
-  assert.notEqual(tryMatch, null, `${pageName}优化回调必须包含 try`);
-  assert.ok(addMatch.index < tryMatch.index, `${pageName}必须在 try 前激活粒子层`);
-
-  const finallyBlock = getEnclosedBlock(
-    callback,
-    /finally\s*\{/u,
-    `${pageName}提示词优化回调必须包含 finally`,
-  );
-  assert.match(finallyBlock, /particleField\.classList\.remove\('is-optimizing'\)/u, `${pageName}必须在 finally 中停用粒子层`);
-}
-
 function getExactCssRuleBody(css, selector) {
   const normalizedTarget = selector.replace(/\s+/gu, ' ').trim();
   const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//gu, '');
@@ -186,7 +162,7 @@ test('快速与项目生图均提供 1–4 张控件，并以独立批次任务�
   }
 });
 
-test('提示词优化使用位于输入区底层的粒子层并移除旧波浪层', () => {
+test('提示词优化复用共享状态绑定，快速页固定 quick 上下文并保留现有粒子结构', () => {
   const pageContracts = [
     ['生成页', generatePage, 'prompt-input'],
     ['项目页', projectPage, 'version-prompt'],
@@ -195,15 +171,16 @@ test('提示词优化使用位于输入区底层的粒子层并移除旧波浪�
   for (const [pageName, page, textareaId] of pageContracts) {
     const textareaWrap = getComposerTextareaWrapMarkup(page, pageName);
     assertParticleFieldStructure(textareaWrap, textareaId, pageName);
-
-    const optimizeHandler = getEnclosedBlock(
-      page,
-      /btnOptimize\.addEventListener\('click', async \(\) => \{/u,
-      `${pageName}必须定义提示词优化处理器`,
-    );
-    assertParticleLifecycle(getWithButtonLoadingCallback(optimizeHandler, pageName), pageName);
     assert.doesNotMatch(page, /composer-wave-bar/u, `${pageName}不得继续使用旧波浪层`);
+    assert.doesNotMatch(page, /withButtonLoading/u, `${pageName}不得再由页面局部 finally 管理优化生命周期`);
   }
+
+  assert.match(generatePage, /createPromptOptimizationManager/u, '快速页必须创建可跨挂载保留状态的优化管理器');
+  assert.match(generatePage, /createPromptFragmentOverlay/u, '快速页必须复用碎片覆盖层实现');
+  assert.match(generatePage, /createPromptOptimizationPageBinding/u, '快速页必须通过统一绑定函数驱动 UI');
+  assert.match(generatePage, /context:\s*'quick'/u, '快速页必须使用固定 quick 上下文');
+  assert.match(projectPage, /createPromptOptimizationPageBinding/u, '项目页必须复用统一页面绑定函数');
+  assert.match(projectPage, /project:\$\{projectId\}:\$\{curVer\.id\}/u, '项目页上下文必须同时包含项目和当前版本');
 });
 
 test('粒子结构契约拒绝把粒子移到粒子层外', () => {
@@ -223,23 +200,6 @@ test('粒子结构契约拒绝把粒子移到粒子层外', () => {
     () => assertParticleFieldStructure(textareaWrap, 'prompt-input', '反向用例'),
     /particle-four 直接子节点/u,
     '粒子移出粒子层后不得仍通过结构契约',
-  );
-});
-
-test('优化生命周期契约拒绝在 finally 中才激活粒子层', () => {
-  const callback = `
-    try {
-      await optimizePrompt('示例');
-    } finally {
-      particleField.classList.add('is-optimizing');
-      particleField.classList.remove('is-optimizing');
-    }
-  `;
-
-  assert.throws(
-    () => assertParticleLifecycle(callback, '反向用例'),
-    /try 前激活粒子层/u,
-    '把 add 放进 finally 或清理阶段后不得仍通过生命周期契约',
   );
 });
 

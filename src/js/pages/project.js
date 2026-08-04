@@ -1,6 +1,6 @@
 // 项目工作台：横向时间轴（主线节点+分支卡片） + 详情面板
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, withButtonLoading, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
 import {
   getProject,
   updateProject,
@@ -29,6 +29,12 @@ import {
 import { navigate } from '../router.js';
 import { openImagePreview } from '../image-preview.js';
 import * as queue from '../queue.js';
+import { createPromptOptimizationManager } from '../prompt-optimization.js';
+import { createPromptOptimizationPageBinding } from './generate.js';
+
+const promptOptimizationManager = createPromptOptimizationManager({
+  optimize: (prompt) => optimizePrompt(prompt),
+});
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
@@ -777,8 +783,17 @@ export function renderProject(container, params, routeOptions = {}) {
     }
 
     const btnOptimize = root.querySelector('#btn-optimize');
-    if (btnOptimize) {
-      btnOptimize.addEventListener('click', async () => {
+    let promptOptimizationBinding = null;
+    if (btnOptimize && projectId && curVer?.id) {
+      promptOptimizationBinding = createPromptOptimizationPageBinding({
+        manager: promptOptimizationManager,
+        context: `project:${projectId}:${curVer.id}`,
+        container: root.querySelector('.composer-textarea-wrap'),
+        textarea: promptInput,
+        button: btnOptimize,
+        particleField,
+      });
+      btnOptimize.addEventListener('click', () => {
         const prompt = promptInput.value.trim();
         if (!prompt) { toast('请先输入提示词', 'error'); promptInput.focus(); return; }
         const tp = getTextProvider();
@@ -786,27 +801,7 @@ export function renderProject(container, params, routeOptions = {}) {
           toast('请先在「设置 → 模型供应商」中配置文本模型', 'error');
           return;
         }
-        // 按钮状态由统一包装器管理，输入区域显示独立的粒子能量场。
-        const feedbackKey = 'prompt-optimize';
-        await withButtonLoading(btnOptimize, '优化中…', async () => {
-          toast('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
-          btnOptimize.classList.add('is-optimizing');
-          promptInput.readOnly = true;
-          promptInput.classList.add('is-optimizing');
-          particleField.classList.add('is-optimizing');
-          try {
-            const optimized = await optimizePrompt(prompt);
-            promptInput.value = optimized;
-            toast('提示词已优化', 'success', { key: feedbackKey });
-          } catch (err) {
-            toast('优化失败：' + err.message, 'error', { key: feedbackKey });
-          } finally {
-            btnOptimize.classList.remove('is-optimizing');
-            promptInput.readOnly = false;
-            promptInput.classList.remove('is-optimizing');
-            particleField.classList.remove('is-optimizing');
-          }
-        });
+        promptOptimizationBinding.start(prompt);
       });
     }
 
@@ -1109,6 +1104,7 @@ export function renderProject(container, params, routeOptions = {}) {
     const cleanup = () => {
       closeDropdown();
       closeImagePreview?.();
+      promptOptimizationBinding?.destroy();
       galleryController.dispose();
       pageLifecycle.cleanup();
       unsubscribe();

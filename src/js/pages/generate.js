@@ -1,6 +1,6 @@
 // 生图页：豆包风格 Composer 布局 + 全局任务队列
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, withButtonLoading, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
+import { mountPage, htmlToElement, toast, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
 import {
   getProviders,
   getEnabledModels,
@@ -18,6 +18,91 @@ import * as queue from '../queue.js';
 import { navigate } from '../router.js';
 import { getPaginatedQuickHistory } from '../history-data.js';
 import { openImagePreview } from '../image-preview.js';
+import { createPromptOptimizationManager, createPromptFragmentOverlay } from '../prompt-optimization.js';
+
+const promptOptimizationManager = createPromptOptimizationManager({
+  optimize: (prompt) => optimizePrompt(prompt),
+});
+
+export function createPromptOptimizationPageBinding({
+  manager,
+  context,
+  container,
+  textarea,
+  button,
+  particleField,
+  toast: toastFn = toast,
+  createOverlay = createPromptFragmentOverlay,
+}) {
+  let overlay = null;
+  let destroyed = false;
+  const feedbackKey = `prompt-optimize:${context}`;
+
+  function setOptimizingUi(optimizing) {
+    textarea.readOnly = optimizing;
+    button.disabled = optimizing;
+    button.classList?.toggle?.('is-loading', optimizing);
+    button.classList?.toggle?.('is-optimizing', optimizing);
+    textarea.classList?.toggle?.('is-optimizing', optimizing);
+    particleField.classList?.toggle?.('is-optimizing', optimizing);
+    if (optimizing) button.setAttribute?.('aria-busy', 'true');
+    else button.removeAttribute?.('aria-busy');
+  }
+
+  function ensureOverlay(prompt) {
+    if (overlay) return overlay;
+    overlay = createOverlay({
+      container,
+      textarea,
+      prompt,
+      maxFragments: 36,
+    });
+    overlay.mount();
+    return overlay;
+  }
+
+  function applyState(state) {
+    if (destroyed) return;
+
+    if (state.status === 'optimizing') {
+      setOptimizingUi(true);
+      ensureOverlay(state.prompt);
+      toastFn('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
+      return;
+    }
+
+    setOptimizingUi(false);
+    if (state.status === 'idle') return;
+
+    ensureOverlay(state.prompt).settle();
+    if (state.status === 'succeeded') {
+      textarea.value = String(state.result ?? '');
+      toastFn('提示词已优化', 'success', { key: feedbackKey });
+    } else if (state.status === 'failed') {
+      const message = state.error?.message || '未知错误';
+      toastFn(`优化失败：${message}`, 'error', { key: feedbackKey });
+    }
+    manager.clear(context);
+  }
+
+  const unsubscribe = manager.subscribe(context, applyState);
+  applyState(manager.getState(context));
+
+  return {
+    start(prompt) {
+      const started = manager.start(context, prompt);
+      started.promise?.catch(() => {});
+      return started;
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      unsubscribe();
+      overlay?.destroy();
+      overlay = null;
+    },
+  };
+}
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
@@ -373,7 +458,15 @@ export function renderGenerate(container) {
 
   // ===== 优化提示词 =====
   const btnOptimize = root.querySelector('#btn-optimize');
-  btnOptimize.addEventListener('click', async () => {
+  const promptOptimizationBinding = createPromptOptimizationPageBinding({
+    manager: promptOptimizationManager,
+    context: 'quick',
+    container: root.querySelector('.composer-textarea-wrap'),
+    textarea: promptInput,
+    button: btnOptimize,
+    particleField,
+  });
+  btnOptimize.addEventListener('click', () => {
     const prompt = promptInput.value.trim();
     if (!prompt) { toast('请先输入提示词', 'error'); promptInput.focus(); return; }
     const tp = getTextProvider();
@@ -381,27 +474,7 @@ export function renderGenerate(container) {
       toast('请先在「设置 → 模型供应商」中配置文本模型', 'error');
       return;
     }
-    // 按钮状态由统一包装器管理，输入区域显示独立的粒子能量场。
-    const feedbackKey = 'prompt-optimize';
-    await withButtonLoading(btnOptimize, '优化中…', async () => {
-      toast('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
-      btnOptimize.classList.add('is-optimizing');
-      promptInput.readOnly = true;
-      promptInput.classList.add('is-optimizing');
-      particleField.classList.add('is-optimizing');
-      try {
-        const optimized = await optimizePrompt(prompt);
-        promptInput.value = optimized;
-        toast('提示词已优化', 'success', { key: feedbackKey });
-      } catch (err) {
-        toast('优化失败：' + err.message, 'error', { key: feedbackKey });
-      } finally {
-        btnOptimize.classList.remove('is-optimizing');
-        promptInput.readOnly = false;
-        promptInput.classList.remove('is-optimizing');
-        particleField.classList.remove('is-optimizing');
-      }
-    });
+    promptOptimizationBinding.start(prompt);
   });
 
   // ===== 随机提示词 =====
@@ -724,6 +797,7 @@ export function renderGenerate(container) {
   return () => {
     closeDropdown();
     closeImagePreview?.();
+    promptOptimizationBinding.destroy();
     unsubscribe();
   };
 }
