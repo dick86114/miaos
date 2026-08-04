@@ -3058,17 +3058,28 @@ i[data-lucide="loader"] {
 }
 .image-preview-close {
   position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 1;
-  border: 0;
-  border-radius: var(--r-md);
-  padding: 8px 10px;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0 0 2px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
   color: #fff;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(15, 23, 42, 0.58);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
   cursor: pointer;
+  transition: background-color var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease);
 }
-.image-preview-close:hover { background: rgba(255, 255, 255, 0.24); }
+.image-preview-close:hover { background: rgba(255, 255, 255, 0.24); transform: scale(1.06); }
+.image-preview-close:active { transform: scale(0.96); }
 .image-preview-content {
   display: flex;
   flex-direction: column;

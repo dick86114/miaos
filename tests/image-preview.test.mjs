@@ -152,7 +152,9 @@ test('共享图片预览支持关闭按钮、遮罩、Escape 并恢复触发焦�
   openImagePreview(record, options);
   let overlay = findByAttribute(documentRef.body, 'data-image-preview');
   assert.ok(overlay);
-  findByAttribute(overlay, 'data-image-preview-close').dispatch('click');
+  const closeButton = findByAttribute(overlay, 'data-image-preview-close');
+  assert.equal(closeButton.textContent, '×', '关闭按钮应使用紧凑叉号图标，而不是文字按钮');
+  closeButton.dispatch('click');
   assert.equal(findByAttribute(documentRef.body, 'data-image-preview'), null);
   assert.equal(documentRef.activeElement, trigger);
 

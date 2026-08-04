@@ -48,7 +48,7 @@ export function openImagePreview(record, options = {}) {
   overlay.setAttribute('aria-label', '图片预览');
 
   const panel = createElement(documentRef, 'section', 'image-preview-panel');
-  const closeButton = createElement(documentRef, 'button', 'image-preview-close', '关闭');
+  const closeButton = createElement(documentRef, 'button', 'image-preview-close', '×');
   closeButton.type = 'button';
   closeButton.setAttribute('data-image-preview-close', '');
   closeButton.setAttribute('aria-label', '关闭图片预览');
