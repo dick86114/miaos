@@ -278,6 +278,13 @@ export function renderHistory(container) {
       renderView();
       return;
     }
+    const historyCard = event.target.closest?.('.history-card');
+    if (historyCard && controller.getState().batchMode) {
+      const record = findPageRecord(historyCard.getAttribute('data-history-key'));
+      if (record) controller.toggleSelection(record);
+      renderView();
+      return;
+    }
     const actionButton = event.target.closest?.('[data-history-act]');
     if (actionButton) {
       const record = findPageRecord(actionButton.getAttribute('data-history-key'));
@@ -329,7 +336,7 @@ export function createHistoryCardHtml(item, batchMode = false, selectedItems = [
     : '';
 
   return `
-    <article class="gallery-item history-card ${batchMode ? 'is-batch-mode' : ''}" data-history-key="${escapeHtml(item.key)}" data-history-source="${escapeHtml(item.source)}">
+    <article class="gallery-item history-card ${batchMode ? 'is-batch-mode' : ''} ${isSelected ? 'is-selected' : ''}" data-history-key="${escapeHtml(item.key)}" data-history-source="${escapeHtml(item.source)}">
       <div class="gallery-item-img-wrap">
         <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.prompt || '生成结果')}" loading="lazy" />
         <div class="history-card-tags">

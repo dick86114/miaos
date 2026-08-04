@@ -3069,6 +3069,12 @@ i[data-lucide="loader"] {
   cursor: pointer;
 }
 .image-preview-close:hover { background: rgba(255, 255, 255, 0.24); }
+.image-preview-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 14px;
+}
 .image-preview-image {
   display: block;
   width: 100%;
@@ -3104,6 +3110,15 @@ i[data-lucide="loader"] {
   transition: transform var(--motion-fast) var(--motion-ease);
 }
 .image-preview-fullscreen-image:active { cursor: grabbing; }
+@media (min-width: 700px) and (min-aspect-ratio: 5/4) {
+  .image-preview-panel { width: min(1120px, 100%); overflow: hidden; }
+  .image-preview-content { flex: 1; flex-direction: row; align-items: stretch; min-height: min(68vh, 760px); }
+  .image-preview-image { flex: 1 1 auto; min-width: 0; max-height: none; }
+  .image-preview-info { flex: 0 0 min(320px, 34%); overflow: auto; }
+}
+@media (max-width: 600px), (max-aspect-ratio: 5/4) {
+  .image-preview-panel { overflow: auto; }
+}
 @media (max-width: 600px) {
   .image-preview-overlay { padding: 12px; }
   .image-preview-panel { max-height: calc(100vh - 24px); padding: 16px; }
@@ -3199,6 +3214,8 @@ i[data-lucide="loader"] {
 .history-card-select:has(input:checked) { color: #fff; background: var(--brand); border-color: var(--brand); }
 .history-card.is-batch-mode .gallery-item-hover-actions { display: none; }
 .history-card.is-batch-mode { cursor: default; }
+.history-card.is-batch-mode .gallery-item-img-wrap { cursor: pointer; }
+.history-card.is-selected { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 .history-pagination {
   display: flex;
   align-items: center;

@@ -89,8 +89,10 @@ export function openImagePreview(record, options = {}) {
     actions.appendChild(copyButton);
   }
 
-  panel.append(closeButton, image);
-  if (info.children.length) panel.appendChild(info);
+  const content = createElement(documentRef, 'div', 'image-preview-content');
+  content.appendChild(image);
+  if (info.children.length) content.appendChild(info);
+  panel.append(closeButton, content);
   if (actions.children.length) panel.appendChild(actions);
   overlay.appendChild(panel);
   documentRef.body.appendChild(overlay);
