@@ -74,12 +74,19 @@ test('历史页控制器将搜索和来源筛选交给统一选择器，按 24 �
     controller.getPage();
     controller.setFilters({ query: '猫咪', source: 'project' });
     controller.getPage();
+    controller.setFilters({ projectId: 'project-1' });
+    controller.getPage();
+    controller.setFilters({ source: 'quick' });
+    controller.getPage();
 
     assert.deepEqual(calls, [
-      { page: 1, pageSize: 24, query: '', source: 'all' },
-      { page: 3, pageSize: 24, query: '', source: 'all' },
-      { page: 1, pageSize: 24, query: '猫咪', source: 'project' },
+      { page: 1, pageSize: 24, query: '', source: 'all', projectId: '' },
+      { page: 3, pageSize: 24, query: '', source: 'all', projectId: '' },
+      { page: 1, pageSize: 24, query: '猫咪', source: 'project', projectId: '' },
+      { page: 1, pageSize: 24, query: '猫咪', source: 'project', projectId: 'project-1' },
+      { page: 1, pageSize: 24, query: '猫咪', source: 'quick', projectId: '' },
     ]);
+    assert.equal(controller.getState().projectId, '', '切换来源离开项目生图时必须清除残留项目筛选');
   } finally {
     restore();
   }
@@ -126,7 +133,7 @@ test('批量管理只删除已选混合来源条目，二次确认后清空选�
     assert.match(confirmedMessages[0], /影响对应项目版本/);
     assert.equal(controller.getSelectedItems().length, 0);
     assert.equal(controller.getState().page, 1);
-    assert.deepEqual(calls.at(-1), { page: 2, pageSize: 24, query: '', source: 'all' });
+    assert.deepEqual(calls.at(-1), { page: 2, pageSize: 24, query: '', source: 'all', projectId: '' });
   } finally {
     restore();
   }

@@ -29,6 +29,7 @@ export function createHistoryPageController(dependencies = {}) {
   let page = 1;
   let query = '';
   let source = 'all';
+  let projectId = '';
   let batchMode = false;
   const selected = new Map();
 
@@ -41,6 +42,7 @@ export function createHistoryPageController(dependencies = {}) {
       pageSize: HISTORY_PAGE_SIZE,
       query,
       source,
+      projectId,
     });
     page = result.page;
     return result;
@@ -49,9 +51,12 @@ export function createHistoryPageController(dependencies = {}) {
   function setFilters(next = {}) {
     const nextQuery = next.query === undefined ? query : String(next.query || '').trim();
     const nextSource = next.source === undefined ? source : String(next.source || 'all');
-    if (nextQuery === query && nextSource === source) return;
+    const nextProjectId = next.projectId === undefined ? projectId : String(next.projectId || '').trim();
+    if (nextQuery === query && nextSource === source && nextProjectId === projectId) return;
     query = nextQuery;
     source = nextSource;
+    // 项目筛选只对项目来源有意义；切换来源时清除，避免隐藏状态下残留选择。
+    projectId = source === 'project' ? nextProjectId : '';
     page = 1;
     selected.clear();
   }
@@ -104,7 +109,7 @@ export function createHistoryPageController(dependencies = {}) {
     toggleSelection,
     getSelectedItems,
     deleteSelected,
-    getState: () => ({ page, query, source, batchMode }),
+    getState: () => ({ page, query, source, projectId, batchMode }),
   };
 }
 
@@ -125,6 +130,9 @@ export function renderHistory(container) {
             <option value="all">全部来源</option>
             <option value="quick">快速生图</option>
             <option value="project">项目生图</option>
+          </select>
+          <select class="history-source-filter" id="history-project-filter" aria-label="筛选项目" hidden>
+            <option value="">全部项目</option>
           </select>
           <button type="button" class="text-btn" id="history-batch-toggle">${icon('check-square', 14)}<span>批量管理</span></button>
         </div>
@@ -157,6 +165,7 @@ export function renderHistory(container) {
   const controller = createHistoryPageController();
   const searchInput = root.querySelector('#history-search-input');
   const sourceFilter = root.querySelector('#history-source-filter');
+  const projectFilter = root.querySelector('#history-project-filter');
   const listEl = root.querySelector('#history-list');
   const historyGrid = root.querySelector('[data-history-grid]');
   const emptyState = root.querySelector('[data-history-empty]');
@@ -170,6 +179,14 @@ export function renderHistory(container) {
   const selectedCount = root.querySelector('[data-history-selected-count]');
   const deleteSelectedButton = root.querySelector('[data-history-delete-selected]');
   let closeImagePreview = null;
+
+  function renderProjectFilterOptions() {
+    const projects = getProjects();
+    projectFilter.innerHTML = '<option value="">全部项目</option>' + projects
+      .map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name || '未命名项目')}</option>`)
+      .join('');
+  }
+  renderProjectFilterOptions();
 
   const historyRenderer = createKeyedListRenderer(historyGrid, {
     getKey: (item) => item.key,
@@ -191,6 +208,8 @@ export function renderHistory(container) {
     const pageData = controller.getPage();
     const state = controller.getState();
     const selectedItems = controller.getSelectedItems();
+    projectFilter.hidden = state.source !== 'project';
+    if (projectFilter.value !== state.projectId) projectFilter.value = state.projectId;
     const records = pageData.items.map((item) => ({
       ...item,
       selected: selectedItems.some((selected) => selected.key === item.key),
@@ -200,10 +219,10 @@ export function renderHistory(container) {
     const isEmpty = pageData.total === 0;
     historyGrid.hidden = isEmpty;
     emptyState.hidden = !isEmpty;
-    emptyText.textContent = state.query || state.source !== 'all'
+    emptyText.textContent = state.query || state.source !== 'all' || state.projectId
       ? '没有匹配的历史记录'
       : '还没有生成记录，去快速生图页创建第一张吧';
-    root.querySelector('[data-history-go-generate]').hidden = Boolean(state.query || state.source !== 'all');
+    root.querySelector('[data-history-go-generate]').hidden = Boolean(state.query || state.source !== 'all' || state.projectId);
 
     pagination.hidden = isEmpty || pageData.totalPages <= 1;
     pageLabel.textContent = `第 ${pageData.page} / ${pageData.totalPages} 页 · 共 ${pageData.total} 张`;
@@ -252,6 +271,10 @@ export function renderHistory(container) {
   });
   sourceFilter.addEventListener('change', () => {
     controller.setFilters({ source: sourceFilter.value });
+    renderView();
+  });
+  projectFilter.addEventListener('change', () => {
+    controller.setFilters({ projectId: projectFilter.value });
     renderView();
   });
   batchToggle.addEventListener('click', () => {

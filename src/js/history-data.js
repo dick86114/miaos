@@ -87,12 +87,14 @@ function matchesQuery(item, query) {
   return haystack.includes(query);
 }
 
-function filterUnifiedHistory(items, { query, source }) {
+function filterUnifiedHistory(items, { query, source, projectId }) {
   const normalizedQuery = String(query || '').trim().toLocaleLowerCase();
   const normalizedSource = String(source || '').trim().toLocaleLowerCase();
+  const normalizedProjectId = String(projectId || '').trim();
   return items.filter((item) => {
     const sourceMatches = !normalizedSource || normalizedSource === 'all' || item.source === normalizedSource;
-    return sourceMatches && matchesQuery(item, normalizedQuery);
+    const projectMatches = !normalizedProjectId || (item.source === 'project' && item.projectId === normalizedProjectId);
+    return sourceMatches && projectMatches && matchesQuery(item, normalizedQuery);
   });
 }
 

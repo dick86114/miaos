@@ -132,6 +132,31 @@ test('统一历史先筛选再分页，并将过大的页码收敛到筛选结�
   assert.deepEqual(projectOnly.items.map((item) => item.key), ['project:project-1:version-1:image-match-1']);
 });
 
+test('统一历史可按项目 ID 筛选项目图片，不误伤其他项目或快速记录', () => {
+  const history = [createQuickRecord('quick-1', 300)];
+  const projects = [
+    createProject('project-1', [{
+      id: 'version-1', prompt: '项目一', providerId: 'p1', providerName: '', modelId: '', createdAt: 1,
+      images: [{ id: 'image-a', image: 'file:///a.png', createdAt: 200 }],
+    }]),
+    createProject('project-2', [{
+      id: 'version-2', prompt: '项目二', providerId: 'p2', providerName: '', modelId: '', createdAt: 1,
+      images: [{ id: 'image-b', image: 'file:///b.png', createdAt: 100 }],
+    }]),
+  ];
+
+  const result = getUnifiedHistory({ history, projects }, {
+    page: 1,
+    pageSize: 24,
+    source: 'project',
+    projectId: 'project-1',
+  });
+
+  assert.deepEqual(result.items.map((item) => item.key), ['project:project-1:version-1:image-a']);
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].projectName, '项目 project-1');
+});
+
 test('批量删除按来源分派快速历史和项目图片，并仅返回实际删除数量', async () => {
   const initialState = createDefaultState();
   initialState.history = [createQuickRecord('quick-delete', 10)];
