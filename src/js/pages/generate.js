@@ -539,20 +539,34 @@ export function renderGenerate(container) {
 
   function activeTaskCardHtml(task) {
     const isRunning = task.status === 'running';
-    return `
-      <div class="task-card ${isRunning ? 'task-running' : 'task-queued'}" data-task-id="${task.id}">
-        <div class="task-card-status">${icon(isRunning ? 'loader' : 'clock', 16)}<span>${isRunning ? '生成中…' : '排队中'}</span></div>
-        <div class="task-card-body">
-          <p class="task-card-prompt">${escapeHtml(task.prompt) || '<span class="task-card-empty">无提示词</span>'}</p>
-          <div class="task-card-meta">
-            ${task.providerName ? `<span>${icon('server', 12)}${escapeHtml(task.providerName)}</span>` : ''}
-            <span>${icon('cpu', 12)}${escapeHtml(task.modelId)}</span>
-            <span>${task.ratio}</span>
-            <span>${escapeHtml(task.quality)}</span>
+    const isFailed = task.status === 'failed';
+    const batchLabel = task.batchTotal > 1 ? `第 ${task.batchIndex || 1}/${task.batchTotal} 张` : '';
+    const paramsText = [task.ratio, task.quality, batchLabel].filter(Boolean).join(' · ');
+    if (isFailed) {
+      const errorText = task.error && String(task.error).trim() ? String(task.error).trim() : '未知错误';
+      const shortError = errorText.length > 36 ? `${errorText.slice(0, 36)}…` : errorText;
+      return `
+        <article class="gallery-item gallery-placeholder task-failed" data-task-id="${task.id}">
+          <div class="placeholder-cover task-error-cover">
+            ${icon('alert-circle', 24)}
+            <span class="task-error-title">生成失败</span>
+            <span class="task-error-detail" title="${escapeHtml(errorText)}">${escapeHtml(shortError)}</span>
           </div>
+          <div class="gallery-item-meta">
+            <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
+            <button type="button" class="btn btn-ghost btn-sm task-failure-detail" data-task-id="${task.id}" title="查看失败详情">${icon('alert-circle', 13)}<span>查看失败详情</span></button>
+            <button type="button" class="icon-btn task-dismiss" data-task-id="${task.id}" title="移除">${icon('x', 13)}</button>
+          </div>
+        </article>`;
+    }
+    return `
+      <article class="gallery-item gallery-placeholder ${isRunning ? 'task-running' : 'task-queued'}" data-task-id="${task.id}">
+        <div class="placeholder-cover">${icon(isRunning ? 'loader' : 'clock', 28)}<span>${isRunning ? '生成中…' : '排队中'}</span></div>
+        <div class="gallery-item-meta">
+          <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
+          ${isRunning ? '' : `<button type="button" class="icon-btn task-cancel" data-task-id="${task.id}" title="取消任务">${icon('x', 13)}</button>`}
         </div>
-        ${isRunning ? '' : `<button type="button" class="icon-btn task-cancel" data-task-id="${task.id}" title="取消">${icon('x', 14)}</button>`}
-      </div>`;
+      </article>`;
   }
 
   function quickHistoryCardHtml(item) {
@@ -620,9 +634,27 @@ export function renderGenerate(container) {
     });
   }
 
+  function openQuickTaskFailurePreview(task) {
+    closeImagePreview?.();
+    closeImagePreview = openImagePreview({
+      ...task,
+      contextLabel: '快速生图任务',
+    }, {
+      onClose: () => { closeImagePreview = null; },
+      onCopyPrompt: async (promptText) => {
+        try {
+          await navigator.clipboard.writeText(promptText);
+          toast('提示词已复制', 'success');
+        } catch {
+          toast('复制失败', 'error');
+        }
+      },
+    });
+  }
+
   function renderTasks(tasks) {
     const quick = tasks.filter((task) => task.source === 'quick');
-    const active = quick.filter((task) => task.status === 'queued' || task.status === 'running');
+    const active = quick.filter((task) => task.status === 'queued' || task.status === 'running' || task.status === 'failed');
     const completedQuickTaskIds = new Set(quick.filter((task) => task.status === 'done').map((task) => task.id));
     const hasNewQuickCompletion = [...completedQuickTaskIds].some((taskId) => !previousCompletedQuickTaskIds.has(taskId));
 
@@ -639,6 +671,18 @@ export function renderGenerate(container) {
   // 操作统一委托到结果区，历史卡片局部更新或分页时无需重复绑定监听器。
   resultArea.addEventListener('click', async (event) => {
     const target = event.target;
+    const failureDetailButton = target.closest?.('.task-failure-detail');
+    if (failureDetailButton) {
+      const taskId = failureDetailButton.getAttribute('data-task-id');
+      const task = queue.getTasks().find((item) => item.id === taskId && item.source === 'quick' && item.status === 'failed');
+      if (task) openQuickTaskFailurePreview(task);
+      return;
+    }
+    const dismissButton = target.closest?.('.task-dismiss');
+    if (dismissButton) {
+      queue.removeTask(dismissButton.getAttribute('data-task-id'));
+      return;
+    }
     const cancelButton = target.closest?.('.task-cancel');
     if (cancelButton) {
       queue.cancel(cancelButton.getAttribute('data-task-id'));

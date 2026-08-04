@@ -244,3 +244,52 @@ test('项目定位会选中目标版本，并且只在该版本中打开目标�
     globalThis.window = previousWindow;
   }
 });
+
+
+function collectText(root) {
+  return [root.textContent, ...(root.children || []).flatMap((child) => collectText(child))]
+    .filter(Boolean)
+    .join('\n');
+}
+
+test('无图失败任务也会打开失败详情，并完整展示错误与生成参数', async () => {
+  const { openImagePreview } = await loadPreview();
+  const documentRef = createDocument();
+  const trigger = documentRef.createElement('button');
+  documentRef.body.appendChild(trigger);
+  trigger.focus();
+  let closeCount = 0;
+
+  const close = openImagePreview({
+    id: 'task-failed',
+    status: 'failed',
+    error: '供应商返回 429：请求频率超过限制\n请稍后重试。',
+    prompt: '雨夜霓虹城市街景',
+    providerName: '测试供应商',
+    modelId: '测试模型',
+    ratio: '16:9',
+    quality: '超高清',
+    batchIndex: 2,
+    batchTotal: 4,
+  }, {
+    documentRef,
+    triggerElement: trigger,
+    onClose: () => { closeCount += 1; },
+  });
+
+  const overlay = findByAttribute(documentRef.body, 'data-image-preview');
+  assert.ok(overlay, '失败任务没有图片时仍必须打开详情弹窗');
+  assert.equal(overlay.getAttribute('aria-label'), '生成失败详情');
+  assert.equal(findByAttribute(overlay, 'data-image-preview-image'), null, '失败详情不得渲染空图片元素');
+  const detailText = collectText(overlay);
+  assert.match(detailText, /供应商返回 429：请求频率超过限制\n请稍后重试。/u, '必须显示完整错误，不能截断');
+  assert.match(detailText, /测试供应商 \/ 测试模型/u);
+  assert.match(detailText, /16:9 · 超高清 · 第 2\/4 张/u, '必须展示完整生成参数和批次');
+  assert.match(detailText, /雨夜霓虹城市街景/u);
+
+  findByAttribute(overlay, 'data-image-preview-close').dispatch('click');
+  close();
+  assert.equal(closeCount, 1, '重复关闭不得重复触发 onClose');
+  assert.equal(findByAttribute(documentRef.body, 'data-image-preview'), null);
+  assert.equal(documentRef.activeElement, trigger, '关闭语义必须与图片预览一致并恢复触发焦点');
+});

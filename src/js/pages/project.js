@@ -71,6 +71,7 @@ export function createProjectGalleryController(dependencies) {
     toast: showToast,
     onOpenImage,
     onImageAction,
+    onOpenTaskFailure,
   } = dependencies;
   let disposed = false;
 
@@ -84,6 +85,11 @@ export function createProjectGalleryController(dependencies) {
   const onClick = async (event) => {
     if (disposed) return;
     const target = event.target;
+    const failureDetailButton = target.closest?.('.task-failure-detail');
+    if (failureDetailButton) {
+      onOpenTaskFailure?.(failureDetailButton.getAttribute('data-task-id'));
+      return;
+    }
     const cancelButton = target.closest?.('.task-cancel');
     if (cancelButton) {
       queueApi.cancel(cancelButton.getAttribute('data-task-id'));
@@ -299,13 +305,15 @@ export function renderProject(container, params, routeOptions = {}) {
     }
 
     function taskPlaceholderHtml(t) {
-      const i2iBadge = t.isImageToImage ? `${icon('git-branch', 11)}图生图` : '';
+      const i2iBadge = t.isImageToImage ? '图生图' : '';
+      const batchLabel = t.batchTotal > 1 ? `第 ${t.batchIndex || 1}/${t.batchTotal} 张` : '';
+      const paramsText = [t.ratio, t.quality, batchLabel, i2iBadge].filter(Boolean).join(' · ');
       if (t.status === 'running') {
         return `
           <div class="gallery-item gallery-placeholder task-running" data-task-id="${t.id}">
             <div class="placeholder-cover">${icon('loader', 28)}<span>生成中…</span></div>
             <div class="gallery-item-meta">
-              <span class="gallery-item-time">${t.ratio} · ${escapeHtml(t.quality)} ${i2iBadge}</span>
+              <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
             </div>
           </div>`;
       }
@@ -320,7 +328,8 @@ export function renderProject(container, params, routeOptions = {}) {
               <span class="task-error-detail" title="${escapeHtml(errMsg)}">${escapeHtml(shortMsg)}</span>
             </div>
             <div class="gallery-item-meta">
-              <span class="gallery-item-time">${t.ratio} · ${escapeHtml(t.quality)}</span>
+              <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
+              <button type="button" class="btn btn-ghost btn-sm task-failure-detail" data-task-id="${t.id}" title="查看失败详情">${icon('alert-circle', 13)}<span>查看失败详情</span></button>
               <button type="button" class="icon-btn task-dismiss" data-task-id="${t.id}" title="移除">${icon('x', 13)}</button>
             </div>
           </div>`;
@@ -330,7 +339,7 @@ export function renderProject(container, params, routeOptions = {}) {
         <div class="gallery-item gallery-placeholder task-queued" data-task-id="${t.id}">
           <div class="placeholder-cover">${icon('clock', 28)}<span>排队中</span></div>
           <div class="gallery-item-meta">
-            <span class="gallery-item-time">${t.ratio} · ${escapeHtml(t.quality)} ${i2iBadge}</span>
+            <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
             <button type="button" class="icon-btn task-cancel" data-task-id="${t.id}" title="取消任务">${icon('x', 13)}</button>
           </div>
         </div>`;
@@ -527,6 +536,23 @@ export function renderProject(container, params, routeOptions = {}) {
         versionName: version.name,
       }, {
         onDownload: (record) => downloadImage(record.image, record.id),
+        onCopyPrompt: async (promptText) => {
+          try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
+          catch { toast('复制失败', 'error'); }
+        },
+      });
+    };
+    const openProjectTaskFailurePreview = (taskId) => {
+      const task = queue.getTasks().find((item) => item.id === taskId && item.versionId === curVer.id && item.status === 'failed');
+      if (!task) return;
+      closeImagePreview?.();
+      closeImagePreview = openImagePreview({
+        ...task,
+        projectId: project.id,
+        versionId: curVer.id,
+        versionName: curVer.name,
+      }, {
+        onClose: () => { closeImagePreview = null; },
         onCopyPrompt: async (promptText) => {
           try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
           catch { toast('复制失败', 'error'); }
@@ -982,6 +1008,7 @@ export function renderProject(container, params, routeOptions = {}) {
       onOpenImage: (image, version) => {
         openProjectImagePreview(image, version);
       },
+      onOpenTaskFailure: openProjectTaskFailurePreview,
       onImageAction: async ({ action, image, version, project: freshProject }) => {
         if (action === 'zoom') {
           openProjectImagePreview(image, version);

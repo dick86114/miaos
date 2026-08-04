@@ -57,13 +57,15 @@ class FakeElement {
 }
 
 function createTaskCard({ taskId, type }) {
+  const isCancel = type === 'cancel';
+  const isFailureDetail = type === 'failure-detail';
   const card = new FakeElement({
-    classes: ['gallery-item', 'gallery-placeholder', type === 'cancel' ? 'task-queued' : 'task-failed'],
+    classes: ['gallery-item', 'gallery-placeholder', isCancel ? 'task-queued' : 'task-failed'],
     attributes: { 'data-task-id': taskId },
   });
   const button = new FakeElement({
     tagName: 'button',
-    classes: [type === 'cancel' ? 'task-cancel' : 'task-dismiss'],
+    classes: [isCancel ? 'task-cancel' : (isFailureDetail ? 'task-failure-detail' : 'task-dismiss')],
     attributes: { 'data-task-id': taskId },
   });
   const icon = new FakeElement({ tagName: 'svg' });
@@ -156,4 +158,35 @@ test('生产项目页接入项目画廊控制器，而非保留独立卡片监�
   const source = await readFile(new URL('../src/js/pages/project.js', import.meta.url), 'utf8');
   assert.match(source, /createProjectGalleryController\(\{/);
   assert.doesNotMatch(source, /galleryGrid\.addEventListener\('click', async \(e\) =>/);
+});
+
+
+test('项目画廊委托失败详情操作，并把目标任务交给详情弹窗', async () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = { location: { hash: '#/generate' }, addEventListener() {} };
+  try {
+    const { createProjectGalleryController } = await import(`../src/js/pages/project.js?failure-detail=${Date.now()}`);
+    const galleryGrid = new FakeElement();
+    const failureDetail = createTaskCard({ taskId: 'task-failed', type: 'failure-detail' });
+    galleryGrid.appendChild(failureDetail.card);
+    const openedTaskIds = [];
+    const controller = createProjectGalleryController({
+      galleryGrid,
+      queueApi: { cancel() {}, removeTask() {} },
+      getCurrentVersion: () => null,
+      confirmDialog: async () => true,
+      deleteImage() {},
+      refreshGallery() {},
+      toast() {},
+      onOpenImage() {},
+      onImageAction() {},
+      onOpenTaskFailure: (taskId) => openedTaskIds.push(taskId),
+    });
+
+    await galleryGrid.dispatchClick(failureDetail.icon);
+    assert.deepEqual(openedTaskIds, ['task-failed']);
+    controller.dispose();
+  } finally {
+    globalThis.window = previousWindow;
+  }
 });

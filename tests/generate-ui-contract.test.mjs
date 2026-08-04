@@ -288,3 +288,20 @@ test('粒子遮罩必须收敛在输入区内，不能向外扩展', () => {
   assert.equal(hasCssDeclaration(particleFieldRule, 'inset', '0'), true, '粒子层必须与输入区边界重合，不能使用负 inset 向外扩展');
   assert.equal(hasCssDeclaration(particleFieldRule, 'overflow', 'hidden'), true, '粒子层必须裁剪内部光晕和粒子，避免视觉越界');
 });
+
+
+test('快速任务复用项目画廊占位卡片、显示批次并提供失败详情入口', () => {
+  const activeTaskCard = getEnclosedBlock(
+    generatePage,
+    /function activeTaskCardHtml\(task\) \{/u,
+    '快速生图必须定义活跃任务卡片渲染函数',
+  );
+
+  assert.match(activeTaskCard, /gallery-item gallery-placeholder/u, '快速 queued/running 卡片必须复用项目画廊占位结构');
+  assert.match(activeTaskCard, /placeholder-cover/u, '快速任务必须保留项目画廊同款占位封面');
+  assert.match(activeTaskCard, /task\.batchIndex[\s\S]*task\.batchTotal/u, '快速任务卡片必须显示批次');
+  assert.match(activeTaskCard, /task-failure-detail/u, '失败任务卡片必须提供查看失败详情操作');
+  assert.match(activeTaskCard, /查看失败详情/u);
+  assert.match(generatePage, /task\.status === 'queued' \|\| task\.status === 'running' \|\| task\.status === 'failed'/u, '快速页必须保留失败卡片以便查看详情');
+  assert.match(generatePage, /openQuickTaskFailurePreview/u, '失败详情操作必须打开共享详情弹窗');
+});

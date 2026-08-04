@@ -22,10 +22,16 @@ function clampZoom(value) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(1))));
 }
 
+function formatGenerationParams(record) {
+  const batchTotal = Number(record.batchTotal) || 1;
+  const batchLabel = batchTotal > 1 ? `第 ${Number(record.batchIndex) || 1}/${batchTotal} 张` : '';
+  return [record.ratio, record.quality, batchLabel].filter(Boolean).join(' · ');
+}
+
 /**
  * 打开通用图片预览。
  *
- * record 至少提供 image；其余元数据会按需显示。返回关闭函数，调用多次安全。
+ * record 需要提供 image，或提供 failed 状态的 error；其余元数据会按需显示。返回关闭函数，调用多次安全。
  */
 export function openImagePreview(record, options = {}) {
   const {
@@ -37,7 +43,8 @@ export function openImagePreview(record, options = {}) {
     onNavigateToProject,
   } = options;
   const imageSource = record?.image;
-  if (!imageSource) return () => {};
+  const isFailureDetail = !imageSource && record?.status === 'failed';
+  if (!imageSource && !isFailureDetail) return () => {};
 
   let closed = false;
   let fullscreen = null;
@@ -45,24 +52,34 @@ export function openImagePreview(record, options = {}) {
   overlay.setAttribute('data-image-preview', '');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', '图片预览');
+  overlay.setAttribute('aria-label', isFailureDetail ? '生成失败详情' : '图片预览');
 
-  const panel = createElement(documentRef, 'section', 'image-preview-panel');
+  const panel = createElement(documentRef, 'section', isFailureDetail ? 'image-preview-panel image-preview-panel-failure' : 'image-preview-panel');
   const closeButton = createElement(documentRef, 'button', 'image-preview-close', '×');
   closeButton.type = 'button';
   closeButton.setAttribute('data-image-preview-close', '');
   closeButton.setAttribute('aria-label', '关闭图片预览');
 
-  const image = createElement(documentRef, 'img', 'image-preview-image');
-  image.src = imageSource;
-  image.alt = record.alt || '生成结果';
-  image.setAttribute('data-image-preview-image', '');
-  image.title = '再次点击可进入全屏查看';
+  let image = null;
+  if (imageSource) {
+    image = createElement(documentRef, 'img', 'image-preview-image');
+    image.src = imageSource;
+    image.alt = record.alt || '生成结果';
+    image.setAttribute('data-image-preview-image', '');
+    image.title = '再次点击可进入全屏查看';
+  }
 
   const info = createElement(documentRef, 'div', 'image-preview-info');
+  if (isFailureDetail) {
+    const failureSummary = createElement(documentRef, 'div', 'image-preview-failure');
+    failureSummary.setAttribute('data-image-preview-failure', '');
+    failureSummary.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-title', '生成失败'));
+    info.appendChild(failureSummary);
+    appendInfoRow(documentRef, info, '错误', String(record.error || '未知错误'));
+  }
   appendInfoRow(documentRef, info, '模型', [record.providerName, record.modelId].filter(Boolean).join(' / '));
   appendInfoRow(documentRef, info, '版本', record.versionName || record.contextLabel || '');
-  appendInfoRow(documentRef, info, '参数', [record.ratio, record.quality].filter(Boolean).join(' · '));
+  appendInfoRow(documentRef, info, '参数', formatGenerationParams(record));
   appendInfoRow(documentRef, info, '提示词', record.prompt || '');
 
   const actions = createElement(documentRef, 'div', 'image-preview-actions');
@@ -90,7 +107,7 @@ export function openImagePreview(record, options = {}) {
   }
 
   const content = createElement(documentRef, 'div', 'image-preview-content');
-  content.appendChild(image);
+  if (image) content.appendChild(image);
   if (info.children.length) content.appendChild(info);
   panel.append(closeButton, content);
   if (actions.children.length) panel.appendChild(actions);
@@ -176,7 +193,7 @@ export function openImagePreview(record, options = {}) {
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) close();
   });
-  image.addEventListener('click', openFullscreen);
+  image?.addEventListener('click', openFullscreen);
   documentRef.addEventListener('keydown', onKeydown);
   closeButton.focus?.();
 

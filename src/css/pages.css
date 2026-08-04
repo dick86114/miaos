@@ -2249,6 +2249,19 @@ i[data-lucide="loader"] {
   min-height: 0;
 }
 .gallery-placeholder .gallery-item-time { font-size: 11px; color: var(--ink-3); }
+.task-failure-detail {
+  min-height: 28px;
+  margin-left: auto;
+  margin-right: 28px;
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--state-error);
+}
+.task-failure-detail:hover { color: var(--state-error); background: rgba(239, 68, 68, 0.08); }
+@media (max-width: 480px) {
+  .gallery-placeholder .gallery-item-meta { align-items: flex-start; flex-wrap: wrap; gap: 6px; }
+  .task-failure-detail { margin-left: 0; margin-right: 28px; }
+}
 
 /* ===== 设置页 ===== */
 .settings-wrap {
@@ -3109,6 +3122,17 @@ i[data-lucide="loader"] {
 .image-preview-info-label { flex: 0 0 52px; color: rgba(255, 255, 255, 0.55); }
 .image-preview-info-value { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .image-preview-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.image-preview-panel-failure { width: min(640px, 100%); }
+.image-preview-panel-failure .image-preview-content { min-height: 0; }
+.image-preview-panel-failure .image-preview-info { flex: 1 1 auto; }
+.image-preview-failure {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.28);
+}
+.image-preview-failure-title { color: #fecaca; font-size: 14px; }
 .image-preview-fullscreen { z-index: 1310; overflow: hidden; padding: 0; cursor: zoom-out; }
 .image-preview-fullscreen-image {
   max-width: none;
