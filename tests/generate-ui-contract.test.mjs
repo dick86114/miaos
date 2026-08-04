@@ -259,6 +259,24 @@ test('优化提示词时快速页与项目页会把其他工具栏控件交给�
   assert.equal(hasCssDeclaration(disabledChipRule, 'opacity', '0.5'), true, '禁用选择控件必须呈现置灰效果');
 });
 
+test('项目页详情预览为旧图片回退版本提示词，并携带完整衍生路径', () => {
+  assert.match(
+    projectPage,
+    /prompt:\s*image\.prompt\s*\|\|\s*version\.prompt/u,
+    '项目页详情必须回退到版本提示词，避免旧图片提示词缺失',
+  );
+  assert.match(
+    projectPage,
+    /promptChain:\s*buildProjectPromptChain\(project,\s*version\)/u,
+    '项目页详情必须携带从根到父的完整衍生路径',
+  );
+  assert.match(
+    projectPage,
+    /export function buildProjectPromptChain\(project, version\)/u,
+    '必须导出可独立测试的衍生路径构建函数',
+  );
+});
+
 test('碎片动效在请求进行中循环经历碎裂与重组', () => {
   const fragmentRule = getExactCssRuleBody(pagesCss, `.composer-fragment,\n.prompt-fragment-overlay__fragment`);
 

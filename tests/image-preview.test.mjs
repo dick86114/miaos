@@ -168,6 +168,39 @@ test('共享图片预览支持关闭按钮、遮罩、Escape 并恢复触发焦�
   assert.equal(findByAttribute(documentRef.body, 'data-image-preview'), null);
 });
 
+test('共享图片预览可展示衍生路径的父节点提示词链', async () => {
+  const { openImagePreview } = await loadPreview();
+  const documentRef = createDocument();
+  const { trigger, record, options } = createPreview(documentRef);
+  record.promptChain = [
+    { label: '主线·星空', prompt: '浩瀚星空的夜景' },
+    { label: '分支·城市', prompt: '星空下的霓虹城市' },
+  ];
+
+  openImagePreview(record, options);
+
+  const overlay = findByAttribute(documentRef.body, 'data-image-preview');
+  assert.notEqual(overlay, null);
+  const chain = findByAttribute(overlay, 'data-image-preview-chain');
+  assert.notEqual(chain, null, '必须渲染衍生路径区块');
+  const chainText = collectText(chain);
+  assert.match(chainText, /衍生路径/u);
+  assert.match(chainText, /主线·星空[\s\S]*浩瀚星空的夜景/u);
+  assert.match(chainText, /分支·城市[\s\S]*星空下的霓虹城市/u);
+  assert.ok(
+    chainText.indexOf('主线·星空') < chainText.indexOf('分支·城市'),
+    '提示词链必须按 根→父 顺序排列',
+  );
+
+  const overlayText = collectText(overlay);
+  assert.ok(
+    overlayText.indexOf('星空下的霓虹城市') < overlayText.indexOf('一只猫'),
+    '衍生路径必须位于当前图片提示词之前',
+  );
+  assert.match(overlayText, /一只猫/u, '当前图片提示词仍必须展示');
+  findByAttribute(overlay, 'data-image-preview-close').dispatch('click');
+});
+
 test('共享图片预览支持图片二次点击全屏、滚轮缩放范围与拖拽平移重置', async () => {
   const { openImagePreview } = await loadPreview();
   const documentRef = createDocument();

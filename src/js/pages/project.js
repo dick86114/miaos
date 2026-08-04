@@ -161,6 +161,30 @@ export function resolveProjectRouteTarget(project, routeOptions = {}) {
   return { versionId: version?.id || null, imageId: image?.id || null };
 }
 
+/**
+ * 构建从根节点到当前版本父节点的提示词链，用于详情追溯整条衍生路径。
+ * 每级优先取参考图生成时保存的提示词，缺失时回退到该节点版本提示词。
+ */
+export function buildProjectPromptChain(project, version) {
+  const chain = [];
+  let current = version;
+  let guard = 0;
+  while (current && current.parentId && guard < 50) {
+    guard += 1;
+    const parent = project.versions.find((v) => v.id === current.parentId);
+    if (!parent) break;
+    const parentImage = current.parentImageId
+      ? parent.images.find((image) => image.id === current.parentImageId)
+      : null;
+    chain.unshift({
+      label: parent.name || '未命名节点',
+      prompt: parentImage?.prompt || parent.prompt || '',
+    });
+    current = parent;
+  }
+  return chain;
+}
+
 export function renderProject(container, params, routeOptions = {}) {
   const projectId = params[0];
   let project = getProject(projectId);
@@ -534,6 +558,8 @@ export function renderProject(container, params, routeOptions = {}) {
         projectId: project.id,
         versionId: version.id,
         versionName: version.name,
+        prompt: image.prompt || version.prompt || '',
+        promptChain: buildProjectPromptChain(project, version),
       }, {
         onDownload: (record) => downloadImage(record.image, record.id),
         onCopyPrompt: async (promptText) => {

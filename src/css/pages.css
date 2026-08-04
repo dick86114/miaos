@@ -3065,6 +3065,19 @@ i[data-lucide="loader"] {
 .image-preview-info-row { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.5; }
 .image-preview-info-label { flex: 0 0 52px; color: rgba(255, 255, 255, 0.55); }
 .image-preview-info-value { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.image-preview-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid var(--brand);
+}
+.image-preview-chain-heading { font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.55); }
+.image-preview-chain-node { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.5; }
+.image-preview-chain-label { flex: 0 0 92px; color: rgba(255, 255, 255, 0.7); font-weight: 500; }
+.image-preview-chain-prompt { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: rgba(255, 255, 255, 0.9); }
 .image-preview-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .image-preview-panel-failure { width: min(640px, 100%); }
 .image-preview-panel-failure .image-preview-content { min-height: 0; }

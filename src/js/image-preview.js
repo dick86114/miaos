@@ -80,6 +80,19 @@ export function openImagePreview(record, options = {}) {
   appendInfoRow(documentRef, info, '模型', [record.providerName, record.modelId].filter(Boolean).join(' / '));
   appendInfoRow(documentRef, info, '版本', record.versionName || record.contextLabel || '');
   appendInfoRow(documentRef, info, '参数', formatGenerationParams(record));
+  if (Array.isArray(record.promptChain) && record.promptChain.length > 0) {
+    const chainBlock = createElement(documentRef, 'div', 'image-preview-chain');
+    chainBlock.setAttribute('data-image-preview-chain', '');
+    chainBlock.appendChild(createElement(documentRef, 'div', 'image-preview-chain-heading', '衍生路径'));
+    record.promptChain.forEach((node, index) => {
+      const nodeRow = createElement(documentRef, 'div', 'image-preview-chain-node');
+      nodeRow.setAttribute('data-image-preview-chain-node', String(index));
+      nodeRow.appendChild(createElement(documentRef, 'span', 'image-preview-chain-label', node.label || ''));
+      nodeRow.appendChild(createElement(documentRef, 'span', 'image-preview-chain-prompt', node.prompt || '（无提示词）'));
+      chainBlock.appendChild(nodeRow);
+    });
+    info.appendChild(chainBlock);
+  }
   appendInfoRow(documentRef, info, '提示词', record.prompt || '');
 
   const actions = createElement(documentRef, 'div', 'image-preview-actions');
