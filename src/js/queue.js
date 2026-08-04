@@ -97,7 +97,21 @@ export function createQueue(dependencies = {}) {
     }
   }
 
+  function normalizeBatchTotal(value) {
+    const batchTotal = Number(value);
+    if (!Number.isInteger(batchTotal) || batchTotal < 1 || batchTotal > 4) {
+      throw new Error('批次数量必须为 1 到 4');
+    }
+    return batchTotal;
+  }
+
   function enqueue(taskData) {
+    const batchTotal = normalizeBatchTotal(taskData.batchTotal ?? 1);
+    const batchIndex = Number(taskData.batchIndex ?? 1);
+    if (!Number.isInteger(batchIndex) || batchIndex < 1 || batchIndex > batchTotal) {
+      throw new Error('批次序号必须位于批次数量范围内');
+    }
+
     const task = {
       id: createTaskId('task'),
       source: taskData.source || 'quick',
@@ -111,6 +125,8 @@ export function createQueue(dependencies = {}) {
       quality: taskData.quality || '高清',
       isImageToImage: !!taskData.isImageToImage,
       sourceImage: taskData.sourceImage || '',
+      batchIndex,
+      batchTotal,
       status: 'queued',
       createdAt: Date.now(),
     };
@@ -119,6 +135,16 @@ export function createQueue(dependencies = {}) {
     // 异步推进，避免在调用栈里立即执行。
     schedulePump(pump);
     return task.id;
+  }
+
+  // 一个批次中的每张图都是独立任务，沿用既有串行执行和供应商参数边界。
+  function enqueueBatch(taskData, total = 1) {
+    const batchTotal = normalizeBatchTotal(total);
+    const taskIds = [];
+    for (let batchIndex = 1; batchIndex <= batchTotal; batchIndex += 1) {
+      taskIds.push(enqueue({ ...taskData, batchIndex, batchTotal }));
+    }
+    return taskIds;
   }
 
   // 取消任务（仅 queued 可取消；running 无法撤回已发出的 API 请求）。
@@ -182,6 +208,7 @@ export function createQueue(dependencies = {}) {
 
   return {
     enqueue,
+    enqueueBatch,
     cancel,
     cancelAll,
     clearFinished,
@@ -195,6 +222,7 @@ export function createQueue(dependencies = {}) {
 // 生产环境继续暴露既有模块 API，调用方无需改动。
 const defaultQueue = createQueue();
 export const enqueue = (...args) => defaultQueue.enqueue(...args);
+export const enqueueBatch = (...args) => defaultQueue.enqueueBatch(...args);
 export const cancel = (...args) => defaultQueue.cancel(...args);
 export const cancelAll = (...args) => defaultQueue.cancelAll(...args);
 export const clearFinished = (...args) => defaultQueue.clearFinished(...args);

@@ -169,6 +169,23 @@ function hasCssDeclaration(ruleBody, property, value) {
   });
 }
 
+
+test('快速与项目生图均提供 1–4 张控件，并以独立批次任务入队', () => {
+  const pageContracts = [
+    ['快速生图页', generatePage],
+    ['项目生图页', projectPage],
+  ];
+
+  for (const [pageName, page] of pageContracts) {
+    assert.match(page, /id="quantity-chip"/u, `${pageName}必须提供数量选择控件`);
+    assert.match(page, /id="quantity-chip-value"/u, `${pageName}必须展示当前数量`);
+    assert.match(page, /data-quantity="\$\{quantity\}"/u, `${pageName}必须仅通过数量下拉选择批次`);
+    assert.match(page, /currentQuantity = Number\(item\.getAttribute\('data-quantity'\)\)/u, `${pageName}必须更新当前数量`);
+    assert.match(page, /queue\.enqueueBatch\(\{[\s\S]*?\}, currentQuantity\)/u, `${pageName}必须按数量创建独立任务`);
+    assert.doesNotMatch(page, /\bn\s*:\s*currentQuantity\b/u, `${pageName}不得向 IPC 生图参数增加 n`);
+  }
+});
+
 test('提示词优化使用位于输入区底层的粒子层并移除旧波浪层', () => {
   const pageContracts = [
     ['生成页', generatePage, 'prompt-input'],

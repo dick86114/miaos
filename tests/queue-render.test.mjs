@@ -248,6 +248,59 @@ async function createControlledQueue(options = {}) {
   });
 }
 
+test('单张任务默认记录第 1/1 张批次元数据', async () => {
+  const controlledQueue = await createControlledQueue({ schedulePump: () => {} });
+
+  const taskId = controlledQueue.enqueue({
+    source: 'quick',
+    prompt: '一只趴在窗边的猫',
+  });
+  const task = controlledQueue.getTasks().find((item) => item.id === taskId);
+
+  assert.equal(task.batchIndex, 1);
+  assert.equal(task.batchTotal, 1);
+});
+
+test('批量入队会展开 1–4 个参数相同且 id 不同的独立任务', async () => {
+  const controlledQueue = await createControlledQueue({ schedulePump: () => {} });
+  const taskData = {
+    source: 'project',
+    projectId: 'project-1',
+    versionId: 'version-1',
+    prompt: '夜晚的海边灯塔',
+    providerId: 'provider-1',
+    providerName: '示例供应商',
+    modelId: 'model-1',
+    ratio: '16:9',
+    quality: '高清',
+    isImageToImage: true,
+    sourceImage: '/tmp/source.png',
+  };
+
+  assert.equal(typeof controlledQueue.enqueueBatch, 'function');
+  const taskIds = controlledQueue.enqueueBatch(taskData, 4);
+  const tasksById = taskIds.map((taskId) => controlledQueue.getTasks().find((task) => task.id === taskId));
+
+  assert.equal(taskIds.length, 4);
+  assert.equal(new Set(taskIds).size, 4);
+  assert.deepEqual(tasksById.map((task) => task.batchIndex), [1, 2, 3, 4]);
+  assert.deepEqual(tasksById.map((task) => task.batchTotal), [4, 4, 4, 4]);
+  for (const task of tasksById) {
+    assert.equal(task.source, taskData.source);
+    assert.equal(task.projectId, taskData.projectId);
+    assert.equal(task.versionId, taskData.versionId);
+    assert.equal(task.prompt, taskData.prompt);
+    assert.equal(task.providerId, taskData.providerId);
+    assert.equal(task.providerName, taskData.providerName);
+    assert.equal(task.modelId, taskData.modelId);
+    assert.equal(task.ratio, taskData.ratio);
+    assert.equal(task.quality, taskData.quality);
+    assert.equal(task.isImageToImage, taskData.isImageToImage);
+    assert.equal(task.sourceImage, taskData.sourceImage);
+  }
+  assert.throws(() => controlledQueue.enqueueBatch(taskData, 5), /1 到 4/u);
+});
+
 test('受控 worker 维持 running→done/failed 串行执行，并合并首任务完成与次任务运行快照', async () => {
   const first = createDeferred();
   const second = createDeferred();

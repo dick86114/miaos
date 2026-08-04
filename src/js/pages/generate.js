@@ -21,6 +21,7 @@ import { openImagePreview } from '../image-preview.js';
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
+const QUANTITIES = [1, 2, 3, 4];
 
 export function renderGenerate(container) {
   const providers = getProviders();
@@ -37,6 +38,7 @@ export function renderGenerate(container) {
   let currentModelId = initialModelId;
   let currentRatio = initialRatio;
   let currentQuality = initialQuality;
+  let currentQuantity = 1;
   let sourceImagePath = '';
 
   const root = htmlToElement(`
@@ -81,6 +83,10 @@ export function renderGenerate(container) {
           <div class="composer-chip" id="quality-chip">
             <span class="chip-icon">${icon('sparkles', 13)}</span>
             <span class="chip-value" id="quality-chip-value">${currentQuality}</span>
+            <span class="chip-caret">${icon('chevron-down', 13)}</span>
+          </div>
+          <div class="composer-chip" id="quantity-chip">
+            <span class="chip-value" id="quantity-chip-value">${currentQuantity} 张</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
           <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词">${icon('wand', 15)}</button>
@@ -184,6 +190,19 @@ export function renderGenerate(container) {
     }).join('');
   }
 
+  const quantityChip = root.querySelector('#quantity-chip');
+  const quantityChipValue = root.querySelector('#quantity-chip-value');
+
+  function buildQuantityDropdownHtml() {
+    return QUANTITIES.map((quantity) => {
+      const active = quantity === currentQuantity;
+      return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-quantity="${quantity}">
+        <span class="item-left">${quantity} 张</span>
+        <span class="item-right">${active ? icon('check', 14) : ''}</span>
+      </div>`;
+    }).join('');
+  }
+
   // ===== 通用下拉控制 =====
   let openDropdown = null;
   let dropdownCloseTimer = null;
@@ -254,6 +273,16 @@ export function renderGenerate(container) {
     }
   });
 
+  quantityChip.addEventListener('click', (e) => {
+    if (e.target.closest('.composer-dropdown-item')) return;
+    e.stopPropagation();
+    if (openDropdown && openDropdown.parentElement === quantityChip) {
+      closeDropdown();
+    } else {
+      openChipDropdown(quantityChip, buildQuantityDropdownHtml());
+    }
+  });
+
   // 下拉项点击处理
   root.addEventListener('click', (e) => {
     const item = e.target.closest('.composer-dropdown-item');
@@ -269,6 +298,9 @@ export function renderGenerate(container) {
     } else if (item.hasAttribute('data-quality')) {
       currentQuality = item.getAttribute('data-quality');
       qualityChipValue.textContent = currentQuality;
+    } else if (item.hasAttribute('data-quantity')) {
+      currentQuantity = Number(item.getAttribute('data-quantity'));
+      quantityChipValue.textContent = `${currentQuantity} 张`;
     }
     closeDropdown();
   });
@@ -416,7 +448,7 @@ export function renderGenerate(container) {
     });
     const provider = providers.find((p) => p.id === currentProviderId);
 
-    queue.enqueue({
+    queue.enqueueBatch({
       source: 'quick',
       prompt,
       providerId: currentProviderId,
@@ -426,8 +458,9 @@ export function renderGenerate(container) {
       quality: currentQuality,
       sourceImage: sourceImagePath || null,
       isImageToImage: !!sourceImagePath,
-    });
-    toast(sourceImagePath ? '已加入生成队列（图生图）' : '已加入生成队列', 'info', { key: 'quick-generate-enqueue' });
+    }, currentQuantity);
+    const batchLabel = currentQuantity > 1 ? `（${currentQuantity} 张）` : '';
+    toast(sourceImagePath ? `已加入生成队列（图生图）${batchLabel}` : `已加入生成队列${batchLabel}`, 'info', { key: 'quick-generate-enqueue' });
   }
 
   btnGenerate.addEventListener('click', () => runGenerateOnce(doGenerate));

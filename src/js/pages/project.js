@@ -32,6 +32,7 @@ import * as queue from '../queue.js';
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
+const QUANTITIES = [1, 2, 3, 4];
 
 // 管理工作台存续期间的弹窗，避免离页后旧弹窗继续操作已销毁的页面。
 export function createProjectPageLifecycle() {
@@ -442,6 +443,10 @@ export function renderProject(container, params, routeOptions = {}) {
                   <span class="chip-value" id="quality-chip-value">${curVer.images[0] ? curVer.images[0].quality : '高清'}</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
+                <div class="composer-chip" id="quantity-chip">
+                  <span class="chip-value" id="quantity-chip-value">1 张</span>
+                  <span class="chip-caret">${icon('chevron-down', 13)}</span>
+                </div>
                 <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词">${icon('wand', 15)}</button>
                 <div class="composer-toolbar-spacer"></div>
                 <button class="composer-generate-round" id="btn-generate" title="生成图片">
@@ -536,6 +541,7 @@ export function renderProject(container, params, routeOptions = {}) {
     // 初始化比例和质量
     let currentRatio = curVer.images[0] ? curVer.images[0].ratio : '1:1';
     let currentQuality = curVer.images[0] ? curVer.images[0].quality : '高清';
+    let currentQuantity = 1;
     // 如果当前版本已有模型选择，使用它；否则使用默认模型
     const defaults = getDefaults();
     let currentModelId = curVer.modelId || defaults.defaultImageModel || '';
@@ -557,6 +563,8 @@ export function renderProject(container, params, routeOptions = {}) {
     const ratioChipValue = root.querySelector('#ratio-chip-value');
     const qualityChip = root.querySelector('#quality-chip');
     const qualityChipValue = root.querySelector('#quality-chip-value');
+    const quantityChip = root.querySelector('#quantity-chip');
+    const quantityChipValue = root.querySelector('#quantity-chip-value');
 
     function buildModelChipValue() {
       if (!currentModelId) { modelChipValue.textContent = '选择模型'; return; }
@@ -597,6 +605,16 @@ export function renderProject(container, params, routeOptions = {}) {
         const active = q === currentQuality;
         return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-quality="${q}">
           <span class="item-left">${q}</span>
+          <span class="item-right">${active ? icon('check', 14) : ''}</span>
+        </div>`;
+      }).join('');
+    }
+
+    function buildQuantityDropdownHtml() {
+      return QUANTITIES.map((quantity) => {
+        const active = quantity === currentQuantity;
+        return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-quantity="${quantity}">
+          <span class="item-left">${quantity} 张</span>
           <span class="item-right">${active ? icon('check', 14) : ''}</span>
         </div>`;
       }).join('');
@@ -653,6 +671,12 @@ export function renderProject(container, params, routeOptions = {}) {
       if (openDropdown && openDropdown.parentElement === qualityChip) closeDropdown();
       else openChipDropdown(qualityChip, buildQualityDropdownHtml());
     });
+    quantityChip.addEventListener('click', (e) => {
+      if (e.target.closest('.composer-dropdown-item')) return;
+      e.stopPropagation();
+      if (openDropdown && openDropdown.parentElement === quantityChip) closeDropdown();
+      else openChipDropdown(quantityChip, buildQuantityDropdownHtml());
+    });
 
     root.addEventListener('click', (e) => {
       const item = e.target.closest('.composer-dropdown-item');
@@ -667,6 +691,9 @@ export function renderProject(container, params, routeOptions = {}) {
       } else if (item.hasAttribute('data-quality')) {
         currentQuality = item.getAttribute('data-quality');
         qualityChipValue.textContent = currentQuality;
+      } else if (item.hasAttribute('data-quantity')) {
+        currentQuantity = Number(item.getAttribute('data-quantity'));
+        quantityChipValue.textContent = `${currentQuantity} 张`;
       }
       closeDropdown();
     });
@@ -835,7 +862,7 @@ export function renderProject(container, params, routeOptions = {}) {
         providerName: provider.name,
       });
 
-      queue.enqueue({
+      queue.enqueueBatch({
         source: 'project',
         projectId: project.id,
         versionId: curVer.id,
@@ -847,9 +874,10 @@ export function renderProject(container, params, routeOptions = {}) {
         quality: currentQuality,
         isImageToImage: isChild || !!sourceImagePath,
         sourceImage: sourceImagePath || null,
-      });
+      }, currentQuantity);
 
-      toast(willCreateRoot ? '已创建新主线并加入生成队列' : '已加入生成队列', 'info', { key: `project-generate-enqueue:${project.id}` });
+      const batchLabel = currentQuantity > 1 ? `（${currentQuantity} 张）` : '';
+      toast(willCreateRoot ? `已创建新主线并加入生成队列${batchLabel}` : `已加入生成队列${batchLabel}`, 'info', { key: `project-generate-enqueue:${project.id}` });
     }
     btnGenerate.addEventListener('click', () => runGenerateOnce(doGenerate));
 
