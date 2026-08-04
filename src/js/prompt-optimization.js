@@ -136,6 +136,8 @@ export function createPromptFragmentOverlay({ container, textarea, prompt, maxFr
   let fragmentNodes = [];
   let cleanupTimer = null;
   let finish = null;
+  let settlementPromise = null;
+  let resolveSettlement = null;
   let destroyed = false;
 
   function removeFinishListeners() {
@@ -156,6 +158,8 @@ export function createPromptFragmentOverlay({ container, textarea, prompt, maxFr
     if (overlayNode?.parentNode) overlayNode.parentNode.removeChild(overlayNode);
     overlayNode = null;
     fragmentNodes = [];
+    resolveSettlement?.();
+    resolveSettlement = null;
   }
 
   function mount() {
@@ -186,13 +190,18 @@ export function createPromptFragmentOverlay({ container, textarea, prompt, maxFr
   }
 
   function settle() {
-    if (!overlayNode || destroyed || finish) return;
+    if (!overlayNode || destroyed) return Promise.resolve();
+    if (settlementPromise) return settlementPromise;
 
     overlayNode.className = `${overlayNode.className} prompt-fragment-overlay--settling`.trim();
+    settlementPromise = new Promise((resolve) => {
+      resolveSettlement = resolve;
+    });
     finish = () => destroy();
     overlayNode.addEventListener('transitionend', finish, { once: true });
     overlayNode.addEventListener('animationend', finish, { once: true });
     cleanupTimer = setTimeout(finish, 500);
+    return settlementPromise;
   }
 
   return {

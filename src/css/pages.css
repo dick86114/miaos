@@ -107,6 +107,7 @@
   font-family: var(--font-sans);
 }
 .composer-textarea::placeholder { color: var(--ink-3); }
+.composer-textarea.is-optimizing { opacity: 0.28; }
 
 /* 工具栏 */
 .composer-toolbar {
@@ -153,26 +154,17 @@
   white-space: nowrap;
 }
 .composer-chip--model {
-  flex: 1 1 240px;
+  flex: 1 1 0;
   min-width: 0;
-  max-width: 420px;
+  max-width: none;
 }
 .composer-chip--model .chip-value {
   flex: 1 1 auto;
   min-width: 0;
   max-width: none;
-  overflow: visible;
-  text-overflow: clip;
-}
-@media (max-width: 680px) {
-  .composer-chip--model {
-    flex-basis: min(100%, 220px);
-    max-width: 100%;
-  }
-  .composer-chip--model .chip-value {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .composer-chip .chip-caret {
   display: inline-flex;
@@ -278,15 +270,15 @@
   opacity: 0;
   pointer-events: none;
   will-change: transform, opacity;
-  animation: composer-fragment-scatter var(--motion-wave) var(--motion-ease) both;
+  animation: composer-fragment-scatter var(--motion-wave) var(--motion-ease) infinite;
 }
 .composer-fragment-overlay.is-settling .composer-fragment,
 .prompt-fragment-overlay.prompt-fragment-overlay--settling .prompt-fragment-overlay__fragment {
   animation: composer-fragment-settle var(--motion-normal) var(--motion-ease) both;
 }
 @keyframes composer-fragment-scatter {
-  from { transform: translate3d(0, 0, 0) scale(0.92); opacity: 0.7; }
-  to { transform: translate3d(0, -16px, 0) scale(1.06); opacity: 0; }
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.92); opacity: 0.7; }
+  50% { transform: translate3d(0, -16px, 0) scale(1.06); opacity: 0; }
 }
 @keyframes composer-fragment-settle {
   from { transform: translate3d(0, -12px, 0) scale(1.04); opacity: 0.7; }

@@ -34,6 +34,8 @@ export function createPromptOptimizationPageBinding({
   createOverlay = createPromptFragmentOverlay,
 }) {
   let overlay = null;
+  let closeOptimizingToast = null;
+  let settling = false;
   let destroyed = false;
   const feedbackKey = `prompt-optimize:${context}`;
 
@@ -62,23 +64,13 @@ export function createPromptOptimizationPageBinding({
   function settleOverlay(prompt) {
     const settledOverlay = ensureOverlay(prompt);
     overlay = null;
-    settledOverlay.settle();
+    return settledOverlay.settle();
   }
 
-  function applyState(state) {
+  function finalizeState(state) {
     if (destroyed) return;
+    closeOptimizingToast = null;
 
-    if (state.status === 'optimizing') {
-      setOptimizingUi(true);
-      ensureOverlay(state.prompt);
-      toastFn('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
-      return;
-    }
-
-    setOptimizingUi(false);
-    if (state.status === 'idle') return;
-
-    settleOverlay(state.prompt);
     if (state.status === 'succeeded') {
       textarea.value = String(state.result ?? '');
       toastFn('提示词已优化', 'success', { key: feedbackKey });
@@ -87,6 +79,41 @@ export function createPromptOptimizationPageBinding({
       toastFn(`优化失败：${message}`, 'error', { key: feedbackKey });
     }
     manager.clear(context);
+  }
+
+  function applyState(state) {
+    if (destroyed) return;
+
+    if (state.status === 'optimizing') {
+      setOptimizingUi(true);
+      ensureOverlay(state.prompt);
+      closeOptimizingToast = toastFn('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
+      return;
+    }
+
+    if (state.status === 'idle') {
+      setOptimizingUi(false);
+      return;
+    }
+
+    if (settling) return;
+    settling = true;
+    const settlement = settleOverlay(state.prompt);
+    if (!settlement || typeof settlement.then !== 'function') {
+      settling = false;
+      finalizeState(state);
+      return;
+    }
+    settlement.then(
+      () => {
+        settling = false;
+        finalizeState(state);
+      },
+      () => {
+        settling = false;
+        finalizeState(state);
+      },
+    );
   }
 
   const unsubscribe = manager.subscribe(context, applyState);
@@ -102,6 +129,8 @@ export function createPromptOptimizationPageBinding({
       if (destroyed) return;
       destroyed = true;
       unsubscribe();
+      closeOptimizingToast?.();
+      closeOptimizingToast = null;
       overlay?.destroy();
       overlay = null;
     },

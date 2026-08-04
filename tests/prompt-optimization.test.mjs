@@ -203,3 +203,29 @@ test('碎片覆盖层限制节点数，标记为隐藏且不可交互，并能�
   overlay.destroy();
   assert.equal(container.children.length, 0);
 });
+
+test('碎片覆盖层结算会等待动画完成后再销毁，并暴露可等待的结算结果', async () => {
+  const documentRef = createFakeDocument();
+  const container = documentRef.createElement('div');
+  const textarea = documentRef.createElement('textarea');
+  const overlay = createPromptFragmentOverlay({
+    container,
+    textarea,
+    prompt: '雨夜霓虹街道',
+  });
+
+  overlay.mount();
+  const overlayNode = container.children[0];
+  const settlement = overlay.settle();
+  let settled = false;
+  settlement.then(() => { settled = true; });
+
+  assert.equal(settled, false, '动画结束前不得提前完成结算');
+  assert.equal(container.children.length, 1, '动画结束前覆盖层必须继续存在');
+
+  overlayNode.dispatchEvent('animationend');
+  await settlement;
+
+  assert.equal(settled, true);
+  assert.equal(container.children.length, 0, '动画结束后才移除覆盖层');
+});

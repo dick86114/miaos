@@ -46,11 +46,12 @@ function createControl(value = '') {
   };
 }
 
-function createBinding({ manager, context, prompt = '初始提示词' }) {
+function createBinding({ manager, context, prompt = '初始提示词', createOverlay } = {}) {
   const textarea = createControl(prompt);
   const button = createControl();
   const container = {};
   const toasts = [];
+  const closedToasts = [];
   const overlays = [];
   const binding = createPromptOptimizationPageBinding({
     manager,
@@ -58,8 +59,11 @@ function createBinding({ manager, context, prompt = '初始提示词' }) {
     container,
     textarea,
     button,
-    toast: (...args) => toasts.push(args),
-    createOverlay: (options) => {
+    toast: (...args) => {
+      toasts.push(args);
+      return () => closedToasts.push(args);
+    },
+    createOverlay: createOverlay ?? ((options) => {
       const overlay = {
         options,
         mounted: 0,
@@ -71,9 +75,9 @@ function createBinding({ manager, context, prompt = '初始提示词' }) {
       };
       overlays.push(overlay);
       return overlay;
-    },
+    }),
   });
-  return { binding, textarea, button, toasts, overlays };
+  return { binding, textarea, button, toasts, closedToasts, overlays };
 }
 
 function assertOptimizingUi(view) {
@@ -95,6 +99,75 @@ function assertIdleUi(view) {
   assert.equal(view.button.classList.contains('is-optimizing'), false);
   assert.equal(view.textarea.classList.contains('is-optimizing'), false);
 }
+
+test('销毁页面 binding 会关闭本页创建的常驻优化 Toast，但保留共享请求', async () => {
+  const deferred = createDeferred();
+  const manager = createPromptOptimizationManager({ optimize: () => deferred.promise });
+  const view = createBinding({ manager, context: 'quick' });
+
+  const started = view.binding.start('一只橘猫');
+  await Promise.resolve();
+  assert.deepEqual(view.toasts, [['正在优化提示词…', 'info', { key: 'prompt-optimize:quick', duration: 0 }]]);
+
+  view.binding.destroy();
+
+  assert.deepEqual(view.closedToasts, [view.toasts[0]], '离页时必须关闭由当前 binding 创建的常驻 Toast');
+  assert.equal(manager.getState('quick').status, 'optimizing', '关闭 Toast 不得取消共享优化请求');
+
+  deferred.resolve('高细节的橘猫');
+  await started.promise;
+});
+
+test('成功结果必须等碎片结算完成后写回，并在结算后才清空共享状态', async () => {
+  const request = createDeferred();
+  const overlaySettlement = createDeferred();
+  const manager = createPromptOptimizationManager({ optimize: () => request.promise });
+  const overlays = [];
+  const view = createBinding({
+    manager,
+    context: 'quick',
+    prompt: '原始提示词',
+    createOverlay: (options) => {
+      const overlay = {
+        options,
+        mounted: 0,
+        settled: 0,
+        destroyed: 0,
+        mount() { this.mounted += 1; },
+        settle() {
+          this.settled += 1;
+          return overlaySettlement.promise;
+        },
+        destroy() { this.destroyed += 1; },
+      };
+      overlays.push(overlay);
+      return overlay;
+    },
+  });
+
+  const started = view.binding.start('原始提示词');
+  request.resolve('优化后的提示词');
+  await started.promise;
+  await Promise.resolve();
+
+  assert.equal(overlays[0].settled, 1, '成功后必须先发起碎片结算');
+  assert.equal(view.textarea.value, '原始提示词', '碎片未结算前不得写入优化结果');
+  assert.equal(view.textarea.readOnly, true, '结算期间 textarea 必须继续保持只读');
+  assert.equal(view.button.disabled, true, '结算期间不得重复触发优化');
+  assert.equal(view.button.classList.contains('is-optimizing'), true);
+  assert.equal(view.textarea.classList.contains('is-optimizing'), true);
+  assert.equal(manager.getState('quick').status, 'succeeded', '碎片未结算前共享状态不得提前变为 idle');
+
+  overlaySettlement.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(view.textarea.value, '优化后的提示词');
+  assertIdleUi(view);
+  assert.equal(manager.getState('quick').status, 'idle');
+
+  view.binding.destroy();
+});
 
 test('快速页离开后重新挂载会恢复共享 optimizing 状态且重复启动不会创建第二个请求', async () => {
   const deferred = createDeferred();

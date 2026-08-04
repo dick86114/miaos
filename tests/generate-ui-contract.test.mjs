@@ -178,6 +178,31 @@ test('模型 chip 在宽屏可扩展，并为完整模型名称提供 title 语�
   }
 });
 
+test('优化中的输入文字会真实弱化，模型 chip 在任意可用宽度内省略长名称', () => {
+  const textareaRule = getExactCssRuleBody(pagesCss, '.composer-textarea.is-optimizing');
+  const modelChipRule = getExactCssRuleBody(pagesCss, '.composer-chip--model');
+  const modelValueRule = getExactCssRuleBody(pagesCss, '.composer-chip--model .chip-value');
+
+  assert.notEqual(textareaRule, '', '优化中的 textarea 必须有独立视觉弱化规则');
+  assert.equal(hasCssDeclaration(textareaRule, 'opacity', '0.28'), true, '真实提示词必须弱于碎片层');
+
+  assert.notEqual(modelChipRule, '', '模型 chip 必须定义独立可收缩约束');
+  assert.equal(hasCssDeclaration(modelChipRule, 'min-width', '0'), true, '模型 chip 必须允许在工具栏剩余空间收缩');
+  assert.equal(hasCssDeclaration(modelChipRule, 'max-width', 'none'), true, '模型 chip 不得被宽屏固定上限限制');
+  assert.equal(hasCssDeclaration(modelValueRule, 'min-width', '0'), true, '模型名称必须允许在 chip 内收缩');
+  assert.equal(hasCssDeclaration(modelValueRule, 'overflow', 'hidden'), true, '长模型名不得覆盖后续控件');
+  assert.equal(hasCssDeclaration(modelValueRule, 'text-overflow', 'ellipsis'), true, '长模型名必须在 chip 内单行省略');
+  assert.equal(hasCssDeclaration(modelValueRule, 'white-space', 'nowrap'), true, '长模型名不得换行挤压工具栏');
+  assert.equal(hasCssDeclaration(modelValueRule, 'overflow', 'visible'), false, '模型名称不得以溢出方式显示');
+});
+
+test('碎片动效在请求进行中循环经历碎裂与重组', () => {
+  const fragmentRule = getExactCssRuleBody(pagesCss, `.composer-fragment,\n.prompt-fragment-overlay__fragment`);
+
+  assert.match(fragmentRule, /animation:\s*composer-fragment-scatter\s+var\(--motion-wave\)\s+var\(--motion-ease\)\s+infinite/u);
+  assert.match(pagesCss, /@keyframes\s+composer-fragment-scatter\s*\{[\s\S]*?0%,\s*100%\s*\{[\s\S]*?transform:[^;}]*translate3d\(0,\s*0,\s*0\)[\s\S]*?50%\s*\{[\s\S]*?transform:[^;}]*translate3d\(0,\s*-16px,\s*0\)/u);
+});
+
 test('碎片覆盖层裁剪在输入区内、位于交互内容下方且不拦截交互', () => {
   const fragmentOverlayRule = getExactCssRuleBody(pagesCss, `.composer-fragment-overlay,\n.prompt-fragment-overlay`);
   const foregroundRule = getExactCssRuleBody(pagesCss, `.composer-textarea,\n.composer-source-preview`);
