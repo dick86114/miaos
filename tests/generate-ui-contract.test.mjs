@@ -245,3 +245,11 @@ test('粒子层 CSS 保持在文字下方且不会拦截交互', () => {
   assert.notEqual(particleRule, '', '粒子节点必须拥有独立 CSS 规则');
   assert.equal(hasCssDeclaration(particleRule, 'pointer-events', 'none'), true, '粒子节点不得拦截交互');
 });
+
+test('粒子遮罩必须收敛在输入区内，不能向外扩展', () => {
+  const particleFieldRule = getExactCssRuleBody(pagesCss, '.composer-particle-field');
+
+  assert.notEqual(particleFieldRule, '', '粒子层必须拥有独立 CSS 规则');
+  assert.equal(hasCssDeclaration(particleFieldRule, 'inset', '0'), true, '粒子层必须与输入区边界重合，不能使用负 inset 向外扩展');
+  assert.equal(hasCssDeclaration(particleFieldRule, 'overflow', 'hidden'), true, '粒子层必须裁剪内部光晕和粒子，避免视觉越界');
+});
