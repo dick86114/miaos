@@ -169,7 +169,7 @@ Run: `pnpm start`
 
 验证快速页和项目页的模型长名称、优化中切换到其他 Hash 路由再返回、成功/失败清理、窄窗口不挤压生成按钮，以及系统减少动态效果下的静态状态。不得为验证修改密钥或供应商配置。
 
-> 2026-08-04：已完成隔离环境下的受控 Electron 启动探测；未执行真实 GUI 操作、真实文本模型调用或系统 reduced-motion 切换，因此本步骤保留未勾选。详见 `.superpowers/sdd/2026-08-04-prompt-optimization-persistence/verification.md`。
+> 2026-08-04：已完成 8 秒限时 Electron 启动观察（系统未提供 `timeout`，按后台 PID + `sleep 8` + `SIGTERM` 的回退方式执行）；未执行真实 GUI 操作、真实文本模型调用或系统 reduced-motion 切换，因此本步骤保留未勾选。详见 `.superpowers/sdd/2026-08-04-prompt-optimization-persistence/verification.md`。
 
 - [x] **Step 3: 记录验收结果并提交**
 
