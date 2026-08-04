@@ -387,6 +387,12 @@ export function renderProject(container, params) {
 
             <div class="composer-card">
               <div class="composer-textarea-wrap">
+                <div class="composer-particle-field" aria-hidden="true">
+                  <span class="composer-particle particle-one"></span>
+                  <span class="composer-particle particle-two"></span>
+                  <span class="composer-particle particle-three"></span>
+                  <span class="composer-particle particle-four"></span>
+                </div>
                 <div class="composer-source-preview" id="source-preview" style="display:${!isChild && curVer.sourceImage ? 'flex' : 'none'};">
                   <div class="composer-source-preview-img-wrap">
                     <img id="source-thumb" src="${curVer.sourceImage ? 'file://' + encodeURI(curVer.sourceImage) : ''}" alt="参考图" />
@@ -489,6 +495,7 @@ export function renderProject(container, params) {
     const pageLifecycle = createProjectPageLifecycle();
     let closeLightbox = null;
     const promptInput = root.querySelector('#version-prompt');
+    const particleField = root.querySelector('.composer-particle-field');
     const btnGenerate = root.querySelector('#btn-generate');
     const btnNewRoot = root.querySelector('#btn-new-root');
 
@@ -692,17 +699,14 @@ export function renderProject(container, params) {
           toast('请先在「设置 → 模型供应商」中配置文本模型', 'error');
           return;
         }
-        // 输入区域保留波浪反馈，按钮状态由统一包装器管理。
+        // 按钮状态由统一包装器管理，输入区域显示独立的粒子能量场。
         const feedbackKey = 'prompt-optimize';
         await withButtonLoading(btnOptimize, '优化中…', async () => {
           toast('正在优化提示词…', 'info', { key: feedbackKey, duration: 0 });
           btnOptimize.classList.add('is-optimizing');
           promptInput.readOnly = true;
           promptInput.classList.add('is-optimizing');
-          const composerCard = root.querySelector('.composer-card');
-          const waveBar = document.createElement('div');
-          waveBar.className = 'composer-wave-bar';
-          if (composerCard) composerCard.appendChild(waveBar);
+          particleField.classList.add('is-optimizing');
           try {
             const optimized = await optimizePrompt(prompt);
             promptInput.value = optimized;
@@ -713,7 +717,7 @@ export function renderProject(container, params) {
             btnOptimize.classList.remove('is-optimizing');
             promptInput.readOnly = false;
             promptInput.classList.remove('is-optimizing');
-            waveBar.remove();
+            particleField.classList.remove('is-optimizing');
           }
         });
       });
