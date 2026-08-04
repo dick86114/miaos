@@ -1,9 +1,10 @@
 // 状态 schema 与持久化：纯 ES Module，不依赖浏览器 DOM
-// 版本 v5：统一供应商模型（支持 image/text/video 分类模型），新增默认模型选择
+// 版本 v6：新增 Aiping 内置供应商，并保证旧用户仅在迁移时补入一次。
 
-export const CURRENT_STORAGE_KEY = 'miaos.state.v5';
-export const BACKUP_STORAGE_KEY = 'miaos.state.backup.v5';
-export const LEGACY_STORAGE_KEYS = ['miaos.state.v4', 'miaos.state.v3'];
+export const STATE_SCHEMA_VERSION = 6;
+export const CURRENT_STORAGE_KEY = 'miaos.state.v6';
+export const BACKUP_STORAGE_KEY = 'miaos.state.backup.v6';
+export const LEGACY_STORAGE_KEYS = ['miaos.state.v5', 'miaos.state.v4', 'miaos.state.v3'];
 
 // Grsai 内置已知模型（生图）
 export const GRSAI_IMAGE_MODELS = [
@@ -21,6 +22,38 @@ export const GRSAI_IMAGE_MODELS = [
 
 export const DEFAULT_ENABLED_IMAGE = ['gpt-image-2', 'nano-banana-2', 'nano-banana-pro'];
 
+// Aiping 文档中列出的图像模型。图片编辑模型默认关闭，避免在没有参考图时误选。
+export const AIPING_IMAGE_MODELS = [
+  { id: 'Qwen-Image', name: 'Qwen-Image' },
+  { id: 'Qwen-Image-Edit', name: 'Qwen-Image-Edit' },
+  { id: 'HunyuanImage-3.0', name: 'HunyuanImage-3.0' },
+  { id: '即梦文生图 3.0', name: '即梦文生图 3.0' },
+  { id: '即梦文生图 3.1', name: '即梦文生图 3.1' },
+  { id: 'Doubao-Seedream-4.0', name: 'Doubao-Seedream-4.0' },
+  { id: 'Kling-V2.1', name: 'Kling-V2.1' },
+  { id: 'Kling-V1', name: 'Kling-V1' },
+  { id: 'glm-image', name: 'glm-image' },
+  { id: 'Doubao-Seedream-5.0-lite', name: 'Doubao-Seedream-5.0-lite' },
+  { id: 'Doubao-Seedream-4.5', name: 'Doubao-Seedream-4.5' },
+  { id: '即梦图片生成 4.0', name: '即梦图片生成 4.0' },
+  { id: 'Kolors', name: 'Kolors' },
+  { id: 'Qwen-Image-Plus', name: 'Qwen-Image-Plus' },
+  { id: 'Qwen-Image-Edit-Plus', name: 'Qwen-Image-Edit-Plus' },
+  { id: 'Wan2.5-T2I-Preview', name: 'Wan2.5-T2I-Preview' },
+  { id: 'Wan2.5-I2I-Preview', name: 'Wan2.5-I2I-Preview' },
+];
+
+export const AIPING_TEXT_MODELS = [
+  { id: 'DeepSeek-V3.1', name: 'DeepSeek-V3.1' },
+  { id: 'DeepSeek-R1-0528', name: 'DeepSeek-R1-0528' },
+];
+
+const AIPING_DISABLED_IMAGE_MODELS = new Set([
+  'Qwen-Image-Edit',
+  'Qwen-Image-Edit-Plus',
+  'Wan2.5-I2I-Preview',
+]);
+
 export const DEFAULT_PROVIDERS = [
   {
     id: 'p_grsai',
@@ -37,6 +70,21 @@ export const DEFAULT_PROVIDERS = [
     videoModels: [],
     lastTestResult: null,
   },
+  {
+    id: 'p_aiping',
+    name: 'Aiping',
+    type: 'aiping',
+    endpoint: 'https://aiping.cn/api/v1',
+    hasApiKey: false,
+    capabilities: ['image', 'text'],
+    imageModels: AIPING_IMAGE_MODELS.map((model) => ({
+      ...model,
+      enabled: !AIPING_DISABLED_IMAGE_MODELS.has(model.id),
+    })),
+    textModels: AIPING_TEXT_MODELS.map((model) => ({ ...model, enabled: true })),
+    videoModels: [],
+    lastTestResult: null,
+  },
 ];
 
 function clone(value) {
@@ -46,6 +94,7 @@ function clone(value) {
 
 export function createDefaultState() {
   return {
+    schemaVersion: STATE_SCHEMA_VERSION,
     providers: clone(DEFAULT_PROVIDERS),
     history: [],
     lastSettings: null,
@@ -63,24 +112,42 @@ export function createDefaultState() {
   };
 }
 
+function normalizeProvider(provider) {
+  return {
+    ...provider,
+    capabilities: provider.capabilities || ['image'],
+    imageModels: provider.imageModels || [],
+    textModels: provider.textModels || [],
+    videoModels: provider.videoModels || [],
+    lastTestResult: provider.lastTestResult || null,
+    hasApiKey: !!provider.hasApiKey,
+  };
+}
+
+function appendAipingIfMissing(providers) {
+  const normalized = providers.map(normalizeProvider);
+  if (!normalized.some((provider) => provider.id === 'p_aiping')) {
+    normalized.push(clone(DEFAULT_PROVIDERS.find((provider) => provider.id === 'p_aiping')));
+  }
+  return normalized;
+}
+
 export function migrateState(parsed) {
   const source = parsed && typeof parsed === 'object' ? parsed : {};
 
-  // 如果已经是 v5 格式（providers 有 imageModels 字段），直接返回，不做迁移
-  if (source.providers && source.providers.length && source.providers[0].imageModels) {
+  // v5/v6 都已使用分类模型；只有旧于 v6 的状态需要补入一次 Aiping。
+  const hasCategorizedProviderState = Array.isArray(source.providers)
+    && (source.schemaVersion === STATE_SCHEMA_VERSION
+      || source.providers.some((provider) => Array.isArray(provider?.imageModels)));
+  if (hasCategorizedProviderState) {
     const defaults = source.defaults || {};
-    // 确保每个 provider 都有完整的 v5 字段
+    const providers = source.schemaVersion === STATE_SCHEMA_VERSION
+      ? source.providers.map(normalizeProvider)
+      : appendAipingIfMissing(source.providers);
     return {
       ...source,
-      providers: source.providers.map((p) => ({
-        ...p,
-        capabilities: p.capabilities || ['image'],
-        imageModels: p.imageModels || [],
-        textModels: p.textModels || [],
-        videoModels: p.videoModels || [],
-        lastTestResult: p.lastTestResult || null,
-        hasApiKey: !!p.hasApiKey,
-      })),
+      schemaVersion: STATE_SCHEMA_VERSION,
+      providers,
       history: Array.isArray(source.history) ? source.history : [],
       projects: Array.isArray(source.projects) ? source.projects : [],
       defaults: {
@@ -159,7 +226,8 @@ export function migrateState(parsed) {
   }
 
   return {
-    providers,
+    schemaVersion: STATE_SCHEMA_VERSION,
+    providers: appendAipingIfMissing(providers),
     history: source.history || [],
     lastSettings: source.lastSettings || null,
     projects: Array.isArray(source.projects) ? source.projects : [],
@@ -172,6 +240,7 @@ export function migrateState(parsed) {
       defaultVideoModel,
     },
     updateRepo: typeof source.updateRepo === 'string' ? source.updateRepo : 'dick86114/miaos',
+    themeMode: source.themeMode || 'system',
   };
 }
 

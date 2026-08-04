@@ -34,26 +34,27 @@ async function init() {
 
   initRouter(mainContent, navItems);
 
-  // 侧边栏折叠/展开
-  const collapseBtn = document.getElementById('sidebar-collapse-btn');
-  const expandBtn = document.getElementById('sidebar-expand-btn');
+  // 侧边栏折叠/展开：开关必须留在应用外壳中，避免被路由页面替换。
+  const toggleBtn = document.getElementById('sidebar-toggle-btn');
   const sidebar = document.querySelector('.sidebar');
   const savedCollapse = localStorage.getItem('miaos.sidebar.collapsed');
-  if (savedCollapse === 'true') {
-    sidebar.classList.add('is-collapsed');
-    document.body.setAttribute('data-sidebar', 'collapsed');
+  const compactViewport = window.matchMedia?.('(max-width: 880px)').matches;
+
+  function setSidebarCollapsed(collapsed, persist = true) {
+    if (!sidebar || !toggleBtn) return;
+    sidebar.classList.toggle('is-collapsed', collapsed);
+    document.body.setAttribute('data-sidebar', collapsed ? 'collapsed' : 'expanded');
+    toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+    toggleBtn.setAttribute('aria-label', collapsed ? '展开侧边栏' : '收起侧边栏');
+    toggleBtn.setAttribute('title', collapsed ? '展开侧边栏' : '收起侧边栏');
+    toggleBtn.innerHTML = icon(collapsed ? 'panel-left-open' : 'panel-left-close', 16);
+    renderIcons(toggleBtn);
+    if (persist) localStorage.setItem('miaos.sidebar.collapsed', String(collapsed));
   }
-  collapseBtn?.addEventListener('click', () => {
-    sidebar.classList.add('is-collapsed');
-    document.body.setAttribute('data-sidebar', 'collapsed');
-    localStorage.setItem('miaos.sidebar.collapsed', 'true');
-    renderIcons(document);
-  });
-  expandBtn?.addEventListener('click', () => {
-    sidebar.classList.remove('is-collapsed');
-    document.body.removeAttribute('data-sidebar');
-    localStorage.setItem('miaos.sidebar.collapsed', 'false');
-    renderIcons(document);
+
+  setSidebarCollapsed(savedCollapse === null ? compactViewport : savedCollapse === 'true', false);
+  toggleBtn?.addEventListener('click', () => {
+    setSidebarCollapsed(!sidebar.classList.contains('is-collapsed'));
   });
 
   // 填充侧边栏版本号

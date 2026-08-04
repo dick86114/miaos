@@ -172,6 +172,21 @@ export function createQueue(dependencies = {}) {
     return count;
   }
 
+  // 失败任务原地重试，保留提示词、模型、比例、参考图和批次信息。
+  function retry(taskId) {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task || task.status !== 'failed') return false;
+    task.status = 'queued';
+    task.retryCount = Number(task.retryCount || 0) + 1;
+    delete task.error;
+    delete task.result;
+    delete task.startedAt;
+    delete task.finishedAt;
+    notify();
+    schedulePump(pump);
+    return true;
+  }
+
   // 清理已结束的任务（done/failed/canceled），保留最近 N 条。
   function clearFinished(keep = 0) {
     const before = tasks.length;
@@ -212,6 +227,7 @@ export function createQueue(dependencies = {}) {
     enqueueBatch,
     cancel,
     cancelAll,
+    retry,
     clearFinished,
     removeTask,
     getTasks,
@@ -226,6 +242,7 @@ export const enqueue = (...args) => defaultQueue.enqueue(...args);
 export const enqueueBatch = (...args) => defaultQueue.enqueueBatch(...args);
 export const cancel = (...args) => defaultQueue.cancel(...args);
 export const cancelAll = (...args) => defaultQueue.cancelAll(...args);
+export const retry = (...args) => defaultQueue.retry(...args);
 export const clearFinished = (...args) => defaultQueue.clearFinished(...args);
 export const removeTask = (...args) => defaultQueue.removeTask(...args);
 export const getTasks = (...args) => defaultQueue.getTasks(...args);

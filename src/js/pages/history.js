@@ -113,10 +113,274 @@ export function createHistoryPageController(dependencies = {}) {
   };
 }
 
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TREND_DAYS = 30;
+const HEATMAP_DAYS = 15 * 7;
+
+function startOfLocalDay(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 0;
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function formatChartDate(timestamp, includeYear = false) {
+  const date = new Date(timestamp);
+  if (includeYear) return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function countBy(items, selectKey, fallback) {
+  const counts = new Map();
+  items.forEach((item) => {
+    const key = String(selectKey(item) || fallback || '').trim();
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return Array.from(counts, ([name, count]) => ({ name, count }))
+    .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name, 'zh-CN'));
+}
+
+export function buildStatisticsData(records, now = Date.now()) {
+  const items = Array.isArray(records) ? records : [];
+  const today = startOfLocalDay(now);
+  const trendStart = today - (TREND_DAYS - 1) * DAY_MS;
+  const currentWeekStart = today - ((new Date(today).getDay() + 6) % 7) * DAY_MS;
+  const heatmapStart = currentWeekStart - 14 * 7 * DAY_MS;
+  const dailyCounts = new Map();
+
+  items.forEach((item) => {
+    const day = startOfLocalDay(item.createdAt);
+    if (!day) return;
+    dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
+  });
+
+  const trend = Array.from({ length: TREND_DAYS }, (_, index) => {
+    const timestamp = trendStart + index * DAY_MS;
+    return {
+      timestamp,
+      label: formatChartDate(timestamp),
+      count: dailyCounts.get(timestamp) || 0,
+    };
+  });
+  const maxTrendCount = Math.max(0, ...trend.map((item) => item.count));
+  const peak = trend.reduce((best, item) => (item.count > best.count ? item : best), trend[0]);
+  const heatmapMax = Math.max(0, ...Array.from({ length: HEATMAP_DAYS }, (_, index) => dailyCounts.get(heatmapStart + index * DAY_MS) || 0));
+  const heatmap = Array.from({ length: HEATMAP_DAYS }, (_, index) => {
+    const timestamp = heatmapStart + index * DAY_MS;
+    const count = dailyCounts.get(timestamp) || 0;
+    const level = count === 0 || heatmapMax === 0 ? 0 : Math.max(1, Math.min(4, Math.ceil((count / heatmapMax) * 4)));
+    return {
+      timestamp,
+      label: formatChartDate(timestamp, true),
+      count,
+      level,
+    };
+  });
+  const quickCount = items.filter((item) => item.source === 'quick').length;
+  const projectCount = items.filter((item) => item.source === 'project').length;
+  const models = countBy(
+    items.filter((item) => String(item.model || item.modelId || '').trim()),
+    (item) => item.model || item.modelId,
+    '',
+  );
+  const prompts = countBy(
+    items.filter((item) => String(item.prompt || '').trim()),
+    (item) => String(item.prompt || '').trim(),
+    '',
+  ).map(({ name, count }) => ({ text: name, count }));
+
+  return {
+    total: items.length,
+    last7Days: trend.slice(-7).reduce((sum, item) => sum + item.count, 0),
+    quickCount,
+    projectCount,
+    quickShare: items.length > 0 ? Math.round((quickCount / items.length) * 100) : 0,
+    models,
+    prompts,
+    trend,
+    maxTrendCount,
+    peak,
+    heatmap,
+  };
+}
+
+function createTrendChartHtml(data) {
+  const width = 680;
+  const height = 236;
+  const padding = { top: 18, right: 18, bottom: 38, left: 34 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const maxCount = Math.max(1, data.maxTrendCount);
+  const points = data.trend.map((item, index) => {
+    const x = padding.left + (index / Math.max(1, data.trend.length - 1)) * plotWidth;
+    const y = padding.top + plotHeight - (item.count / maxCount) * plotHeight;
+    return { ...item, x, y };
+  });
+  const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
+  const first = points[0];
+  const last = points.at(-1);
+  const areaPath = `${linePath} L ${last.x.toFixed(2)} ${(padding.top + plotHeight).toFixed(2)} L ${first.x.toFixed(2)} ${(padding.top + plotHeight).toFixed(2)} Z`;
+  const labelIndexes = [0, 7, 14, 21, data.trend.length - 1];
+  const gridLines = [0, 0.5, 1].map((ratio) => {
+    const y = padding.top + plotHeight * ratio;
+    const label = Math.round(maxCount * (1 - ratio));
+    return `
+      <line class="stats-chart-grid-line" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}"></line>
+      <text class="stats-chart-axis-label" x="${padding.left - 8}" y="${y + 4}" text-anchor="end">${label}</text>`;
+  }).join('');
+  const xLabels = labelIndexes.map((index) => {
+    const point = points[index];
+    return `<text class="stats-chart-axis-label" x="${point.x}" y="${height - 12}" text-anchor="middle">${point.label}</text>`;
+  }).join('');
+  const dots = points.filter((point) => point.count > 0).map((point) => `
+    <circle class="stats-trend-point" cx="${point.x}" cy="${point.y}" r="3.5">
+      <title>${escapeHtml(point.label)}：${point.count} 张</title>
+    </circle>`).join('');
+
+  return `
+    <svg class="stats-trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="近 30 天每日生成数量趋势图">
+      <defs>
+        <linearGradient id="stats-trend-area" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--brand)" stop-opacity="0.32"></stop>
+          <stop offset="100%" stop-color="var(--brand)" stop-opacity="0.02"></stop>
+        </linearGradient>
+      </defs>
+      ${gridLines}
+      <path class="stats-trend-area" d="${areaPath}"></path>
+      <path class="stats-trend-line" d="${linePath}"></path>
+      ${dots}
+      ${xLabels}
+    </svg>`;
+}
+
+function createDonutHtml(data) {
+  const radius = 48;
+  const circumference = 2 * Math.PI * radius;
+  const quickLength = data.total > 0 ? circumference * (data.quickCount / data.total) : 0;
+  const projectLength = data.total > 0 ? circumference * (data.projectCount / data.total) : 0;
+  return `
+    <div class="stats-donut-layout">
+      <div class="stats-donut" role="img" aria-label="快速生图 ${data.quickCount} 张，项目生图 ${data.projectCount} 张">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="stats-donut-track" cx="60" cy="60" r="${radius}"></circle>
+          <circle class="stats-donut-segment is-quick" cx="60" cy="60" r="${radius}" stroke-dasharray="${quickLength} ${circumference}" stroke-dashoffset="0"></circle>
+          <circle class="stats-donut-segment is-project" cx="60" cy="60" r="${radius}" stroke-dasharray="${projectLength} ${circumference}" stroke-dashoffset="-${quickLength}"></circle>
+        </svg>
+        <div class="stats-donut-center"><strong>${data.total}</strong><span>总计</span></div>
+      </div>
+      <div class="stats-donut-legend">
+        <div><span class="stats-legend-dot is-quick"></span><span>快速生图</span><strong>${data.quickCount}</strong></div>
+        <div><span class="stats-legend-dot is-project"></span><span>项目生图</span><strong>${data.projectCount}</strong></div>
+      </div>
+    </div>`;
+}
+
+export function createStatisticsDashboardHtml(data) {
+  const maxModelCount = Math.max(1, ...data.models.map((item) => item.count));
+  const maxPromptCount = Math.max(1, ...data.prompts.map((item) => item.count));
+  const modelBars = data.models.slice(0, 7).map((item, index) => {
+    const percentage = data.total > 0 ? Math.round((item.count / data.total) * 100) : 0;
+    return `
+      <div class="stats-model-bar-row">
+        <div class="stats-model-bar-heading">
+          <span class="stats-model-rank">${String(index + 1).padStart(2, '0')}</span>
+          <span class="stats-model-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+          <strong>${item.count}</strong><small>${percentage}%</small>
+        </div>
+        <div class="stats-model-bar-track"><span style="width: ${(item.count / maxModelCount) * 100}%"></span></div>
+      </div>`;
+  }).join('');
+  const promptCloud = data.prompts.slice(0, 10).map((item) => {
+    const weight = 0.88 + (item.count / maxPromptCount) * 0.28;
+    return `<span class="stats-prompt-bubble" style="--prompt-scale: ${weight.toFixed(2)}" title="使用 ${item.count} 次"><span>${escapeHtml(item.text)}</span><strong>${item.count}</strong></span>`;
+  }).join('');
+  const heatmapCells = data.heatmap.map((item) => `
+    <span class="stats-heatmap-cell level-${item.level}" aria-label="${escapeHtml(item.label)}，${item.count} 张">
+      <span class="sr-only">${escapeHtml(item.label)}：${item.count} 张</span>
+    </span>`).join('');
+  const peakText = data.peak?.count > 0 ? `${data.peak.label} 峰值 ${data.peak.count} 张` : '近 30 天暂无生成';
+
+  return `
+    <section class="stats-dashboard" aria-label="生成统计仪表盘">
+      <div class="stats-summary-cards">
+        <article class="stats-card is-primary">
+          <span class="stats-card-eyebrow">累计产出</span>
+          <strong class="stats-card-value">${data.total}</strong>
+          <span class="stats-card-label">总生成量</span>
+          <small>包含快速生图与项目版本</small>
+        </article>
+        <article class="stats-card">
+          <span class="stats-card-eyebrow">近期活跃</span>
+          <strong class="stats-card-value">${data.last7Days}</strong>
+          <span class="stats-card-label">近 7 天生成</span>
+          <small>${escapeHtml(peakText)}</small>
+        </article>
+        <article class="stats-card">
+          <span class="stats-card-eyebrow">使用构成</span>
+          <strong class="stats-card-value">${data.quickShare}%</strong>
+          <span class="stats-card-label">快速生图占比</span>
+          <small>项目生图 ${data.projectCount} 张</small>
+        </article>
+        <article class="stats-card">
+          <span class="stats-card-eyebrow">模型覆盖</span>
+          <strong class="stats-card-value">${data.models.length}</strong>
+          <span class="stats-card-label">使用模型数</span>
+          <small>${data.models[0] ? `最常用 ${escapeHtml(data.models[0].name)}` : '暂无模型记录'}</small>
+        </article>
+      </div>
+
+      <div class="stats-dashboard-grid is-overview">
+        <article class="stats-report-card stats-trend-panel">
+          <header class="stats-report-header">
+            <div><span class="stats-report-kicker">近 30 日活跃</span><h3>近 30 天生成趋势</h3></div>
+            <span class="stats-report-meta">${data.trend.reduce((sum, item) => sum + item.count, 0)} 张</span>
+          </header>
+          ${createTrendChartHtml(data)}
+        </article>
+        <article class="stats-report-card stats-source-panel">
+          <header class="stats-report-header">
+            <div><span class="stats-report-kicker">来源分布</span><h3>来源构成</h3></div>
+          </header>
+          ${createDonutHtml(data)}
+        </article>
+      </div>
+
+      <div class="stats-dashboard-grid is-detail">
+        <article class="stats-report-card">
+          <header class="stats-report-header">
+            <div><span class="stats-report-kicker">模型排行</span><h3>模型使用排行</h3></div>
+            <span class="stats-report-meta">前 7 名</span>
+          </header>
+          <div class="stats-model-bars">${modelBars || '<div class="stats-empty">暂无模型数据</div>'}</div>
+        </article>
+        <article class="stats-report-card">
+          <header class="stats-report-header">
+            <div><span class="stats-report-kicker">提示词信号</span><h3>高频提示词</h3></div>
+            <span class="stats-report-meta">前 10 名</span>
+          </header>
+          <div class="stats-prompt-cloud">${promptCloud || '<div class="stats-empty">暂无提示词数据</div>'}</div>
+        </article>
+      </div>
+
+      <article class="stats-report-card stats-heatmap-panel">
+        <header class="stats-report-header">
+          <div><span class="stats-report-kicker">创作连续性</span><h3>近 15 周活跃热力图</h3></div>
+          <div class="stats-heatmap-legend"><span>少</span>${[0, 1, 2, 3, 4].map((level) => `<i class="level-${level}"></i>`).join('')}<span>多</span></div>
+        </header>
+        <div class="stats-heatmap-layout">
+          <div class="stats-heatmap-days"><span>一</span><span></span><span>三</span><span></span><span>五</span><span></span><span>日</span></div>
+          <div class="stats-heatmap">${heatmapCells}</div>
+        </div>
+      </article>
+    </section>`;
+}
+
 export function renderHistory(container) {
   const root = htmlToElement(`
     <div class="history-page">
-      <div class="history-page-tabs">
+      <div class="settings-tabs history-page-tabs">
         <button class="settings-tab is-active" data-history-tab="query">
           ${icon('search', 16)}<span>查询历史记录</span>
         </button>
@@ -235,7 +499,6 @@ export function renderHistory(container) {
     emptyText.textContent = state.query || state.source !== 'all' || state.projectId
       ? '没有匹配的历史记录'
       : '还没有生成记录';
-    // 去掉了引导按钮，无需控制隐藏
 
     pagination.hidden = isEmpty || pageData.totalPages <= 1;
     pageLabel.textContent = `第 ${pageData.page} / ${pageData.totalPages} 页 · 共 ${pageData.total} 张`;
@@ -279,134 +542,18 @@ export function renderHistory(container) {
   }
 
   function renderStats() {
-  const history = getHistory();
-  const projects = getProjects();
-  const allItems = [
-    ...history.map((r) => ({ ...r, source: 'quick', modelName: r.model || '' })),
-    ...projects.flatMap((p) => (p.versions || []).flatMap((v) => (v.images || []).map((img) => ({
-      ...img,
-      source: 'project',
-      modelName: img.model || v.modelId || '',
-      prompt: img.prompt || v.prompt || '',
-      projectName: p.name,
-      createdAt: img.createdAt || 0,
-    })))),
-  ];
-  const stats = root.querySelector('#stats-content');
-  if (!stats) return;
-
-  // 模型统计
-  const modelCounts = {};
-  allItems.forEach((item) => {
-    const name = item.modelName || '未知模型';
-    modelCounts[name] = (modelCounts[name] || 0) + 1;
-  });
-  const modelEntries = Object.entries(modelCounts).sort((a, b) => b[1] - a[1]);
-  const maxModelCount = modelEntries.length > 0 ? modelEntries[0][1] : 1;
-
-  // 来源统计
-  const quickCount = allItems.filter((i) => i.source === 'quick').length;
-  const projectCount = allItems.filter((i) => i.source === 'project').length;
-
-  // 提示词统计
-  const promptCounts = {};
-  allItems.forEach((item) => {
-    const p = (item.prompt || '').trim().slice(0, 30);
-    if (p) promptCounts[p] = (promptCounts[p] || 0) + 1;
-  });
-  const topPrompts = Object.entries(promptCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-
-  // 热力图（最近 15 周）
-  const now = Date.now();
-  const dayMs = 86400000;
-  const startDay = new Date(now);
-  startDay.setDate(startDay.getDate() - 15 * 7 + 1);
-  startDay.setHours(0, 0, 0, 0);
-  const startTs = startDay.getTime();
-  const dailyCounts = {};
-  allItems.forEach((item) => {
-    const day = Math.floor((item.createdAt - startTs) / dayMs);
-    if (day >= 0) dailyCounts[day] = (dailyCounts[day] || 0) + 1;
-  });
-  const maxDailyCount = Math.max(1, ...Object.values(dailyCounts));
-
-  // 热力图格子 HTML
-  let heatmapHtml = '';
-  for (let week = 0; week < 15; week++) {
-    for (let dow = 0; dow < 7; dow++) {
-      const day = week * 7 + dow;
-      const count = dailyCounts[day] || 0;
-      const opacity = count > 0 ? Math.max(0.15, count / maxDailyCount) : 0.04;
-      const date = new Date(startTs + day * dayMs);
-      const label = `${date.getMonth() + 1}/${date.getDate()}：${count} 张`;
-      heatmapHtml += `<div class="heatmap-cell" title="${label}" style="background: var(--brand); opacity: ${opacity}"></div>`;
-    }
+    const allItems = getUnifiedHistory({
+      history: getHistory(),
+      projects: getProjects(),
+    }, {
+      page: 1,
+      pageSize: Number.MAX_SAFE_INTEGER,
+      query: '',
+      source: 'all',
+      projectId: '',
+    }).items;
+    statsContent.innerHTML = createStatisticsDashboardHtml(buildStatisticsData(allItems));
   }
-
-  // 星期标签
-  const dowLabels = ['一', '三', '五', '日'];
-
-  stats.innerHTML = `
-    <div class="stats-summary-cards">
-      <div class="stats-card">
-        <div class="stats-card-value">${allItems.length}</div>
-        <div class="stats-card-label">总生成量</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-card-value">${quickCount}</div>
-        <div class="stats-card-label">快速生图</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-card-value">${projectCount}</div>
-        <div class="stats-card-label">项目生图</div>
-      </div>
-      <div class="stats-card">
-        <div class="stats-card-value">${modelEntries.length}</div>
-        <div class="stats-card-label">使用模型数</div>
-      </div>
-    </div>
-
-    <div class="stats-section">
-      <h3 class="stats-section-title">模型生图数量</h3>
-      <div class="stats-bar-chart">
-        ${modelEntries.slice(0, 6).map(([name, count]) => `
-          <div class="stats-bar-row">
-            <span class="stats-bar-label" title="${name}">${name.length > 16 ? name.slice(0, 16) + '…' : name}</span>
-            <div class="stats-bar-track">
-              <div class="stats-bar-fill" style="width: ${(count / maxModelCount) * 100}%"></div>
-            </div>
-            <span class="stats-bar-count">${count}</span>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-
-    <div class="stats-section">
-      <h3 class="stats-section-title">常用提示词</h3>
-      <div class="stats-prompt-list">
-        ${topPrompts.length > 0 ? topPrompts.map(([prompt, count]) => `
-          <div class="stats-prompt-item">
-            <span class="stats-prompt-text" title="${prompt}">${prompt}${prompt.length >= 30 ? '…' : ''}</span>
-            <span class="stats-prompt-count">${count} 次</span>
-          </div>
-        `).join('') : '<div class="stats-empty">暂无提示词数据</div>'}
-      </div>
-    </div>
-
-    <div class="stats-section">
-      <h3 class="stats-section-title">生图频率（近 15 周）</h3>
-      <div class="heatmap-container">
-        <div class="heatmap-labels">
-          ${dowLabels.map((l) => `<div class="heatmap-dow-label">${l}</div>`).join('')}
-        </div>
-        <div class="heatmap-grid">
-          ${heatmapHtml}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 
   // Tab 切换
   let currentTab = 'query';

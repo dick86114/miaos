@@ -24,6 +24,7 @@ import {
 
 const PROVIDER_TYPES = [
   { value: 'grsai', label: 'Grsai', defaultEndpoint: 'https://grsaiapi.com/v1/api/generate', defaultCaps: ['image'] },
+  { value: 'aiping', label: 'Aiping', defaultEndpoint: 'https://aiping.cn/api/v1', defaultCaps: ['image', 'text'] },
   { value: 'agnes-ai', label: 'Agnes AI', defaultEndpoint: 'https://apihub.agnes-ai.com/v1', defaultCaps: ['image', 'text', 'video'] },
   { value: 'deepseek', label: 'DeepSeek', defaultEndpoint: 'https://api.deepseek.com/v1', defaultCaps: ['text'] },
   { value: 'openai', label: 'OpenAI 兼容', defaultEndpoint: '', defaultCaps: ['image', 'text'] },
@@ -35,6 +36,27 @@ const CATEGORIES = [
   { key: 'text', label: '文本模型', icon: 'file-text', color: 'text' },
   { key: 'video', label: '生视频模型', icon: 'video', color: 'video' },
  ];
+
+// 连接测试和模型获取优先使用输入框里的新密钥；未输入时才读取已保存供应商的钥匙串密钥。
+export function createProviderRequestData(form, typedApiKey = '', isAddingProvider = false) {
+  const request = {
+    name: form.name || '',
+    type: form.type || '',
+    endpoint: form.endpoint || '',
+  };
+  if (typedApiKey) {
+    request.apiKeyOverride = typedApiKey;
+  } else if (!isAddingProvider && form.id) {
+    request.providerId = form.id;
+  }
+  return request;
+}
+
+function restoreTypedApiKey(container, typedApiKey) {
+  if (!typedApiKey) return;
+  const keyInput = container.querySelector('#pf-key');
+  if (keyInput) keyInput.value = typedApiKey;
+}
 
 function toProviderMetadata(form) {
   return {
@@ -455,7 +477,7 @@ export function renderSettings(container) {
           <div class="settings-about-info">
             <div class="settings-about-name">妙生 · miaos</div>
             <div class="settings-about-version">当前版本：<span id="cur-ver">—</span></div>
-            <div class="settings-about-desc">本地运行的 AI 生图工具，支持 Grsai 与 OpenAI 兼容供应商。</div>
+            <div class="settings-about-desc">本地运行的 AI 生图工具，内置 Grsai、Aiping，并支持 OpenAI 兼容供应商。</div>
           </div>
         </div>
       </div>
@@ -673,12 +695,12 @@ export function renderSettings(container) {
         const nameInput = inner.querySelector('#pf-name');
         const typeInput = inner.querySelector('#pf-type');
         const typedApiKey = keyInput?.value || '';
-        const providerData = {
+        const providerData = createProviderRequestData({
+          id: f.id,
           name: nameInput?.value || f.name,
           type: typeInput?.value || f.type,
           endpoint: endpointInput?.value || f.endpoint,
-          ...(pageState.isAddingProvider ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
-        };
+        }, typedApiKey, pageState.isAddingProvider);
         if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
         const feedbackKey = `provider-test:${f.id}`;
         await withButtonLoading(testBtn, '测试中…', async () => {
@@ -687,8 +709,9 @@ export function renderSettings(container) {
           try {
             const result = await testConnection(providerData);
             const hasWarning = result && result.warning;
-            pageState.testStatus = { ok: true, message: hasWarning ? result.warning : '连接成功' };
-            toast(hasWarning ? '连接测试完成：' + result.warning : '连接测试成功', hasWarning ? 'info' : 'success', { key: feedbackKey });
+            const successMessage = hasWarning ? result.warning : (result?.message || '连接成功');
+            pageState.testStatus = { ok: true, message: successMessage };
+            toast(hasWarning ? '连接测试完成：' + successMessage : successMessage, hasWarning ? 'info' : 'success', { key: feedbackKey });
           } catch (err) {
             pageState.testStatus = { ok: false, message: err.message || '连接失败' };
             toast('连接失败：' + err.message, 'error', { key: feedbackKey });
@@ -697,6 +720,7 @@ export function renderSettings(container) {
             f.endpoint = providerData.endpoint;
             f.type = providerData.type;
             refresh();
+            restoreTypedApiKey(inner, typedApiKey);
           }
         });
       });
@@ -711,11 +735,12 @@ export function renderSettings(container) {
         const keyInput = inner.querySelector('#pf-key');
         const typeInput = inner.querySelector('#pf-type');
         const typedApiKey = keyInput?.value || '';
-        const providerData = {
+        const providerData = createProviderRequestData({
+          id: f.id,
+          name: f.name,
           type: typeInput?.value || f.type,
           endpoint: endpointInput?.value || f.endpoint,
-          ...(pageState.isAddingProvider ? { apiKeyOverride: typedApiKey } : { providerId: f.id }),
-        };
+        }, typedApiKey, pageState.isAddingProvider);
         if (!providerData.endpoint) { toast('请先填写 API 地址', 'error'); return; }
         const feedbackKey = `provider-models:${f.id}:${cat}`;
         await withButtonLoading(btn, '获取中…', async () => {
@@ -739,6 +764,7 @@ export function renderSettings(container) {
             toast('获取失败：' + err.message, 'error', { key: feedbackKey });
           } finally {
             refresh();
+            restoreTypedApiKey(inner, typedApiKey);
           }
         });
       });

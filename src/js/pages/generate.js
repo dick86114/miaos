@@ -19,6 +19,7 @@ import { navigate } from '../router.js';
 import { getPaginatedQuickHistory } from '../history-data.js';
 import { openImagePreview } from '../image-preview.js';
 import { createPromptOptimizationManager, createPromptFragmentOverlay } from '../prompt-optimization.js';
+import { getQuickQueueViewState } from '../queue-view-state.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -597,7 +598,7 @@ export function renderGenerate(container) {
     <div class="queue-result-view">
       <section class="queue-section" data-queue-active hidden>
         <div class="queue-header">
-          <span class="queue-title">${icon('loader', 14)}生成中</span>
+          <span class="queue-title" data-queue-active-title>${icon('loader', 14)}生成中</span>
           <span class="queue-count" data-queue-active-count>0 个任务</span>
           <button type="button" class="btn btn-ghost btn-sm" data-queue-cancel-all hidden>${icon('x', 14)}<span>取消未开始</span></button>
         </div>
@@ -625,6 +626,7 @@ export function renderGenerate(container) {
   renderIcons(queueView);
 
   const activeSection = queueView.querySelector('[data-queue-active]');
+  const activeTitle = queueView.querySelector('[data-queue-active-title]');
   const activeCount = queueView.querySelector('[data-queue-active-count]');
   const cancelAllQueued = queueView.querySelector('[data-queue-cancel-all]');
   const quickHistoryGrid = queueView.querySelector('[data-quick-history-grid]');
@@ -677,7 +679,10 @@ export function renderGenerate(container) {
           </div>
           <div class="gallery-item-meta">
             <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
-            <button type="button" class="btn btn-ghost btn-sm task-failure-detail" data-task-id="${task.id}" title="查看失败详情">${icon('alert-circle', 13)}<span>查看失败详情</span></button>
+            <div class="task-failure-actions">
+              <button type="button" class="btn btn-ghost btn-sm task-retry" data-task-id="${task.id}" title="再次生成">${icon('refresh-cw', 13)}<span>再次生成</span></button>
+              <button type="button" class="btn btn-ghost btn-sm task-failure-detail" data-task-id="${task.id}" title="查看失败详情">${icon('alert-circle', 13)}<span>失败详情</span></button>
+            </div>
             <button type="button" class="icon-btn task-dismiss" data-task-id="${task.id}" title="移除">${icon('x', 13)}</button>
           </div>
         </article>`;
@@ -777,14 +782,17 @@ export function renderGenerate(container) {
 
   function renderTasks(tasks) {
     const quick = tasks.filter((task) => task.source === 'quick');
-    const active = quick.filter((task) => task.status === 'queued' || task.status === 'running' || task.status === 'failed');
+    const viewState = getQuickQueueViewState(tasks);
     const completedQuickTaskIds = new Set(quick.filter((task) => task.status === 'done').map((task) => task.id));
     const hasNewQuickCompletion = [...completedQuickTaskIds].some((taskId) => !previousCompletedQuickTaskIds.has(taskId));
 
-    activeTaskRenderer.render(active);
-    activeSection.hidden = active.length === 0;
-    activeCount.textContent = `${active.length} 个任务`;
-    cancelAllQueued.hidden = !active.some((task) => task.status === 'queued');
+    activeTaskRenderer.render(viewState.visibleTasks);
+    activeSection.hidden = viewState.visibleTasks.length === 0;
+    activeTitle.innerHTML = `${icon(viewState.icon, 14)}${viewState.title}`;
+    activeTitle.classList.toggle('is-generating', viewState.isGenerating);
+    renderIcons(activeTitle);
+    activeCount.textContent = viewState.countText;
+    cancelAllQueued.hidden = !viewState.showCancelQueued;
 
     if (hasNewQuickCompletion) quickHistoryPage = 1;
     if (hasNewQuickCompletion || completedQuickTaskIds.size !== previousCompletedQuickTaskIds.size) renderQuickHistory();
@@ -794,6 +802,11 @@ export function renderGenerate(container) {
   // 操作统一委托到结果区，历史卡片局部更新或分页时无需重复绑定监听器。
   resultArea.addEventListener('click', async (event) => {
     const target = event.target;
+    const retryButton = target.closest?.('.task-retry');
+    if (retryButton) {
+      if (queue.retry(retryButton.getAttribute('data-task-id'))) toast('已重新加入生成队列', 'info');
+      return;
+    }
     const failureDetailButton = target.closest?.('.task-failure-detail');
     if (failureDetailButton) {
       const taskId = failureDetailButton.getAttribute('data-task-id');

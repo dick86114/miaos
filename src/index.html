@@ -19,8 +19,11 @@
     </div>
     <div class="body-frame">
       <!-- 侧边栏 -->
-      <aside class="sidebar">
-    <div class="sidebar-logo">
+      <aside class="sidebar" id="app-sidebar">
+        <button class="sidebar-toggle-btn" id="sidebar-toggle-btn" type="button" title="收起侧边栏" aria-label="收起侧边栏" aria-controls="app-sidebar" aria-expanded="true">
+          <i data-lucide="panel-left-close" data-size="16"></i>
+        </button>
+        <div class="sidebar-logo">
           <img src="assets/logo.png" alt="妙生" class="logo-img" />
           <span class="logo-name">妙生</span>
         </div>
@@ -45,16 +48,9 @@
         <div class="sidebar-footer">
           <span id="sidebar-version">v1.0.1</span> · 本地运行
         </div>
-        <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="收起侧边栏" aria-label="收起侧边栏">
-          <i data-lucide="panel-left-close" data-size="16"></i>
-        </button>
       </aside>
       <!-- 主内容区 -->
-      <main class="main-content" id="main-content">
-        <button class="sidebar-expand-btn" id="sidebar-expand-btn" title="展开侧边栏" aria-label="展开侧边栏">
-          <i data-lucide="panel-left-open" data-size="16"></i>
-        </button>
-      </main>
+      <main class="main-content" id="main-content"></main>
     </div>
   </div>
   <script type="module" src="js/renderer.js"></script>

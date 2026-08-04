@@ -316,7 +316,7 @@ test('快速生图仅展示活跃队列与可分页的持久化快速历史', ()
   assert.match(generatePage, /data-history-act/u, '快速历史卡片必须使用委托操作标识');
 });
 
-test('快速任务复用项目画廊占位卡片、显示批次并提供失败详情入口', () => {
+test('快速任务复用项目画廊占位卡片、显示批次并提供失败详情与再次生成入口', () => {
   const activeTaskCard = getEnclosedBlock(
     generatePage,
     /function activeTaskCardHtml\(task\) \{/u,
@@ -327,7 +327,9 @@ test('快速任务复用项目画廊占位卡片、显示批次并提供失败�
   assert.match(activeTaskCard, /placeholder-cover/u, '快速任务必须保留项目画廊同款占位封面');
   assert.match(activeTaskCard, /task\.batchIndex[\s\S]*task\.batchTotal/u, '快速任务卡片必须显示批次');
   assert.match(activeTaskCard, /task-failure-detail/u, '失败任务卡片必须提供查看失败详情操作');
-  assert.match(activeTaskCard, /查看失败详情/u);
-  assert.match(generatePage, /task\.status === 'queued' \|\| task\.status === 'running' \|\| task\.status === 'failed'/u, '快速页必须保留失败卡片以便查看详情');
+  assert.match(activeTaskCard, /失败详情/u);
+  assert.match(activeTaskCard, /task-retry/u, '失败任务卡片必须提供再次生成操作');
+  assert.match(generatePage, /getQuickQueueViewState/u, '快速页必须用状态选择器区分生成中和生成失败');
+  assert.match(generatePage, /queue\.retry/u, '再次生成必须复用队列重试能力');
   assert.match(generatePage, /openQuickTaskFailurePreview/u, '失败详情操作必须打开共享详情弹窗');
 });

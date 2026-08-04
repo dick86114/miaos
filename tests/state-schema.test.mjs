@@ -21,14 +21,49 @@ function createMemoryStorage(seed = {}) {
   };
 }
 
-test('默认状态包含 Grsai 供应商、默认模型和更新仓库', () => {
+test('默认状态包含 Grsai 与 Aiping 内置供应商，并保持 Grsai 为默认生图模型', () => {
   const state = createDefaultState();
+  assert.equal(state.schemaVersion, 6);
+  assert.equal(CURRENT_STORAGE_KEY, 'miaos.state.v6');
+  assert.equal(BACKUP_STORAGE_KEY, 'miaos.state.backup.v6');
+  assert.ok(LEGACY_STORAGE_KEYS.includes('miaos.state.v5'));
   assert.equal(state.providers[0].id, 'p_grsai');
   assert.equal(state.providers[0].imageModels.find((m) => m.id === 'gpt-image-2')?.enabled, true);
+  const aiping = state.providers.find((provider) => provider.id === 'p_aiping');
+  assert.equal(aiping?.type, 'aiping');
+  assert.equal(aiping?.endpoint, 'https://aiping.cn/api/v1');
+  assert.deepEqual(aiping?.capabilities, ['image', 'text']);
+  assert.equal(aiping?.imageModels.find((model) => model.id === 'Qwen-Image')?.enabled, true);
+  assert.equal(aiping?.imageModels.find((model) => model.id === 'Qwen-Image-Edit')?.enabled, false);
+  assert.equal(aiping?.textModels.find((model) => model.id === 'DeepSeek-V3.1')?.enabled, true);
   assert.equal(state.defaults.defaultImageProvider, 'p_grsai');
   assert.equal(state.defaults.defaultImageModel, 'gpt-image-2');
   assert.equal(state.updateRepo, 'dick86114/miaos');
   assert.equal(validateState(state).ok, true);
+});
+
+test('v5 状态迁移到 v6 时只补入一次 Aiping，v6 中主动删除后不会重新出现', () => {
+  const legacyV5 = createDefaultState();
+  delete legacyV5.schemaVersion;
+  legacyV5.providers = legacyV5.providers.filter((provider) => provider.id !== 'p_aiping');
+  legacyV5.history.push({ id: 'h_keep', createdAt: 1 });
+  legacyV5.projects.push({ id: 'p_keep', versions: [] });
+
+  const migrated = migrateState(legacyV5);
+  assert.equal(migrated.schemaVersion, 6);
+  assert.equal(migrated.providers.filter((provider) => provider.id === 'p_aiping').length, 1);
+  assert.equal(migrated.history[0].id, 'h_keep');
+  assert.equal(migrated.projects[0].id, 'p_keep');
+
+  const deletedByUser = {
+    ...migrated,
+    providers: migrated.providers.filter((provider) => provider.id !== 'p_aiping'),
+  };
+  const normalizedAgain = migrateState(deletedByUser);
+  assert.equal(normalizedAgain.providers.some((provider) => provider.id === 'p_aiping'), false);
+
+  const deletedAllProviders = migrateState({ ...migrated, providers: [] });
+  assert.deepEqual(deletedAllProviders.providers, []);
 });
 
 test('损坏主状态时恢复备份且不覆盖备份', () => {

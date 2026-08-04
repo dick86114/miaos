@@ -332,6 +332,32 @@ function createGrsaiMetadata(endpoint) {
   };
 }
 
+function createAipingMetadata(endpoint = 'https://aiping.cn/api/v1') {
+  return {
+    id: 'p_aiping', name: 'Aiping', type: 'aiping', endpoint,
+    capabilities: ['image', 'text'],
+    imageModels: [
+      { id: 'Qwen-Image', name: 'Qwen-Image', enabled: true },
+      { id: 'Qwen-Image-Edit', name: 'Qwen-Image-Edit', enabled: true },
+    ],
+    textModels: [
+      { id: 'DeepSeek-V3.1', name: 'DeepSeek-V3.1', enabled: true },
+      { id: 'DeepSeek-R1-0528', name: 'DeepSeek-R1-0528', enabled: true },
+    ],
+    videoModels: [],
+  };
+}
+
+async function seedProvider(calls, metadata, apiKey = 'aiping-test-key') {
+  const seeded = await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), [{
+    providerId: metadata.id,
+    apiKey,
+    metadata,
+  }]);
+  assert.equal(seeded.ok, true);
+  await calls.ipcHandlers['provider-secret-migrate'](trustedEvent(), { operation: 'commit', transactionId: seeded.transactionId });
+}
+
 function createGenerateParams(sourceImage) {
   return {
     prompt: '测试提示词',
@@ -340,6 +366,18 @@ function createGenerateParams(sourceImage) {
     quality: '高清',
     size: '1024x1024',
     providerId: 'p_grsai',
+    sourceImage,
+  };
+}
+
+function createAipingGenerateParams({ sourceImage = null, modelName = 'Qwen-Image' } = {}) {
+  return {
+    prompt: '测试提示词',
+    modelName,
+    ratio: '16:9',
+    quality: '高清',
+    size: '1024x576',
+    providerId: 'p_aiping',
     sourceImage,
   };
 }
@@ -1136,6 +1174,182 @@ test('上游回显密钥时，IPC 公开错误和摘要日志均不暴露密钥'
     assert.doesNotMatch(logCalls.join('\n'), new RegExp(secret));
   } finally {
     console.log = originalLog;
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Aiping 模型列表按本地文档分类，保留 Seedream 等不含 image 字样的生图模型', async () => {
+  const homePath = createTempHome('miaos-aiping-models-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 200,
+        body: JSON.stringify({
+          object: 'list',
+          data: [
+            { id: 'Qwen-Image', status: true },
+            { id: 'Doubao-Seedream-4.5', status: true },
+            { id: 'DeepSeek-V3.1', status: true },
+            { id: 'DeepSeek-R1-0528', status: false },
+            { id: 'Unrelated-Model', status: true },
+          ],
+        }),
+      },
+    });
+    await seedProvider(calls, createAipingMetadata());
+
+    const imageModels = await calls.ipcHandlers['fetch-models'](trustedEvent(), { providerId: 'p_aiping' }, 'image');
+    assert.deepEqual(imageModels.models.map((model) => model.id), ['Qwen-Image', 'Doubao-Seedream-4.5']);
+
+    const textModels = await calls.ipcHandlers['fetch-models'](trustedEvent(), { providerId: 'p_aiping' }, 'text');
+    assert.deepEqual(textModels.models.map((model) => model.id), ['DeepSeek-V3.1']);
+    assert.equal(calls.networkRequests[0].options.path, '/api/v1/models');
+    assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer aiping-test-key');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Aiping 文生图请求使用标准端点、星号尺寸与平台调度参数', async () => {
+  const homePath = createTempHome('miaos-aiping-text-image-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    await seedProvider(calls, createAipingMetadata());
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createAipingGenerateParams());
+    assert.equal(result.ok, false);
+    assert.equal(calls.networkRequests.length, 1);
+    assert.equal(calls.networkRequests[0].options.hostname, 'aiping.cn');
+    assert.equal(calls.networkRequests[0].options.path, '/api/v1/images/generations');
+    assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer aiping-test-key');
+    assert.deepEqual(getRequestBody(calls), {
+      model: 'Qwen-Image',
+      prompt: '测试提示词',
+      extra_body: {
+        provider: {
+          enable_image_base64: false,
+          enable_image_origin_data: false,
+        },
+      },
+      size: '1280*720',
+      n: 1,
+      prompt_extend: true,
+      watermark: false,
+    });
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Aiping 图生图把参考图放在顶层 image 字段', async () => {
+  const homePath = createTempHome('miaos-aiping-image-edit-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    await seedProvider(calls, createAipingMetadata());
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createAipingGenerateParams({
+      sourceImage: PNG_DATA_URL,
+      modelName: 'Qwen-Image-Edit',
+    }));
+    assert.equal(result.ok, false);
+    const body = getRequestBody(calls);
+    assert.equal(body.model, 'Qwen-Image-Edit');
+    assert.equal(body.image, PNG_DATA_URL);
+    assert.equal(body.extra_body.provider.enable_image_base64, false);
+    assert.equal('images' in body, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Aiping 标准 URL 响应会下载到本地生成目录', async () => {
+  const homePath = createTempHome('miaos-aiping-success-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse(request) {
+        if (request.options.path === '/api/v1/images/generations') {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              created: 1,
+              data: [{ url: 'https://cdn.aiping.test/result.png' }],
+              provider: 'Aiping',
+              model: 'Qwen-Image',
+            }),
+          };
+        }
+        if (request.url === 'https://cdn.aiping.test/result.png') {
+          return { statusCode: 200, body: PNG_BYTES };
+        }
+        return { statusCode: 500, body: JSON.stringify({ error: 'unexpected request' }) };
+      },
+    });
+    await seedProvider(calls, createAipingMetadata());
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createAipingGenerateParams());
+    assert.equal(result.ok, true);
+    assert.equal(fs.existsSync(result.imagePath), true);
+    assert.deepEqual(fs.readFileSync(result.imagePath), PNG_BYTES);
+    assert.match(result.fileUrl, /^file:\/\//u);
+    assert.equal(calls.networkRequests.length, 2);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Aiping 连接测试使用强制鉴权的余额接口，而不是公开模型列表', async () => {
+  const homePath = createTempHome('miaos-aiping-auth-test-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 200,
+        body: JSON.stringify({
+          code: 0,
+          msg: 'OK',
+          data: { gift_remain: 10, recharge_remain: 90, total_remain: 100 },
+        }),
+      },
+    });
+    await seedProvider(calls, createAipingMetadata(), 'valid-aiping-key');
+
+    const result = await calls.ipcHandlers['test-connection'](trustedEvent(), { providerId: 'p_aiping' });
+    assert.equal(result.ok, true);
+    assert.equal(result.message, '认证成功，当前余额 100 元');
+    assert.equal(calls.networkRequests.length, 1);
+    assert.equal(calls.networkRequests[0].options.path, '/api/v1/user/remain/points');
+    assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer valid-aiping-key');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Aiping 随机 Key 即使公开模型接口可访问也必须认证失败', async () => {
+  const homePath = createTempHome('miaos-aiping-invalid-key-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse(request) {
+        if (request.options.path === '/api/v1/models') {
+          return { statusCode: 200, body: JSON.stringify({ object: 'list', data: [] }) };
+        }
+        return { statusCode: 401, body: JSON.stringify({ error: { message: 'invalid api key' } }) };
+      },
+    });
+
+    const result = await calls.ipcHandlers['test-connection'](trustedEvent(), {
+      type: 'aiping',
+      endpoint: 'https://aiping.cn/api/v1',
+      apiKeyOverride: 'random-invalid-key',
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'AUTH_FAILED');
+    assert.equal(calls.networkRequests.length, 1);
+    assert.equal(calls.networkRequests[0].options.path, '/api/v1/user/remain/points');
+    assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer random-invalid-key');
+  } finally {
     cleanupTempHome(homePath);
   }
 });

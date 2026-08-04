@@ -21,6 +21,7 @@ const { createImageDecoder } = require('./src/main/security/image-decoder');
 const { createSecretsVault } = require('./src/main/secrets-vault');
 const { assertProviderId } = require('./src/main/provider-id');
 const { getRuntimeSecurityConfig } = require('./src/main/runtime-security');
+const { buildAipingImageRequest } = require('./src/main/services/aiping-image-adapter');
 const crypto = require('crypto');
 
 let mainWindow = null;
@@ -642,6 +643,25 @@ registerSecureHandler({
     const headers = {};
     if (trustedProvider.apiKey) headers.Authorization = `Bearer ${trustedProvider.apiKey}`;
 
+    if (String(trustedProvider.type).toLowerCase() === 'aiping') {
+      if (!trustedProvider.apiKey) throw new Error('请填写 Aiping API Key');
+      const result = await requestJson({
+        url: buildAipingBalanceUrl(trustedProvider.endpoint),
+        method: 'GET',
+        headers,
+        timeoutMs: 8000,
+      });
+      const payload = result.data;
+      const balance = Number(payload?.data?.total_remain);
+      if (payload?.code !== 0 || !Number.isFinite(balance)) {
+        throw new Error('Aiping API Key 验证失败：余额接口返回异常');
+      }
+      const formattedBalance = Number.isInteger(balance)
+        ? String(balance)
+        : balance.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+      return { ok: true, status: result.status, message: `认证成功，当前余额 ${formattedBalance} 元` };
+    }
+
     if (String(trustedProvider.type).toLowerCase() === 'grsai') {
       const result = await requestJson({
         url: trustedProvider.endpoint,
@@ -747,6 +767,23 @@ function buildModelsUrl(endpoint) {
     }
   }
   u.pathname = path;
+  return u.toString();
+}
+
+// Aiping 的模型列表是公开接口；连接测试必须改用强制 Bearer 鉴权的余额查询接口。
+function buildAipingBalanceUrl(endpoint) {
+  const u = new URL(endpoint);
+  const path = u.pathname.replace(/\/+$/, '');
+  const apiV1Index = path.toLowerCase().indexOf('/api/v1');
+  if (apiV1Index >= 0) {
+    u.pathname = path.slice(0, apiV1Index) + '/api/v1/user/remain/points';
+  } else if (/\/v1$/i.test(path)) {
+    u.pathname = path + '/user/remain/points';
+  } else {
+    u.pathname = path + '/api/v1/user/remain/points';
+  }
+  u.search = '';
+  u.hash = '';
   return u.toString();
 }
 
@@ -907,6 +944,46 @@ async function generateWithOpenAI({ prompt, model, size, providerType }) {
   return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
 }
 
+// ===== Aiping 生图：使用 OpenAI 标准端点，但按平台文档传递调度参数与顶层参考图。 =====
+async function generateWithAiping({ prompt, model, size, ratio, quality, sourceImage }) {
+  const headers = {};
+  if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+
+  const body = buildAipingImageRequest({
+    modelId: model.model,
+    prompt,
+    size,
+    ratio,
+    quality,
+    sourceImage,
+  });
+
+  const result = await requestJson({
+    url: model.endpoint,
+    method: 'POST',
+    headers,
+    body,
+    timeoutMs: 180000,
+  });
+
+  const item = result?.data?.data?.[0];
+  if (!item) throw new Error('Aiping 返回格式不正确：未找到图片数据');
+
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  let source = null;
+  if (item.url) {
+    source = item.url;
+  } else if (item.b64_json) {
+    const prefix = /^data:image\//.test(item.b64_json) ? '' : 'data:image/png;base64,';
+    source = prefix + item.b64_json;
+  } else {
+    throw new Error('Aiping 返回中未找到 url 或 b64_json 字段');
+  }
+
+  const filePath = await saveGeneratedImage(source, id);
+  return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
+}
+
 // ===== Agnes-ai 图生图 =====
 async function generateWithAgnesImage({ prompt, model, size, sourceImage }) {
   const headers = {};
@@ -978,6 +1055,31 @@ const KNOWN_MODELS = {
       { id: 'agnes-video-v2.0', name: 'Agnes Video V2.0' },
     ],
   },
+  aiping: {
+    image: [
+      { id: 'Qwen-Image', name: 'Qwen-Image' },
+      { id: 'Qwen-Image-Edit', name: 'Qwen-Image-Edit' },
+      { id: 'HunyuanImage-3.0', name: 'HunyuanImage-3.0' },
+      { id: '即梦文生图 3.0', name: '即梦文生图 3.0' },
+      { id: '即梦文生图 3.1', name: '即梦文生图 3.1' },
+      { id: 'Doubao-Seedream-4.0', name: 'Doubao-Seedream-4.0' },
+      { id: 'Kling-V2.1', name: 'Kling-V2.1' },
+      { id: 'Kling-V1', name: 'Kling-V1' },
+      { id: 'glm-image', name: 'glm-image' },
+      { id: 'Doubao-Seedream-5.0-lite', name: 'Doubao-Seedream-5.0-lite' },
+      { id: 'Doubao-Seedream-4.5', name: 'Doubao-Seedream-4.5' },
+      { id: '即梦图片生成 4.0', name: '即梦图片生成 4.0' },
+      { id: 'Kolors', name: 'Kolors' },
+      { id: 'Qwen-Image-Plus', name: 'Qwen-Image-Plus' },
+      { id: 'Qwen-Image-Edit-Plus', name: 'Qwen-Image-Edit-Plus' },
+      { id: 'Wan2.5-T2I-Preview', name: 'Wan2.5-T2I-Preview' },
+      { id: 'Wan2.5-I2I-Preview', name: 'Wan2.5-I2I-Preview' },
+    ],
+    text: [
+      { id: 'DeepSeek-V3.1', name: 'DeepSeek-V3.1' },
+      { id: 'DeepSeek-R1-0528', name: 'DeepSeek-R1-0528' },
+    ],
+  },
   deepseek: {
     text: [
       { id: 'deepseek-chat', name: 'DeepSeek Chat (V3)' },
@@ -1027,11 +1129,14 @@ registerSecureHandler({
   }
 
   let models = data.data
-    .filter((m) => m && m.id)
+    .filter((m) => m && m.id && m.status !== false)
     .map((m) => ({ id: m.id, name: m.id }));
 
   // 按分类过滤
-  if (cat === 'image') {
+  if (ptype === 'aiping') {
+    const availableIds = new Set(models.map((model) => model.id));
+    models = (KNOWN_MODELS.aiping[cat] || []).filter((model) => availableIds.has(model.id));
+  } else if (cat === 'image') {
     models = models.filter((m) => m.id.includes('image'));
   } else if (cat === 'video') {
     models = models.filter((m) => m.id.includes('video'));
@@ -1074,10 +1179,10 @@ registerSecureHandler({
     return await generateWithGrsai({ prompt, model, ratio, sourceImage: sourceImageDataUrl });
   }
 
-  // agnes-ai / OpenAI 兼容：构造 images/generations 端点
+  // Aiping / Agnes AI / OpenAI 兼容：构造 images/generations 端点。
   let imageEndpoint = endpoint;
-  if (ptype === 'agnes-ai') {
-    // agnes-ai: base URL (如 https://apihub.agnes-ai.com/v1) → /v1/images/generations
+  if (ptype === 'agnes-ai' || ptype === 'aiping') {
+    // 内置平台使用 base URL，统一补充 /images/generations。
     imageEndpoint = endpoint.replace(/\/+$/, '');
     if (!/\/images\/generations$/i.test(imageEndpoint)) {
       imageEndpoint = imageEndpoint + '/images/generations';
@@ -1096,6 +1201,10 @@ registerSecureHandler({
   }
 
   const model = { endpoint: imageEndpoint, apiKey, model: modelName, provider: provider || '' };
+
+  if (ptype === 'aiping') {
+    return await generateWithAiping({ prompt, model, size, ratio, quality, sourceImage: sourceImageDataUrl });
+  }
 
   if (sourceImageDataUrl && ptype !== 'grsai') {
     // agnes-ai 支持图生图，通过 extra_body.image 传入

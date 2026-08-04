@@ -91,6 +91,11 @@ export function createProjectGalleryController(dependencies) {
   const onClick = async (event) => {
     if (disposed) return;
     const target = event.target;
+    const retryButton = target.closest?.('.task-retry');
+    if (retryButton) {
+      if (queueApi.retry(retryButton.getAttribute('data-task-id'))) showToast?.('已重新加入生成队列', 'info');
+      return;
+    }
     const failureDetailButton = target.closest?.('.task-failure-detail');
     if (failureDetailButton) {
       onOpenTaskFailure?.(failureDetailButton.getAttribute('data-task-id'));
@@ -359,7 +364,10 @@ export function renderProject(container, params, routeOptions = {}) {
             </div>
             <div class="gallery-item-meta">
               <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
-              <button type="button" class="btn btn-ghost btn-sm task-failure-detail" data-task-id="${t.id}" title="查看失败详情">${icon('alert-circle', 13)}<span>查看失败详情</span></button>
+              <div class="task-failure-actions">
+                <button type="button" class="btn btn-ghost btn-sm task-retry" data-task-id="${t.id}" title="再次生成">${icon('refresh-cw', 13)}<span>再次生成</span></button>
+                <button type="button" class="btn btn-ghost btn-sm task-failure-detail" data-task-id="${t.id}" title="查看失败详情">${icon('alert-circle', 13)}<span>失败详情</span></button>
+              </div>
               <button type="button" class="icon-btn task-dismiss" data-task-id="${t.id}" title="移除">${icon('x', 13)}</button>
             </div>
           </div>`;

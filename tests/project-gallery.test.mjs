@@ -59,13 +59,14 @@ class FakeElement {
 function createTaskCard({ taskId, type }) {
   const isCancel = type === 'cancel';
   const isFailureDetail = type === 'failure-detail';
+  const isRetry = type === 'retry';
   const card = new FakeElement({
     classes: ['gallery-item', 'gallery-placeholder', isCancel ? 'task-queued' : 'task-failed'],
     attributes: { 'data-task-id': taskId },
   });
   const button = new FakeElement({
     tagName: 'button',
-    classes: [isCancel ? 'task-cancel' : (isFailureDetail ? 'task-failure-detail' : 'task-dismiss')],
+    classes: [isCancel ? 'task-cancel' : (isFailureDetail ? 'task-failure-detail' : (isRetry ? 'task-retry' : 'task-dismiss'))],
     attributes: { 'data-task-id': taskId },
   });
   const icon = new FakeElement({ tagName: 'svg' });
@@ -99,12 +100,14 @@ test('项目画廊控制器使用真实卡片结构处理取消、移除、确�
     const galleryGrid = new FakeElement();
   const cancelTask = createTaskCard({ taskId: 'task-queued', type: 'cancel' });
   const dismissTask = createTaskCard({ taskId: 'task-failed', type: 'dismiss' });
+  const retryTask = createTaskCard({ taskId: 'task-retry', type: 'retry' });
   const image = createImageCard('image-1');
   galleryGrid.appendChild(cancelTask.card);
   galleryGrid.appendChild(dismissTask.card);
+  galleryGrid.appendChild(retryTask.card);
   galleryGrid.appendChild(image.card);
 
-  const calls = { cancel: [], remove: [], delete: [], refresh: 0, confirm: 0 };
+  const calls = { cancel: [], retry: [], remove: [], delete: [], refresh: 0, confirm: 0 };
   const confirmations = [true, false];
   const current = {
     project: { id: 'project-1' },
@@ -114,6 +117,7 @@ test('项目画廊控制器使用真实卡片结构处理取消、移除、确�
     galleryGrid,
     queueApi: {
       cancel: (taskId) => calls.cancel.push(taskId),
+      retry: (taskId) => { calls.retry.push(taskId); return true; },
       removeTask: (taskId) => calls.remove.push(taskId),
     },
     getCurrentVersion: () => current,
@@ -131,14 +135,16 @@ test('项目画廊控制器使用真实卡片结构处理取消、移除、确�
   assert.equal(galleryGrid.listenerCount('click'), 1);
 
   // 模拟稳定 key 局部更新后的重排；保留旧卡片节点并确保没有重复注册委托 listener。
-  galleryGrid.children = [image.card, dismissTask.card, cancelTask.card];
+  galleryGrid.children = [image.card, dismissTask.card, retryTask.card, cancelTask.card];
   await galleryGrid.dispatchClick(cancelTask.icon);
   await galleryGrid.dispatchClick(dismissTask.icon);
+  await galleryGrid.dispatchClick(retryTask.icon);
   await galleryGrid.dispatchClick(image.icon);
   await galleryGrid.dispatchClick(image.icon);
 
   assert.deepEqual(calls.cancel, ['task-queued']);
   assert.deepEqual(calls.remove, ['task-failed']);
+  assert.deepEqual(calls.retry, ['task-retry']);
   assert.deepEqual(calls.delete, [['project-1', 'version-1', 'image-1']]);
   assert.equal(calls.refresh, 1);
   assert.equal(calls.confirm, 2);
@@ -172,7 +178,7 @@ test('项目画廊委托失败详情操作，并把目标任务交给详情弹�
     const openedTaskIds = [];
     const controller = createProjectGalleryController({
       galleryGrid,
-      queueApi: { cancel() {}, removeTask() {} },
+      queueApi: { cancel() {}, retry() {}, removeTask() {} },
       getCurrentVersion: () => null,
       confirmDialog: async () => true,
       deleteImage() {},
