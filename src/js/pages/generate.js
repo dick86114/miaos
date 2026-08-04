@@ -61,6 +61,12 @@ export function createPromptOptimizationPageBinding({
     return overlay;
   }
 
+  function settleOverlay(prompt) {
+    const settledOverlay = ensureOverlay(prompt);
+    overlay = null;
+    settledOverlay.settle();
+  }
+
   function applyState(state) {
     if (destroyed) return;
 
@@ -74,7 +80,7 @@ export function createPromptOptimizationPageBinding({
     setOptimizingUi(false);
     if (state.status === 'idle') return;
 
-    ensureOverlay(state.prompt).settle();
+    settleOverlay(state.prompt);
     if (state.status === 'succeeded') {
       textarea.value = String(state.result ?? '');
       toastFn('提示词已优化', 'success', { key: feedbackKey });

@@ -138,6 +138,40 @@ test('快速页离开后重新挂载会恢复共享 optimizing 状态且重复�
   remountedView.binding.destroy();
 });
 
+test('同一页面连续优化会在成功和失败结算后重新创建并挂载碎片层', async () => {
+  const firstDeferred = createDeferred();
+  const secondDeferred = createDeferred();
+  const thirdDeferred = createDeferred();
+  const pending = [firstDeferred, secondDeferred, thirdDeferred];
+  const manager = createPromptOptimizationManager({
+    optimize: () => pending.shift().promise,
+  });
+  const view = createBinding({ manager, context: 'quick' });
+
+  const first = view.binding.start('第一轮');
+  firstDeferred.resolve('第一轮结果');
+  await first.promise;
+  assert.equal(view.overlays.length, 1);
+  assert.equal(view.overlays[0].settled, 1);
+
+  const second = view.binding.start('第二轮');
+  assert.equal(view.overlays.length, 2, '成功结算后的下一轮必须创建新的 overlay');
+  assert.equal(view.overlays[1].mounted, 1, '新的 overlay 必须重新挂载碎片层');
+  const error = new Error('第二轮失败');
+  secondDeferred.reject(error);
+  await assert.rejects(second.promise, error);
+  assert.equal(view.overlays[1].settled, 1);
+
+  const third = view.binding.start('第三轮');
+  assert.equal(view.overlays.length, 3, '失败结算后的下一轮也必须创建新的 overlay');
+  assert.equal(view.overlays[2].mounted, 1);
+  thirdDeferred.resolve('第三轮结果');
+  await third.promise;
+  assert.equal(view.overlays[2].settled, 1);
+
+  view.binding.destroy();
+});
+
 test('项目页离开期间失败后重新挂载会显示错误并恢复编辑', async () => {
   const deferred = createDeferred();
   const manager = createPromptOptimizationManager({ optimize: () => deferred.promise });
