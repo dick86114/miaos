@@ -49,7 +49,7 @@ test('侧边栏四项文案使用统一生成历史的信息架构，路由键�
 
   assert.match(html, /data-nav-key="generate"[\s\S]*?<span class="nav-label">快速生图<\/span>/);
   assert.match(html, /data-nav-key="projects"[\s\S]*?<span class="nav-label">我的项目<\/span>/);
-  assert.match(html, /data-nav-key="history"[\s\S]*?<span class="nav-label">历史记录<\/span>/);
+  assert.match(html, /data-nav-key="history"[\s\S]*?<span class="nav-label">统计查询<\/span>/);
   assert.match(html, /data-nav-key="settings"[\s\S]*?<span class="nav-label">系统设置<\/span>/);
 });
 

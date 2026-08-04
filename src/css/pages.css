@@ -3272,3 +3272,259 @@ i[data-lucide="loader"] {
 }
 .segmented-item.is-active:hover { background: var(--brand-600); color: var(--brand-ink); }
 .segmented-item i { display: inline-flex; align-items: center; }
+
+/* 侧边栏折叠按钮 */
+.sidebar-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 8px 0;
+  margin-top: 4px;
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-radius: var(--r-md);
+  transition: background-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
+}
+.sidebar-collapse-btn:hover { background: var(--surface-2); color: var(--ink); }
+
+/* 侧边栏折叠态 */
+.sidebar.is-collapsed {
+  width: 60px;
+  padding: 16px 8px;
+}
+.sidebar.is-collapsed .sidebar-logo .logo-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  margin-bottom: 4px;
+}
+.sidebar.is-collapsed .sidebar-logo .logo-name,
+.sidebar.is-collapsed .sidebar-item .nav-label,
+.sidebar.is-collapsed .sidebar-footer { display: none; }
+.sidebar.is-collapsed .sidebar-logo { justify-content: center; padding: 0 0 16px; }
+.sidebar.is-collapsed .sidebar-item { justify-content: center; padding: 10px; }
+.sidebar.is-collapsed .sidebar-collapse-btn { display: none; }
+
+/* 折叠态下显示展开按钮（在主内容区顶部） */
+.sidebar-expand-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  transition: background-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.sidebar-expand-btn:hover { background: var(--surface-2); color: var(--ink); }
+body[data-sidebar="collapsed"] .sidebar-expand-btn { display: flex; }
+
+/* ===== 历史页 Tab 切换 ===== */
+.history-page { display: flex; flex-direction: column; gap: 18px; }
+.history-page-tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+  padding: 3px;
+}
+.history-page-tabs .settings-tab {
+  flex: 1;
+  border-radius: var(--r-sm);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
+}
+.history-page-tabs .settings-tab:hover { background: rgba(255,255,255,0.06); color: var(--ink); }
+.history-page-tabs .settings-tab.is-active { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1); }
+.history-page-tabs .settings-tab[hidden] { display: none; }
+
+/* ===== 筛选区域 ===== */
+.history-filter-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.history-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.history-filter-row .search-box { flex: 1 1 240px; }
+.history-filter-row .history-source-filter {
+  min-height: 32px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-family: var(--font-sans);
+}
+.history-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ===== 统计概览卡片 ===== */
+.stats-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stats-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 16px;
+  text-align: center;
+}
+.stats-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.stats-card-label {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 4px;
+}
+
+/* ===== 统计区块 ===== */
+.stats-section { margin-bottom: 20px; }
+.stats-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 柱状图 */
+.stats-bar-chart { display: flex; flex-direction: column; gap: 8px; }
+.stats-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stats-bar-label {
+  flex: 0 0 120px;
+  font-size: 12px;
+  color: var(--ink-2);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stats-bar-track {
+  flex: 1;
+  height: 20px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.stats-bar-fill {
+  height: 100%;
+  background: var(--brand);
+  border-radius: var(--r-sm);
+  min-width: 2px;
+}
+.stats-bar-count {
+  flex: 0 0 36px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+}
+
+/* 常用提示词 */
+.stats-prompt-list { display: flex; flex-direction: column; gap: 6px; }
+.stats-prompt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.stats-prompt-text {
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 80%;
+}
+.stats-prompt-count {
+  font-size: 12px;
+  color: var(--brand);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.stats-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* 热力图 */
+.heatmap-container {
+  display: flex;
+  gap: 8px;
+  padding: 12px 0;
+}
+.heatmap-labels {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.heatmap-dow-label {
+  width: 20px;
+  height: 14px;
+  font-size: 10px;
+  color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.heatmap-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.heatmap-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  cursor: default;
+  flex-shrink: 0;
+}
+.heatmap-cell:hover { outline: 2px solid var(--ink-3); outline-offset: 1px; }

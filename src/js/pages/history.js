@@ -116,40 +116,53 @@ export function createHistoryPageController(dependencies = {}) {
 export function renderHistory(container) {
   const root = htmlToElement(`
     <div class="history-page">
-      <div class="history-header">
-        <div>
-          <h1 class="history-title">历史记录</h1>
-          <p class="history-subtitle">查看快速生图和项目生图的全部结果</p>
-        </div>
-        <div class="history-toolbar">
-          <div class="search-box">
-            ${icon('search', 14)}
-            <input type="search" class="search-input" id="history-search-input" placeholder="搜索提示词、模型或项目…" aria-label="搜索历史记录" />
+      <div class="history-page-tabs">
+        <button class="settings-tab is-active" data-history-tab="query">
+          ${icon('search', 16)}<span>查询历史记录</span>
+        </button>
+        <button class="settings-tab" data-history-tab="stats">
+          ${icon('bar-chart-2', 16)}<span>统计分析</span>
+        </button>
+      </div>
+
+      <div class="history-tab-content" id="history-tab-query">
+        <div class="history-filter-section">
+          <div class="history-filter-row">
+            <div class="search-box">
+              ${icon('search', 14)}
+              <input type="search" class="search-input" id="history-search-input" placeholder="搜索提示词、模型或项目…" aria-label="搜索历史记录" />
+            </div>
+            <select class="history-source-filter" id="history-source-filter" aria-label="筛选历史来源">
+              <option value="all">全部来源</option>
+              <option value="quick">快速生图</option>
+              <option value="project">项目生图</option>
+            </select>
+            <select class="history-source-filter" id="history-project-filter" aria-label="筛选项目" hidden>
+              <option value="">全部项目</option>
+            </select>
           </div>
-          <select class="history-source-filter" id="history-source-filter" aria-label="筛选历史来源">
-            <option value="all">全部来源</option>
-            <option value="quick">快速生图</option>
-            <option value="project">项目生图</option>
-          </select>
-          <select class="history-source-filter" id="history-project-filter" aria-label="筛选项目" hidden>
-            <option value="">全部项目</option>
-          </select>
-          <button type="button" class="text-btn" id="history-batch-toggle">${icon('check-square', 14)}<span>批量管理</span></button>
+          <div class="history-filter-actions">
+            <button type="button" class="text-btn" id="history-batch-toggle">${icon('check-square', 14)}<span>批量管理</span></button>
+          </div>
+        </div>
+        <div id="history-list">
+          <div class="history-grid gallery-grid" data-history-grid></div>
+          <div class="history-empty" data-history-empty hidden>
+            ${icon('image', 40)}
+            <span data-history-empty-text>还没有生成记录</span>
+          </div>
+          <div class="history-pagination" data-history-pagination hidden>
+            <button class="btn btn-ghost btn-sm" type="button" data-history-page="previous">${icon('chevron-left', 14)}<span>上一页</span></button>
+            <span class="history-page-label" data-history-page-label></span>
+            <button class="btn btn-ghost btn-sm" type="button" data-history-page="next"><span>下一页</span>${icon('chevron-right', 14)}</button>
+          </div>
         </div>
       </div>
-      <div id="history-list">
-        <div class="history-grid gallery-grid" data-history-grid></div>
-        <div class="history-empty" data-history-empty hidden>
-          ${icon('image', 40)}
-          <span data-history-empty-text></span>
-          <button class="btn btn-primary" type="button" data-history-go-generate>${icon('sparkles', 16)}<span>去快速生图</span></button>
-        </div>
-        <div class="history-pagination" data-history-pagination hidden>
-          <button class="btn btn-ghost btn-sm" type="button" data-history-page="previous">${icon('chevron-left', 14)}<span>上一页</span></button>
-          <span class="history-page-label" data-history-page-label></span>
-          <button class="btn btn-ghost btn-sm" type="button" data-history-page="next"><span>下一页</span>${icon('chevron-right', 14)}</button>
-        </div>
+
+      <div class="history-tab-content" id="history-tab-stats" hidden>
+        <div id="stats-content"></div>
       </div>
+
       <div class="history-batch-bar" data-history-batch-bar hidden>
         <span data-history-selected-count>已选择 0 张</span>
         <div class="history-batch-actions">
@@ -221,8 +234,8 @@ export function renderHistory(container) {
     emptyState.hidden = !isEmpty;
     emptyText.textContent = state.query || state.source !== 'all' || state.projectId
       ? '没有匹配的历史记录'
-      : '还没有生成记录，去快速生图页创建第一张吧';
-    root.querySelector('[data-history-go-generate]').hidden = Boolean(state.query || state.source !== 'all' || state.projectId);
+      : '还没有生成记录';
+    // 去掉了引导按钮，无需控制隐藏
 
     pagination.hidden = isEmpty || pageData.totalPages <= 1;
     pageLabel.textContent = `第 ${pageData.page} / ${pageData.totalPages} 页 · 共 ${pageData.total} 张`;
@@ -265,6 +278,24 @@ export function renderHistory(container) {
     return controller.getPage().items.find((item) => item.key === key) || null;
   }
 
+
+  // Tab 切换
+  let currentTab = 'query';
+  const historyTabs = root.querySelectorAll('[data-history-tab]');
+  const tabQuery = root.querySelector('#history-tab-query');
+  const tabStats = root.querySelector('#history-tab-stats');
+  const statsContent = root.querySelector('#stats-content');
+
+  historyTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      currentTab = tab.getAttribute('data-history-tab');
+      historyTabs.forEach((t) => t.classList.toggle('is-active', t.getAttribute('data-history-tab') === currentTab));
+      tabQuery.hidden = currentTab !== 'query';
+      tabStats.hidden = currentTab !== 'stats';
+      if (currentTab === 'stats') renderStats();
+    });
+  });
+
   searchInput.addEventListener('input', () => {
     controller.setFilters({ query: searchInput.value });
     renderView();
@@ -283,10 +314,7 @@ export function renderHistory(container) {
   });
 
   listEl.addEventListener('click', async (event) => {
-    if (event.target.closest?.('[data-history-go-generate]')) {
-      navigate('/generate');
-      return;
-    }
+    // 去掉了引导按钮
     const pageButton = event.target.closest?.('[data-history-page]');
     if (pageButton) {
       const currentPage = controller.getState().page;
@@ -379,6 +407,136 @@ export function createHistoryCardHtml(item, batchMode = false, selectedItems = [
         <span class="gallery-item-meta-time">${formatRelativeTime(item.createdAt)}</span>
       </div>
     </article>`;
+}
+
+
+function renderStats() {
+  const history = getHistory();
+  const projects = getProjects();
+  const allItems = [
+    ...history.map((r) => ({ ...r, source: 'quick', modelName: r.model || '' })),
+    ...projects.flatMap((p) => (p.versions || []).flatMap((v) => (v.images || []).map((img) => ({
+      ...img,
+      source: 'project',
+      modelName: img.model || v.modelId || '',
+      prompt: img.prompt || v.prompt || '',
+      projectName: p.name,
+      createdAt: img.createdAt || 0,
+    })))),
+  ];
+  const stats = root.querySelector('#stats-content');
+  if (!stats) return;
+
+  // 模型统计
+  const modelCounts = {};
+  allItems.forEach((item) => {
+    const name = item.modelName || '未知模型';
+    modelCounts[name] = (modelCounts[name] || 0) + 1;
+  });
+  const modelEntries = Object.entries(modelCounts).sort((a, b) => b[1] - a[1]);
+  const maxModelCount = modelEntries.length > 0 ? modelEntries[0][1] : 1;
+
+  // 来源统计
+  const quickCount = allItems.filter((i) => i.source === 'quick').length;
+  const projectCount = allItems.filter((i) => i.source === 'project').length;
+
+  // 提示词统计
+  const promptCounts = {};
+  allItems.forEach((item) => {
+    const p = (item.prompt || '').trim().slice(0, 30);
+    if (p) promptCounts[p] = (promptCounts[p] || 0) + 1;
+  });
+  const topPrompts = Object.entries(promptCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+
+  // 热力图（最近 15 周）
+  const now = Date.now();
+  const dayMs = 86400000;
+  const startDay = new Date(now);
+  startDay.setDate(startDay.getDate() - 15 * 7 + 1);
+  startDay.setHours(0, 0, 0, 0);
+  const startTs = startDay.getTime();
+  const dailyCounts = {};
+  allItems.forEach((item) => {
+    const day = Math.floor((item.createdAt - startTs) / dayMs);
+    if (day >= 0) dailyCounts[day] = (dailyCounts[day] || 0) + 1;
+  });
+  const maxDailyCount = Math.max(1, ...Object.values(dailyCounts));
+
+  // 热力图格子 HTML
+  let heatmapHtml = '';
+  for (let week = 0; week < 15; week++) {
+    for (let dow = 0; dow < 7; dow++) {
+      const day = week * 7 + dow;
+      const count = dailyCounts[day] || 0;
+      const opacity = count > 0 ? Math.max(0.15, count / maxDailyCount) : 0.04;
+      const date = new Date(startTs + day * dayMs);
+      const label = `${date.getMonth() + 1}/${date.getDate()}：${count} 张`;
+      heatmapHtml += `<div class="heatmap-cell" title="${label}" style="background: var(--brand); opacity: ${opacity}"></div>`;
+    }
+  }
+
+  // 星期标签
+  const dowLabels = ['一', '三', '五', '日'];
+
+  stats.innerHTML = `
+    <div class="stats-summary-cards">
+      <div class="stats-card">
+        <div class="stats-card-value">${allItems.length}</div>
+        <div class="stats-card-label">总生成量</div>
+      </div>
+      <div class="stats-card">
+        <div class="stats-card-value">${quickCount}</div>
+        <div class="stats-card-label">快速生图</div>
+      </div>
+      <div class="stats-card">
+        <div class="stats-card-value">${projectCount}</div>
+        <div class="stats-card-label">项目生图</div>
+      </div>
+      <div class="stats-card">
+        <div class="stats-card-value">${modelEntries.length}</div>
+        <div class="stats-card-label">使用模型数</div>
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <h3 class="stats-section-title">模型生图数量</h3>
+      <div class="stats-bar-chart">
+        ${modelEntries.slice(0, 6).map(([name, count]) => `
+          <div class="stats-bar-row">
+            <span class="stats-bar-label" title="${name}">${name.length > 16 ? name.slice(0, 16) + '…' : name}</span>
+            <div class="stats-bar-track">
+              <div class="stats-bar-fill" style="width: ${(count / maxModelCount) * 100}%"></div>
+            </div>
+            <span class="stats-bar-count">${count}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <h3 class="stats-section-title">常用提示词</h3>
+      <div class="stats-prompt-list">
+        ${topPrompts.length > 0 ? topPrompts.map(([prompt, count]) => `
+          <div class="stats-prompt-item">
+            <span class="stats-prompt-text" title="${prompt}">${prompt}${prompt.length >= 30 ? '…' : ''}</span>
+            <span class="stats-prompt-count">${count} 次</span>
+          </div>
+        `).join('') : '<div class="stats-empty">暂无提示词数据</div>'}
+      </div>
+    </div>
+
+    <div class="stats-section">
+      <h3 class="stats-section-title">生图频率（近 15 周）</h3>
+      <div class="heatmap-container">
+        <div class="heatmap-labels">
+          ${dowLabels.map((l) => `<div class="heatmap-dow-label">${l}</div>`).join('')}
+        </div>
+        <div class="heatmap-grid">
+          ${heatmapHtml}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function navigateToProject(record) {
