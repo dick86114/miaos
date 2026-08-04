@@ -353,14 +353,13 @@ function isSafeReducedMotionAnimationDeclaration(rule, declaration) {
   ].includes(selector);
 
   if (declaration.property !== 'animation' || declaration.value !== 'none !important') return false;
+  if (selector === '.composer-wave-bar::before') {
+    return rule.declarations.some(({ property, value }) => property === 'transform' && value === 'translateX(0)');
+  }
   if (isParticleLayer) {
     return rule.declarations.some(({ property, value }) => property === 'opacity' && value === '1');
   }
   return isParticleDecoration;
-}
-
-function isRetiredComposerWaveRule(rule) {
-  return isReduceMotionRule(rule) && getRuleSelector(rule) === '.composer-wave-bar::before';
 }
 
 function getReducedMotionOverrideProblems(rules) {
@@ -372,7 +371,7 @@ function getReducedMotionOverrideProblems(rules) {
   ]);
 
   for (const rule of rules) {
-    if (!isReduceMotionRule(rule) || isRetiredComposerWaveRule(rule)) continue;
+    if (!isReduceMotionRule(rule)) continue;
     for (const declaration of rule.declarations) {
       if (!protectedProperties.has(declaration.property)) continue;
       const isSafeGlobalTransition = isGlobalReduceMotionRule(rule) && (
@@ -430,7 +429,6 @@ function getAnimationProblems(rules, keyframeNames) {
   const problems = [];
 
   for (const rule of rules) {
-    if (isRetiredComposerWaveRule(rule)) continue;
     const animationDeclarations = rule.declarations
       .filter(({ property }) => property === 'animation' || animationLonghandProperties.has(property))
       .filter((declaration) => !isSafeReducedMotionAnimationDeclaration(rule, declaration));
@@ -642,6 +640,39 @@ test('减少动态效果容器只保留明确安全的动画与过渡覆盖', as
   });
 
   assert.deepEqual(getReducedMotionOverrideProblems(rules), []);
+});
+
+test('旧波浪减少动态效果只豁免精确动画覆盖并保持其他门禁', () => {
+  const validCss = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      .composer-wave-bar::before {
+        animation: none !important;
+        transform: translateX(0);
+      }
+    }
+  `);
+  const validRules = getCssRules(validCss);
+  const validKeyframeNames = new Set(getKeyframes(validCss).map(({ name }) => name.toLowerCase()));
+
+  assert.deepEqual(getAnimationProblems(validRules, validKeyframeNames), []);
+  assert.deepEqual(getReducedMotionOverrideProblems(validRules), []);
+
+  const unsafeCss = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      .composer-wave-bar::before {
+        animation: none !important;
+        transform: translateX(0);
+        transition-duration: 1ms !important;
+        animation-duration: 1ms !important;
+      }
+    }
+  `);
+  const unsafeRules = getCssRules(unsafeCss);
+
+  assert.deepEqual(getReducedMotionOverrideProblems(unsafeRules), [
+    '.composer-wave-bar::before: reduced-motion 中存在未批准的 transition-duration',
+    '.composer-wave-bar::before: reduced-motion 中存在未批准的 animation-duration',
+  ]);
 });
 
 test('粒子减少动态效果白名单拒绝非粒子选择器与根层缺少可见性声明', () => {
