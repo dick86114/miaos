@@ -314,6 +314,12 @@ function getExactReducedMotionRule(rules, selector) {
   return rules.find((rule) => rule.header === selector && isReduceMotionRule(rule));
 }
 
+const particleReducedMotionChildSelectors = [
+  '.composer-particle-field.is-optimizing::before',
+  '.composer-particle-field.is-optimizing::after',
+  '.composer-particle-field.is-optimizing .composer-particle',
+];
+
 function assertParticleRootVisibleInReducedMotion(rules) {
   const rootRule = getExactReducedMotionRule(rules, '.composer-particle-field.is-optimizing');
   assert.notEqual(rootRule, undefined, '粒子效果必须提供精确的根层减少动态效果覆盖');
@@ -327,6 +333,28 @@ function assertParticleRootVisibleInReducedMotion(rules) {
     true,
     '粒子根层必须保持可见',
   );
+}
+
+function assertParticleChildAnimationsStoppedInReducedMotion(rules) {
+  for (const selector of particleReducedMotionChildSelectors) {
+    const childRule = getExactReducedMotionRule(rules, selector);
+    assert.notEqual(childRule, undefined, `粒子子层 ${selector} 必须提供精确的减少动态效果覆盖`);
+    assert.equal(
+      childRule.declarations.some(({ property, value }) => property === 'animation' && value === 'none !important'),
+      true,
+      `粒子子层 ${selector} 必须停止动画`,
+    );
+    assert.equal(
+      childRule.declarations.some(({ property, value }) => property === 'transform' && value === 'none'),
+      true,
+      `粒子子层 ${selector} 必须重置 transform: none`,
+    );
+  }
+}
+
+function assertParticleReducedMotionContract(rules) {
+  assertParticleRootVisibleInReducedMotion(rules);
+  assertParticleChildAnimationsStoppedInReducedMotion(rules);
 }
 
 function getAtRuleBlock(css, atRule) {
@@ -718,25 +746,71 @@ test('粒子减少动态效果白名单拒绝非粒子选择器与根层缺少�
   ]);
 });
 
-test('减少动态效果模式会停止粒子根层动画并保持粒子层可见', async () => {
+test('减少动态效果模式会精确停止粒子根层和三个子层动画', async () => {
   const pagesCss = stripCssComments(await readFile(path.join(cssDirectory, 'pages.css'), 'utf8'));
 
-  assertParticleRootVisibleInReducedMotion(getCssRules(pagesCss));
+  assertParticleReducedMotionContract(getCssRules(pagesCss));
 });
 
 test('减少动态效果模式不能用粒子伪元素规则伪造根层可见性', () => {
   const css = stripCssComments(`
     @media (prefers-reduced-motion: reduce) {
-      .composer-particle-field.is-optimizing::before { animation: none !important; }
-      .composer-particle-field.is-optimizing::after { animation: none !important; }
-      .composer-particle-field.is-optimizing .composer-particle { animation: none !important; }
+      .composer-particle-field.is-optimizing::before { animation: none !important; transform: none; }
+      .composer-particle-field.is-optimizing::after { animation: none !important; transform: none; }
+      .composer-particle-field.is-optimizing .composer-particle { animation: none !important; transform: none; }
     }
   `);
 
   assert.throws(
-    () => assertParticleRootVisibleInReducedMotion(getCssRules(css)),
+    () => assertParticleReducedMotionContract(getCssRules(css)),
     /根层减少动态效果覆盖/u,
     '只有伪元素或粒子规则时必须判定缺少根层规则',
+  );
+});
+
+test('减少动态效果模式不能用根层规则替代任一粒子子层', () => {
+  const css = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      .composer-particle-field.is-optimizing { animation: none !important; opacity: 1; }
+      .composer-particle-field.is-optimizing::before { animation: none !important; transform: none; }
+      .composer-particle-field.is-optimizing::after { animation: none !important; transform: none; }
+    }
+  `);
+
+  assert.throws(
+    () => assertParticleReducedMotionContract(getCssRules(css)),
+    /\.composer-particle-field\.is-optimizing \.composer-particle 必须提供精确/u,
+    '缺少任一粒子子层规则时不得仍通过减少动态效果契约',
+  );
+});
+
+test('减少动态效果模式要求每个粒子子层同时停止动画并重置变换', () => {
+  const missingTransformCss = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      .composer-particle-field.is-optimizing { animation: none !important; opacity: 1; }
+      .composer-particle-field.is-optimizing::before { animation: none !important; }
+      .composer-particle-field.is-optimizing::after { animation: none !important; transform: none; }
+      .composer-particle-field.is-optimizing .composer-particle { animation: none !important; transform: none; }
+    }
+  `);
+  const missingAnimationCss = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      .composer-particle-field.is-optimizing { animation: none !important; opacity: 1; }
+      .composer-particle-field.is-optimizing::before { animation: none !important; transform: none; }
+      .composer-particle-field.is-optimizing::after { transform: none; }
+      .composer-particle-field.is-optimizing .composer-particle { animation: none !important; transform: none; }
+    }
+  `);
+
+  assert.throws(
+    () => assertParticleReducedMotionContract(getCssRules(missingTransformCss)),
+    /::before 必须重置 transform: none/u,
+    '缺少 transform: none 时不得仍通过减少动态效果契约',
+  );
+  assert.throws(
+    () => assertParticleReducedMotionContract(getCssRules(missingAnimationCss)),
+    /::after 必须停止动画/u,
+    '缺少 animation: none !important 时不得仍通过减少动态效果契约',
   );
 });
 

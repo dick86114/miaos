@@ -6,10 +6,10 @@
 
 ## 自动化验证
 
-- `pnpm check`：已通过，Node 测试共 165 项，通过 165 项，失败 0 项。
+- `pnpm check`：已通过，Node 测试共 167 项，通过 167 项，失败 0 项。
 - 相关覆盖已纳入测试套件：
   - `tests/generate-ui-contract.test.mjs` 校验快速生成页与项目工作台均使用输入区内的粒子层、移除旧 `.composer-wave-bar`、在请求前激活粒子层，并保证粒子层位于文字下方且不拦截交互。
-  - `tests/motion-style.test.mjs` 校验粒子动画只使用允许的合成属性，并要求 `prefers-reduced-motion: reduce` 下粒子根层保持可见且所有粒子/伪元素动画停止。
+  - `tests/motion-style.test.mjs` 校验粒子动画只使用允许的合成属性；并通过精确 selector 契约要求 `prefers-reduced-motion: reduce` 下根层 `.composer-particle-field.is-optimizing` 同时具备 `animation: none !important` 与 `opacity: 1`，以及 `::before`、`::after` 和 `.composer-particle` 三个子层各自同时具备 `animation: none !important` 与 `transform: none`。这是静态源码契约，不等同于真实请求下的 GUI 验收。
 - 本次只读复审检查了两处优化生命周期：`src/js/pages/generate.js` 与 `src/js/pages/project.js` 都在调用 `optimizePrompt()` 前添加 `is-optimizing`，并在 `finally` 中移除按钮、输入框和粒子层状态；因此成功与捕获到的失败路径都具有清理代码。该结论是静态代码复审，不替代真实供应商请求下的 GUI 验收。
 
 ## 已完成的 GUI 检查
