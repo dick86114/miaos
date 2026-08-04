@@ -344,12 +344,23 @@ function isSafeReducedMotionAnimationDeclaration(rule, declaration) {
       || (declaration.property === 'animation-iteration-count' && declaration.value === '1 !important')
     );
   }
-  return (
-    getRuleSelector(rule) === '.composer-wave-bar::before'
-    && declaration.property === 'animation'
-    && declaration.value === 'none !important'
-    && rule.declarations.some(({ property, value }) => property === 'transform' && value === 'translateX(0)')
-  );
+  const selector = getRuleSelector(rule);
+  const isParticleLayer = selector === '.composer-particle-field.is-optimizing';
+  const isParticleDecoration = [
+    '.composer-particle-field.is-optimizing::before',
+    '.composer-particle-field.is-optimizing::after',
+    '.composer-particle-field.is-optimizing .composer-particle',
+  ].includes(selector);
+
+  if (declaration.property !== 'animation' || declaration.value !== 'none !important') return false;
+  if (isParticleLayer) {
+    return rule.declarations.some(({ property, value }) => property === 'opacity' && value === '1');
+  }
+  return isParticleDecoration;
+}
+
+function isRetiredComposerWaveRule(rule) {
+  return isReduceMotionRule(rule) && getRuleSelector(rule) === '.composer-wave-bar::before';
 }
 
 function getReducedMotionOverrideProblems(rules) {
@@ -361,7 +372,7 @@ function getReducedMotionOverrideProblems(rules) {
   ]);
 
   for (const rule of rules) {
-    if (!isReduceMotionRule(rule)) continue;
+    if (!isReduceMotionRule(rule) || isRetiredComposerWaveRule(rule)) continue;
     for (const declaration of rule.declarations) {
       if (!protectedProperties.has(declaration.property)) continue;
       const isSafeGlobalTransition = isGlobalReduceMotionRule(rule) && (
@@ -419,6 +430,7 @@ function getAnimationProblems(rules, keyframeNames) {
   const problems = [];
 
   for (const rule of rules) {
+    if (isRetiredComposerWaveRule(rule)) continue;
     const animationDeclarations = rule.declarations
       .filter(({ property }) => property === 'animation' || animationLonghandProperties.has(property))
       .filter((declaration) => !isSafeReducedMotionAnimationDeclaration(rule, declaration));
@@ -630,6 +642,30 @@ test('减少动态效果容器只保留明确安全的动画与过渡覆盖', as
   });
 
   assert.deepEqual(getReducedMotionOverrideProblems(rules), []);
+});
+
+test('粒子减少动态效果白名单拒绝非粒子选择器与根层缺少可见性声明', () => {
+  const css = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      .composer-particle-field.is-optimizing { animation: none !important; opacity: 1; }
+      .composer-particle-field.is-optimizing::before { animation: none !important; }
+      .composer-particle-field.is-optimizing::after { animation: none !important; }
+      .composer-particle-field.is-optimizing .composer-particle { animation: none !important; }
+      .missing-opacity { animation: none !important; }
+      .unexpected { animation: none !important; }
+    }
+  `);
+  const rules = getCssRules(css);
+  const keyframeNames = new Set(getKeyframes(css).map(({ name }) => name.toLowerCase()));
+
+  assert.deepEqual(getAnimationProblems(rules, keyframeNames), [
+    '.missing-opacity: animation: none 只能用于减少动态效果规则',
+    '.unexpected: animation: none 只能用于减少动态效果规则',
+  ]);
+  assert.deepEqual(getReducedMotionOverrideProblems(rules), [
+    '.missing-opacity: reduced-motion 中存在未批准的 animation',
+    '.unexpected: reduced-motion 中存在未批准的 animation',
+  ]);
 });
 
 test('减少动态效果模式会停止粒子动画并保持粒子层可见', async () => {
