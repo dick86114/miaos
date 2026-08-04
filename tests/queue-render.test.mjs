@@ -301,6 +301,36 @@ test('批量入队会展开 1–4 个参数相同且 id 不同的独立任务', 
   assert.throws(() => controlledQueue.enqueueBatch(taskData, 5), /1 到 4/u);
 });
 
+test('项目任务将 providerId 原样交给 generateSmart，避免按模型 ID 二次推导供应商', async () => {
+  const workerArgs = [];
+  const controlledQueue = await createControlledQueue({
+    generateSmart: async (projectId, versionId, options) => {
+      workerArgs.push({ projectId, versionId, options });
+      return { versionId, image: { id: 'image-1' } };
+    },
+  });
+
+  controlledQueue.enqueue({
+    source: 'project',
+    projectId: 'project-1',
+    versionId: 'version-1',
+    prompt: '夜晚的海边灯塔',
+    providerId: 'provider-custom',
+    providerName: '自定义供应商',
+    modelId: 'shared-model',
+    ratio: '16:9',
+    quality: '高清',
+  });
+  await flushMicrotasks();
+
+  assert.equal(workerArgs.length, 1);
+  assert.equal(workerArgs[0].projectId, 'project-1');
+  assert.equal(workerArgs[0].versionId, 'version-1');
+  assert.equal(workerArgs[0].options.providerId, 'provider-custom', '队列必须把下拉选中的供应商传给 generateSmart');
+  assert.equal(workerArgs[0].options.modelId, 'shared-model');
+  controlledQueue.clearFinished(0);
+});
+
 test('受控 worker 维持 running→done/failed 串行执行，并合并首任务完成与次任务运行快照', async () => {
   const first = createDeferred();
   const second = createDeferred();

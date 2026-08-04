@@ -71,6 +71,7 @@ export function createQueue(dependencies = {}) {
         // 项目生图：根版本 prompt/model 变更时自动建新主线节点再出图。
         const response = await generateSmartWorker(task.projectId, task.versionId, {
           prompt: task.prompt,
+          providerId: task.providerId,
           modelId: task.modelId,
           ratio: task.ratio,
           quality: task.quality,

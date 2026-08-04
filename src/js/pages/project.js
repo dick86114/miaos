@@ -598,7 +598,7 @@ export function renderProject(container, params, routeOptions = {}) {
 
     function buildModelChipValue() {
       if (!currentModelId) { setModelChipLabel('选择模型'); return; }
-      const provider = modelToProvider.get(currentModelId);
+      const provider = providers.find((p) => p.id === currentProviderId) || modelToProvider.get(currentModelId);
       const model = provider?.imageModels.find((item) => item.id === currentModelId);
       setModelChipLabel(model ? `${provider.name} · ${model.name}` : currentModelId);
     }
@@ -868,8 +868,13 @@ export function renderProject(container, params, routeOptions = {}) {
       const editedModelId = currentModelId;
       if (!editedPrompt) { toast('请输入提示词', 'error'); promptInput.focus(); return; }
       if (!editedModelId) { toast('请选择模型', 'error'); return; }
-      const provider = modelToProvider.get(editedModelId);
-      if (!provider) { toast('所选模型不可用', 'error'); return; }
+      // 以用户当前选中的供应商为准，避免同 ID 模型跨供应商串到默认 GPT。
+      const provider = (currentProviderId && providers.find((p) => p.id === currentProviderId))
+        || modelToProvider.get(editedModelId);
+      if (!provider || !provider.imageModels.some((m) => m.id === editedModelId && m.enabled)) {
+        toast('所选模型不可用', 'error');
+        return;
+      }
 
       const willCreateRoot = curVer.parentId === null && curVer.images.length > 0 &&
         (editedPrompt !== curVer.prompt.trim() || editedModelId !== curVer.modelId || sourceImagePath !== (curVer.sourceImage || ''));
@@ -904,7 +909,8 @@ export function renderProject(container, params, routeOptions = {}) {
     btnNewRoot.addEventListener('click', () => {
       const editedPrompt = promptInput.value.trim();
       const editedModelId = currentModelId;
-      const provider = modelToProvider.get(editedModelId);
+      const provider = (currentProviderId && providers.find((p) => p.id === currentProviderId))
+        || modelToProvider.get(editedModelId);
       const newProj = createRootVersion(project.id, {
         name: editedPrompt.slice(0, 10) || '新主线',
         prompt: editedPrompt,

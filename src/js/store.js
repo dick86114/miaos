@@ -718,7 +718,7 @@ export function deleteVersion(projectId, versionId) {
   save();
 }
 
-export async function generateSmart(projectId, versionId, { prompt, modelId, ratio, quality, sourceImage }) {
+export async function generateSmart(projectId, versionId, { prompt, providerId, modelId, ratio, quality, sourceImage }) {
   const p = state.projects.find((proj) => proj.id === projectId);
   if (!p) throw new Error('项目不存在');
   const v = p.versions.find((x) => x.id === versionId);
@@ -726,6 +726,17 @@ export async function generateSmart(projectId, versionId, { prompt, modelId, rat
   const trimmedPrompt = (prompt || '').trim();
   if (!trimmedPrompt) throw new Error('请输入提示词');
   if (!modelId) throw new Error('请选择模型');
+  if (!providerId) throw new Error('请选择供应商');
+
+  // 供应商以用户当前选择为准；禁止按模型 ID 在全部供应商里首匹配，
+  // 否则跨供应商存在同 ID 模型时会静默串到其他供应商（如默认 GPT）。
+  function resolveProviderForModel(providerIdToUse) {
+    const provider = state.providers.find(
+      (pr) => pr.id === providerIdToUse && pr.imageModels.some((m) => m.id === modelId && m.enabled),
+    );
+    if (!provider) throw new Error('所选模型不可用，请重新选择模型');
+    return provider;
+  }
 
   let targetVersionId = versionId;
   if (v.parentId === null) {
@@ -734,15 +745,15 @@ export async function generateSmart(projectId, versionId, { prompt, modelId, rat
     // 仅当主线已有图片时，修改提示词/模型/参考图才自动新建主线（保护历史）；
     // 空白主线（手动新建的）直接在原地更新并生成第一张图
     if (changed && v.images.length > 0) {
-      const provider = state.providers.find((pr) => pr.imageModels.some((m) => m.id === modelId && m.enabled));
+      const provider = resolveProviderForModel(providerId);
       const newVer = {
         id: uid('ver'),
         parentId: null,
         parentImageId: null,
         name: trimmedPrompt.slice(0, 10) || '新主线',
         prompt: trimmedPrompt,
-        providerId: provider ? provider.id : v.providerId,
-        providerName: provider ? provider.name : v.providerName,
+        providerId: provider.id,
+        providerName: provider.name,
         modelId,
         createdAt: Date.now(),
         images: [],
@@ -752,14 +763,18 @@ export async function generateSmart(projectId, versionId, { prompt, modelId, rat
       targetVersionId = newVer.id;
       p.currentVersionId = newVer.id;
     } else {
+      const provider = resolveProviderForModel(providerId);
       v.prompt = trimmedPrompt;
       v.modelId = modelId;
+      v.providerId = provider.id;
+      v.providerName = provider.name;
     }
   } else {
+    const provider = resolveProviderForModel(providerId);
     v.prompt = trimmedPrompt;
     v.modelId = modelId;
-    const provider = state.providers.find((pr) => pr.imageModels.some((m) => m.id === modelId && m.enabled));
-    if (provider) { v.providerId = provider.id; v.providerName = provider.name; }
+    v.providerId = provider.id;
+    v.providerName = provider.name;
   }
   p.updatedAt = Date.now();
   save();
