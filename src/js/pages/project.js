@@ -27,6 +27,7 @@ import {
   getDefaults,
 } from '../store.js';
 import { navigate } from '../router.js';
+import { openImagePreview } from '../image-preview.js';
 import * as queue from '../queue.js';
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
@@ -135,9 +136,21 @@ export function createProjectGalleryController(dependencies) {
   };
 }
 
-export function renderProject(container, params) {
+export function resolveProjectRouteTarget(project, routeOptions = {}) {
+  const currentVersion = project?.versions.find((version) => version.id === project.currentVersionId) || project?.versions[0] || null;
+  const requestedVersion = routeOptions.version
+    ? project?.versions.find((version) => version.id === routeOptions.version)
+    : null;
+  const version = requestedVersion || currentVersion;
+  const image = routeOptions.image && version
+    ? version.images.find((item) => item.id === routeOptions.image) || null
+    : null;
+  return { versionId: version?.id || null, imageId: image?.id || null };
+}
+
+export function renderProject(container, params, routeOptions = {}) {
   const projectId = params[0];
-  const project = getProject(projectId);
+  let project = getProject(projectId);
 
   if (!project) {
     const notFound = htmlToElement(`
@@ -152,8 +165,14 @@ export function renderProject(container, params) {
     return;
   }
 
+  const routeTarget = resolveProjectRouteTarget(project, routeOptions);
+  if (routeOptions.version && routeTarget.versionId && routeTarget.versionId !== project.currentVersionId) {
+    setCurrentVersion(project.id, routeTarget.versionId);
+    project = getProject(projectId);
+  }
+
   let workbenchCleanup = null;
-  return renderWorkbench(container, project);
+  return renderWorkbench(container, project, routeTarget.imageId);
 
   // 根据版本获取其父图（供 buildTimelineHtml 和 renderWorkbench 共用）
   function getParentImage(ver, proj) {
@@ -216,7 +235,7 @@ export function renderProject(container, params) {
     return `<div class="pwb-tree-root">${roots.map((r) => renderNodeTree(r, 0)).join('')}</div>`;
   }
 
-  function renderWorkbench(container, project) {
+  function renderWorkbench(container, project, pendingImageId = null) {
     workbenchCleanup?.();
     workbenchCleanup = null;
     const curVer = project.versions.find((v) => v.id === project.currentVersionId) || project.versions[0];
@@ -493,7 +512,22 @@ export function renderProject(container, params) {
 
     // ============= 交互 =============
     const pageLifecycle = createProjectPageLifecycle();
-    let closeLightbox = null;
+    let closeImagePreview = null;
+    const openProjectImagePreview = (image, version) => {
+      closeImagePreview?.();
+      closeImagePreview = openImagePreview({
+        ...image,
+        projectId: project.id,
+        versionId: version.id,
+        versionName: version.name,
+      }, {
+        onDownload: (record) => downloadImage(record.image, record.id),
+        onCopyPrompt: async (promptText) => {
+          try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
+          catch { toast('复制失败', 'error'); }
+        },
+      });
+    };
     const promptInput = root.querySelector('#version-prompt');
     const particleField = root.querySelector('.composer-particle-field');
     const btnGenerate = root.querySelector('#btn-generate');
@@ -773,7 +807,7 @@ export function renderProject(container, params) {
         const pImg = getParentImage(curVer, project);
         const parent = project.versions.find((v) => v.id === curVer.parentId);
         if (pImg && parent) {
-          openLightbox(pImg, parent);
+          openProjectImagePreview(pImg, parent);
         }
       });
     }
@@ -918,13 +952,11 @@ export function renderProject(container, params) {
       refreshGallery,
       toast,
       onOpenImage: (image, version) => {
-        closeLightbox?.();
-        closeLightbox = openLightbox(image, version);
+        openProjectImagePreview(image, version);
       },
       onImageAction: async ({ action, image, version, project: freshProject }) => {
         if (action === 'zoom') {
-          closeLightbox?.();
-          closeLightbox = openLightbox(image, version);
+          openProjectImagePreview(image, version);
         } else if (action === 'derive') {
           pageLifecycle.trackDialog(openDeriveDialog(freshProject.id, version.id, container, renderWorkbench, image.id, {
             isPageActive: pageLifecycle.isActive,
@@ -1014,9 +1046,14 @@ export function renderProject(container, params) {
       navigate('/projects');
     });
 
+    if (pendingImageId) {
+      const pendingImage = curVer.images.find((image) => image.id === pendingImageId);
+      if (pendingImage) openProjectImagePreview(pendingImage, curVer);
+    }
+
     const cleanup = () => {
       closeDropdown();
-      closeLightbox?.();
+      closeImagePreview?.();
       galleryController.dispose();
       pageLifecycle.cleanup();
       unsubscribe();
@@ -1118,66 +1155,6 @@ async function downloadImage(src, id) {
     if (res.ok) toast('图片已保存', 'success');
     else if (!res.canceled) toast('保存失败：' + (res.error || '未知错误'), 'error');
   } catch (e) { toast('保存失败：' + e.message, 'error'); }
-}
-function openLightbox(img, version) {
-  // 优先使用图片自身保存的元数据，回退到版本级别（兼容旧数据）
-  const promptText = img.prompt || version.prompt || '';
-  const providerText = img.providerName || version.providerName || version.providerId || '未知供应商';
-  const modelText = img.modelId || version.modelId || '未知模型';
-  const typeLabel = version.parentId ? '分支' : '主线';
-  const isI2I = img.isImageToImage != null
-    ? !!img.isImageToImage
-    : !!(version.parentId && version.parentImageId);
-  const i2iBadge = isI2I ? `<span class="pwb-type-badge branch" style="transform:scale(0.9);transform-origin:left">${icon('git-branch', 12)}图生图</span>` : '';
-  const overlay = htmlToElement(`
-    <div class="lightbox-overlay" id="lightbox">
-      <button type="button" class="lightbox-close" id="lightbox-close">${icon('x', 20)}</button>
-      <div class="lightbox-content">
-        <img src="${img.image}" alt="生成结果" class="lightbox-image" />
-        <div class="lightbox-info">
-          <div class="lightbox-info-row">
-            <span class="lightbox-info-label">模型</span>
-            <span class="lightbox-info-value">${escapeHtml(providerText)} / ${escapeHtml(modelText)}</span>
-          </div>
-          <div class="lightbox-info-row">
-            <span class="lightbox-info-label">版本</span>
-            <span class="lightbox-info-value"><span class="pwb-type-badge ${version.parentId ? 'branch' : ''}" style="transform:scale(0.9);transform-origin:left">${icon(version.parentId ? 'git-branch' : 'layers', 12)}${typeLabel}</span> ${escapeHtml(version.name)}</span>
-          </div>
-          <div class="lightbox-info-row">
-            <span class="lightbox-info-label">参数</span>
-            <span class="lightbox-info-value">${img.ratio} · ${escapeHtml(img.quality)} · ${ratioToSize(img.ratio)} · ${i2iBadge ? '图生图 · ' : ''}${formatDateTime(img.createdAt)}</span>
-          </div>
-          <div class="lightbox-info-row lightbox-prompt-row">
-            <span class="lightbox-info-label">提示词</span>
-            <span class="lightbox-info-value lightbox-prompt-text">${escapeHtml(promptText)}</span>
-          </div>
-        </div>
-        <div class="lightbox-meta">
-          <div style="flex:1"></div>
-          <button type="button" class="btn btn-secondary btn-sm" id="lb-download">${icon('download', 14)}<span>保存</span></button>
-          <button type="button" class="btn btn-ghost btn-sm" id="lb-copy">${icon('copy', 14)}<span>复制提示词</span></button>
-        </div>
-      </div>
-    </div>
-  `);
-  document.body.appendChild(overlay);
-  renderIcons(overlay);
-  const esc = (event) => {
-    if (event.key === 'Escape') close();
-  };
-  const close = () => {
-    overlay.remove();
-    document.removeEventListener('keydown', esc);
-  };
-  overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
-  overlay.querySelector('#lightbox-close').addEventListener('click', close);
-  document.addEventListener('keydown', esc);
-  overlay.querySelector('#lb-download').addEventListener('click', () => downloadImage(img.image, img.id));
-  overlay.querySelector('#lb-copy').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
-    catch { toast('复制失败', 'error'); }
-  });
-  return close;
 }
 export function openSettingsDialog(project, onUpdated, options = {}) {
   const {

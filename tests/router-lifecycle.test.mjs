@@ -157,3 +157,27 @@ test('页面渲染异常时显示中文可恢复错误状态，重试会重新�
   assert.equal(renderCount, 2);
   assert.equal(container.textContent, '');
 });
+
+test('项目路由解析版本和图片定位参数并传给项目页', async () => {
+  globalThis.document = createDocument();
+  globalThis.window = createWindow('#/project/project-1?version=version%20A&image=image-2');
+  const { createRouter } = await loadRouter();
+  const container = new FakeElement();
+  let received = null;
+  const router = createRouter({
+    windowRef: globalThis.window,
+    routes: [{
+      pattern: /^\/project\/([^/]+)\/?$/,
+      render(_container, params, routeOptions) {
+        received = { params, routeOptions };
+      },
+    }],
+  });
+
+  router.init(container, []);
+
+  assert.deepEqual(received, {
+    params: ['project-1'],
+    routeOptions: { version: 'version A', image: 'image-2' },
+  });
+});

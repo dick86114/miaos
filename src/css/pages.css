@@ -3027,3 +3027,85 @@ i[data-lucide="loader"] {
   gap: 8px;
   margin-top: 20px;
 }
+
+/* ===== 统一图片预览（历史、快速生图、项目工作台共用） ===== */
+.image-preview-overlay,
+.image-preview-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.88);
+  animation: modal-fade-in var(--motion-normal) var(--motion-ease) both;
+}
+.image-preview-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 100%);
+  max-height: calc(100vh - 48px);
+  gap: 14px;
+  padding: 24px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--r-lg);
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: var(--shadow-3);
+  backdrop-filter: blur(12px);
+}
+.image-preview-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+  border: 0;
+  border-radius: var(--r-md);
+  padding: 8px 10px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+.image-preview-close:hover { background: rgba(255, 255, 255, 0.24); }
+.image-preview-image {
+  display: block;
+  width: 100%;
+  max-height: min(64vh, 680px);
+  object-fit: contain;
+  border-radius: var(--r-md);
+  background: rgba(0, 0, 0, 0.25);
+  cursor: zoom-in;
+}
+.image-preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-md);
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.06);
+}
+.image-preview-info-row { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.5; }
+.image-preview-info-label { flex: 0 0 52px; color: rgba(255, 255, 255, 0.55); }
+.image-preview-info-value { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.image-preview-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.image-preview-fullscreen { z-index: 1310; overflow: hidden; padding: 0; cursor: zoom-out; }
+.image-preview-fullscreen-image {
+  max-width: none;
+  max-height: none;
+  width: min(92vw, 1600px);
+  height: min(92vh, 1000px);
+  object-fit: contain;
+  user-select: none;
+  cursor: grab;
+  transition: transform var(--motion-fast) var(--motion-ease);
+}
+.image-preview-fullscreen-image:active { cursor: grabbing; }
+@media (max-width: 600px) {
+  .image-preview-overlay { padding: 12px; }
+  .image-preview-panel { max-height: calc(100vh - 24px); padding: 16px; }
+  .image-preview-image { max-height: 52vh; }
+}

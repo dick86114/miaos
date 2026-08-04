@@ -25,8 +25,10 @@ export function createRouter({ routes = ROUTES, windowRef = window } = {}) {
   function parseHash() {
     let hash = windowRef.location.hash.replace(/^#/, '');
     if (!hash) hash = '/generate';
-    if (!hash.startsWith('/')) hash = '/' + hash;
-    return hash;
+    const [rawPath, rawQuery = ''] = hash.split('?', 2);
+    let path = rawPath;
+    if (!path.startsWith('/')) path = '/' + path;
+    return { path, query: Object.fromEntries(new URLSearchParams(rawQuery)) };
   }
 
   function updateNav(activeKey) {
@@ -53,7 +55,7 @@ export function createRouter({ routes = ROUTES, windowRef = window } = {}) {
   }
 
   function dispatch() {
-    const path = parseHash();
+    const { path, query } = parseHash();
     let activeKey = 'generate';
     if (path.startsWith('/projects') || path.startsWith('/project')) activeKey = 'projects';
     else if (path.startsWith('/history')) activeKey = 'history';
@@ -67,7 +69,7 @@ export function createRouter({ routes = ROUTES, windowRef = window } = {}) {
 
       cleanupCurrentPage();
       try {
-        const cleanup = route.render(mainContainer, match.slice(1));
+        const cleanup = route.render(mainContainer, match.slice(1), query);
         currentCleanup = typeof cleanup === 'function' ? cleanup : null;
       } catch (error) {
         console.error('页面渲染失败：', error);
