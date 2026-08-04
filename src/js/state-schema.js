@@ -58,6 +58,7 @@ export function createDefaultState() {
       defaultVideoProvider: '',
       defaultVideoModel: '',
     },
+    themeMode: 'system',
     updateRepo: 'dick86114/miaos',
   };
 }
@@ -91,6 +92,7 @@ export function migrateState(parsed) {
         defaultVideoModel: defaults.defaultVideoModel || '',
       },
       updateRepo: typeof source.updateRepo === 'string' ? source.updateRepo : 'dick86114/miaos',
+      themeMode: source.themeMode || 'system',
     };
   }
 

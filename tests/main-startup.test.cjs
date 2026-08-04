@@ -201,6 +201,9 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
       ...createNativeImageMock(),
       createFromPath() { return { isEmpty() { return true; } }; },
     },
+    nativeTheme: {
+      shouldUseDarkColors: false,
+    },
   };
 
   return { electronMock, calls, networkMock: createNetworkMock(calls, networkResponse) };

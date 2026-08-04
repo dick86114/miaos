@@ -58,19 +58,24 @@ body {
 }
 .sidebar-logo {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px 16px;
+  padding: 0 8px 20px 8px;
   font-size: 15px;
   font-weight: 600;
   color: var(--ink);
 }
 .sidebar-logo .logo-img {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   object-fit: cover;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  margin-bottom: 6px;
+}
+.sidebar-logo .logo-name {
+  font-size: 14px;
+  letter-spacing: -0.01em;
 }
 .sidebar-nav {
   display: flex;

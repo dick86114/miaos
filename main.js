@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, safeStorage, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -233,6 +233,8 @@ function loadAppIcon() {
 
 function createWindow() {
   const icon = loadAppIcon();
+  // 根据系统偏好设置初始背景色，避免深色模式下白闪
+  const bg = (nativeTheme && nativeTheme.shouldUseDarkColors) ? '#111827' : '#f5f5f7';
 
   mainWindow = new BrowserWindow({
     width: 1240,
@@ -241,7 +243,7 @@ function createWindow() {
     minHeight: 560,
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 16, y: 14 },
-    backgroundColor: '#f5f5f7',
+    backgroundColor: bg,
     title: '妙生',
     fullscreenable: true,
     icon: icon || undefined,

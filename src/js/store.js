@@ -893,3 +893,13 @@ export function getSettings() {
     updateRepo: state.updateRepo || '',
   };
 }
+
+export function getThemeMode() {
+  return state.themeMode || 'system';
+}
+
+export function setThemeMode(mode) {
+  const validModes = ['light', 'dark', 'system'];
+  state.themeMode = validModes.includes(mode) ? mode : 'system';
+  save();
+}

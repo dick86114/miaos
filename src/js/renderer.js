@@ -2,7 +2,7 @@
 import { renderIcons, icon } from './icons.js';
 import { initRouter, navigate } from './router.js';
 import { toast } from './ui.js';
-import { migrateLegacyProviderSecrets } from './store.js';
+import { migrateLegacyProviderSecrets, getThemeMode } from './store.js';
 
 async function init() {
   const migration = await migrateLegacyProviderSecrets();
@@ -13,6 +13,9 @@ async function init() {
       : 'API Key 安全迁移失败，旧配置已保留，请检查系统钥匙串';
     toast(message, 'error', 8000);
   }
+
+  // 应用主题
+  applyTheme(getThemeMode());
 
   renderIcons(document);
 
@@ -36,6 +39,10 @@ async function init() {
 
   // 监听更新事件（用于全局提示）
   bindGlobalUpdateListener();
+}
+
+function applyTheme(mode) {
+  document.documentElement.setAttribute('data-theme', mode || 'system');
 }
 
 function fillSidebarVersion() {

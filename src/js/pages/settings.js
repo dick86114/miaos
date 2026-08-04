@@ -18,6 +18,8 @@ import {
   fetchModels,
   getDefaults,
   setDefaults,
+  getThemeMode,
+  setThemeMode,
 } from '../store.js';
 
 const PROVIDER_TYPES = [
@@ -193,6 +195,21 @@ export function renderSettings(container) {
       <div class="page-header">
         <h1 class="page-title">通用设置</h1>
         <p class="page-subtitle">配置默认使用的模型和偏好</p>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-section-header">
+          <div class="settings-section-title">${icon('palette', 16)}<span>外观</span></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">主题模式</label>
+          <select class="form-select" id="theme-mode">
+            <option value="light" ${getThemeMode() === 'light' ? 'selected' : ''}>浅色模式</option>
+            <option value="dark" ${getThemeMode() === 'dark' ? 'selected' : ''}>深色模式</option>
+            <option value="system" ${getThemeMode() === 'system' ? 'selected' : ''}>跟随系统</option>
+          </select>
+          <div class="form-hint">深色模式将在下次打开应用时完全生效，当前立即应用到界面</div>
+        </div>
       </div>
 
       <div class="settings-card">
@@ -502,6 +519,17 @@ export function renderSettings(container) {
 
   function bindGeneralEvents() {
     const inner = getInner();
+
+    // 主题模式切换
+    const themeSel = inner.querySelector('#theme-mode');
+    if (themeSel) {
+      themeSel.addEventListener('change', () => {
+        setThemeMode(themeSel.value);
+        document.documentElement.setAttribute('data-theme', themeSel.value);
+        toast('主题已切换', 'success');
+      });
+    }
+
     const saveDef = (cat) => {
       const sel = inner.querySelector('#def-' + cat);
       if (!sel) return;
