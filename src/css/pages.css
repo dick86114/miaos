@@ -3242,3 +3242,33 @@ i[data-lucide="loader"] {
   .history-source-filter { flex: 0 1 130px; }
   .history-batch-bar { bottom: 8px; flex-wrap: wrap; }
 }
+
+/* 横向分段选择控件 */
+.segmented-control {
+  display: inline-flex;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.segmented-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--ink-2);
+  background: var(--surface);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
+  white-space: nowrap;
+}
+.segmented-item:hover { background: var(--surface-2); color: var(--ink); }
+.segmented-item.is-active {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+.segmented-item.is-active:hover { background: var(--brand-600); color: var(--brand-ink); }
+.segmented-item i { display: inline-flex; align-items: center; }

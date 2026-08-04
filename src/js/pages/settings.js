@@ -203,12 +203,12 @@ export function renderSettings(container) {
         </div>
         <div class="form-group">
           <label class="form-label">主题模式</label>
-          <select class="form-select" id="theme-mode">
-            <option value="light" ${getThemeMode() === 'light' ? 'selected' : ''}>浅色模式</option>
-            <option value="dark" ${getThemeMode() === 'dark' ? 'selected' : ''}>深色模式</option>
-            <option value="system" ${getThemeMode() === 'system' ? 'selected' : ''}>跟随系统</option>
-          </select>
-          <div class="form-hint">深色模式将在下次打开应用时完全生效，当前立即应用到界面</div>
+          <div class="segmented-control" id="theme-mode">
+            <button type="button" class="segmented-item ${getThemeMode() === 'light' ? 'is-active' : ''}" data-theme="light">${icon('sun', 14)}<span>浅色</span></button>
+            <button type="button" class="segmented-item ${getThemeMode() === 'dark' ? 'is-active' : ''}" data-theme="dark">${icon('moon', 14)}<span>深色</span></button>
+            <button type="button" class="segmented-item ${getThemeMode() === 'system' ? 'is-active' : ''}" data-theme="system">${icon('monitor', 14)}<span>跟随系统</span></button>
+          </div>
+          <div class="form-hint">切换后立即生效，无需重启应用</div>
         </div>
       </div>
 
@@ -521,11 +521,16 @@ export function renderSettings(container) {
     const inner = getInner();
 
     // 主题模式切换
-    const themeSel = inner.querySelector('#theme-mode');
-    if (themeSel) {
-      themeSel.addEventListener('change', () => {
-        setThemeMode(themeSel.value);
-        document.documentElement.setAttribute('data-theme', themeSel.value);
+    const themeGroup = inner.querySelector('#theme-mode');
+    if (themeGroup) {
+      themeGroup.addEventListener('click', (e) => {
+        const btn = e.target.closest('.segmented-item');
+        if (!btn) return;
+        const mode = btn.getAttribute('data-theme');
+        if (!mode) return;
+        setThemeMode(mode);
+        document.documentElement.setAttribute('data-theme', mode);
+        themeGroup.querySelectorAll('.segmented-item').forEach((b) => b.classList.toggle('is-active', b === btn));
         toast('主题已切换', 'success');
       });
     }
