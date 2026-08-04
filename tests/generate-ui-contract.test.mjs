@@ -246,6 +246,13 @@ test('粒子层 CSS 保持在文字下方且不会拦截交互', () => {
   assert.equal(hasCssDeclaration(particleRule, 'pointer-events', 'none'), true, '粒子节点不得拦截交互');
 });
 
+test('快速生图结果区包含主展示容器，并会隐藏空状态', () => {
+  assert.match(generatePage, /data-queue-preview/u, '生成页必须提供最新结果主展示容器');
+  assert.match(generatePage, /renderQuickResultPreview\(getLatestQuickDoneTask\(quick\)\)/u, '生成页必须将最新完成图片渲染到主展示区');
+  const hiddenEmptyRule = getExactCssRuleBody(pagesCss, '.empty-state[hidden],\n.gallery-empty[hidden]');
+  assert.equal(hasCssDeclaration(hiddenEmptyRule, 'display', 'none !important'), true, '生成页与项目画廊的空状态隐藏时必须压过展示样式');
+});
+
 test('粒子遮罩必须收敛在输入区内，不能向外扩展', () => {
   const particleFieldRule = getExactCssRuleBody(pagesCss, '.composer-particle-field');
 

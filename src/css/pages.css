@@ -636,6 +636,8 @@
   background: var(--surface);
 }
 .empty-state-text { font-size: 14px; }
+.empty-state[hidden],
+.gallery-empty[hidden] { display: none !important; }
 
 .result-state {
   background: var(--surface);

@@ -17,6 +17,7 @@ import {
 } from '../store.js';
 import * as queue from '../queue.js';
 import { navigate } from '../router.js';
+import { getLatestQuickDoneTask } from '../quick-result.js';
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
@@ -438,10 +439,7 @@ export function renderGenerate(container) {
   // 结构只创建一次；后续队列通知仅批量移动、创建或更新对应任务卡片。
   const queueView = htmlToElement(`
     <div class="queue-result-view">
-      <div class="empty-state" data-queue-empty>
-        ${icon('image', 40)}
-        <span class="empty-state-text">生成的图片将显示在这里</span>
-      </div>
+      <div class="queue-result-preview" data-queue-preview></div>
       <section class="queue-section" data-queue-active hidden>
         <div class="queue-header">
           <span class="queue-title">${icon('loader', 14)}生成中</span>
@@ -462,7 +460,7 @@ export function renderGenerate(container) {
   resultArea.replaceChildren(queueView);
   renderIcons(queueView);
 
-  const emptyQueueState = queueView.querySelector('[data-queue-empty]');
+  const previewArea = queueView.querySelector('[data-queue-preview]');
   const activeSection = queueView.querySelector('[data-queue-active]');
   const activeCount = queueView.querySelector('[data-queue-active-count]');
   const cancelAllQueued = queueView.querySelector('[data-queue-cancel-all]');
@@ -489,6 +487,45 @@ export function renderGenerate(container) {
     node.replaceChildren(...Array.from(next.childNodes));
   }
 
+  let lastPreviewSignature = null;
+
+  function quickResultPreviewHtml(task) {
+    if (!task) {
+      return `
+        <div class="empty-state">
+          ${icon('image', 40)}
+          <span class="empty-state-text">生成的图片将显示在这里</span>
+        </div>`;
+    }
+    const result = task.result;
+    return `
+      <article class="result-state" data-task-id="${task.id}">
+        <div class="result-image-wrap">
+          <img src="${result.image}" alt="最新生成结果" />
+        </div>
+        <div class="result-meta">
+          <div class="result-meta-text">
+            ${task.providerName ? `<span>${icon('server', 12)}${escapeHtml(task.providerName)}</span>` : ''}
+            <span>${icon('cpu', 12)}${escapeHtml(task.modelId)}</span>
+            <span>${task.ratio}</span>
+            <span>${escapeHtml(task.quality)}</span>
+          </div>
+          <div class="result-meta-actions">
+            <button type="button" class="btn btn-secondary btn-sm" data-act="zoom" data-task-id="${task.id}">${icon('maximize-2', 14)}<span>查看大图</span></button>
+            <button type="button" class="btn btn-ghost btn-sm" data-act="download" data-task-id="${task.id}">${icon('download', 14)}<span>保存</span></button>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function renderQuickResultPreview(task) {
+    const signature = task ? JSON.stringify({ id: task.id, result: task.result, finishedAt: task.finishedAt }) : 'empty';
+    if (signature === lastPreviewSignature) return;
+    lastPreviewSignature = signature;
+    previewArea.replaceChildren(htmlToElement(quickResultPreviewHtml(task)));
+    renderIcons(previewArea);
+  }
+
   function renderTasks(tasks) {
     const quick = tasks.filter((task) => task.source === 'quick');
     const active = quick.filter((task) => task.status === 'queued' || task.status === 'running');
@@ -496,9 +533,9 @@ export function renderGenerate(container) {
       .filter((task) => task.status === 'done' || task.status === 'failed' || task.status === 'canceled')
       .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
 
+    renderQuickResultPreview(getLatestQuickDoneTask(quick));
     activeTaskRenderer.render(active);
     finishedTaskRenderer.render(finished);
-    emptyQueueState.hidden = quick.length > 0;
     activeSection.hidden = active.length === 0;
     finishedSection.hidden = finished.length === 0;
     activeCount.textContent = `${active.length} 个任务`;
@@ -616,9 +653,9 @@ export function renderGenerate(container) {
       else if (action === 'detail') navigate(`/detail/${task.result.id}`);
       return;
     }
-    const image = target.closest?.('.task-done img');
+    const image = target.closest?.('.task-done img, .queue-result-preview .result-image-wrap img');
     if (!image) return;
-    const taskId = image.closest('.task-card')?.getAttribute('data-task-id');
+    const taskId = image.closest('[data-task-id]')?.getAttribute('data-task-id');
     const task = queue.getTasks().find((item) => item.id === taskId);
     if (task?.result) openLightbox(task);
   });
