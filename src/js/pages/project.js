@@ -420,7 +420,7 @@ export function renderProject(container, params) {
                 <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词">${icon('wand', 15)}</button>
                 <div class="composer-toolbar-spacer"></div>
                 <button class="composer-generate-round" id="btn-generate" title="生成图片">
-                  ${icon('arrow-up', 20)}
+                  ${icon('arrow-down', 20)}
                 </button>
               </div>
             </div>

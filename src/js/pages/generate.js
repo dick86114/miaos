@@ -80,7 +80,7 @@ export function renderGenerate(container) {
           <button class="composer-tool-btn" type="button" id="btn-random" title="随机提示词">${icon('shuffle', 15)}</button>
           <div class="composer-toolbar-spacer"></div>
           <button class="composer-generate-round" id="btn-generate" title="开始生成">
-            ${icon('arrow-up', 20)}
+            ${icon('arrow-down', 20)}
           </button>
         </div>
       </div>

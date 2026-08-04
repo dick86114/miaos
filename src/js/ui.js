@@ -132,16 +132,22 @@ export async function withButtonLoading(button, label, operation) {
   const labelTarget = button.querySelector?.('span') || null;
   const originalLabel = labelTarget?.textContent;
   const originalNodes = labelTarget ? null : Array.from(button.childNodes || button.children || []);
+  const isIconOnly = !labelTarget
+    && !String(button.textContent || '').trim()
+    && originalNodes.some((node) => node?.tagName === 'SVG' || node?.hasAttribute?.('data-lucide'));
+  const hadAriaBusy = button.hasAttribute?.('aria-busy') || false;
+  const originalAriaBusy = button.getAttribute?.('aria-busy');
   const originalMinWidth = button.style?.minWidth || '';
   const originalMinHeight = button.style?.minHeight || '';
   const rect = button.getBoundingClientRect?.();
   if (rect?.width) button.style.minWidth = `${Math.ceil(rect.width)}px`;
   if (rect?.height) button.style.minHeight = `${Math.ceil(rect.height)}px`;
   button.disabled = true;
+  button.setAttribute?.('aria-busy', 'true');
   button.classList?.add('is-loading');
   if (labelTarget) {
     labelTarget.textContent = label;
-  } else {
+  } else if (!isIconOnly) {
     const loadingLabel = button.ownerDocument?.createElement?.('span') || document.createElement('span');
     loadingLabel.className = 'button-loading-label';
     loadingLabel.textContent = label;
@@ -152,7 +158,9 @@ export async function withButtonLoading(button, label, operation) {
     return await operation();
   } finally {
     if (labelTarget) labelTarget.textContent = originalLabel;
-    else button.replaceChildren?.(...originalNodes);
+    else if (!isIconOnly) button.replaceChildren?.(...originalNodes);
+    if (hadAriaBusy) button.setAttribute?.('aria-busy', originalAriaBusy);
+    else button.removeAttribute?.('aria-busy');
     button.disabled = originalDisabled;
     button.classList?.remove('is-loading');
     button.style.minWidth = originalMinWidth || (rect?.width ? `${Math.ceil(rect.width)}px` : '');

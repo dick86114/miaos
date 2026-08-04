@@ -1995,6 +1995,7 @@ i[data-lucide="loader"] {
 
 /* ===== 任务队列（快速生图页 + 项目画廊占位卡片） ===== */
 .queue-section { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+.queue-section[hidden] { display: none !important; }
 .queue-header {
   display: flex;
   align-items: center;

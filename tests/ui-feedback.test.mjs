@@ -61,6 +61,7 @@ class FakeElement {
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   hasAttribute(name) { return this.attributes.has(name); }
+  removeAttribute(name) { this.attributes.delete(name); }
 
   addEventListener(type, listener) {
     const listeners = this.listeners.get(type) || [];
@@ -228,28 +229,45 @@ test('无 DOM 环境保留原生 confirm fallback 的布尔结果', () => {
 });
 
 
-test('图标型按钮加载不会因 textContent 清空 SVG，完成后恢复完整子节点', async () => {
+test('图标型按钮加载时保留 SVG，不插入会导致中文竖排的文本标签', async () => {
   await withFakeDom(async (documentRef) => {
     const button = documentRef.createElement('button');
     const icon = documentRef.createElementNS('http://www.w3.org/2000/svg', 'svg');
     icon.setAttribute('data-original-icon', 'true');
     button.appendChild(icon);
 
-    await withButtonLoading(button, '处理中…', async () => {
+    await withButtonLoading(button, '优化中…', async () => {
+      assert.equal(button.disabled, true);
+      assert.equal(button.getAttribute('aria-busy'), 'true');
       assert.equal(button.children.length, 1);
-      assert.equal(button.children[0].tagName, 'SPAN');
+      assert.equal(button.children[0].tagName, 'SVG');
+      assert.equal(button.children[0].getAttribute('data-original-icon'), 'true');
+      assert.equal(button.textContent.includes('优化中…'), false);
     });
 
+    assert.equal(button.disabled, false);
+    assert.equal(button.getAttribute('aria-busy'), null);
     assert.equal(button.children.length, 1);
     assert.equal(button.children[0].tagName, 'SVG');
-    assert.equal(button.children[0].getAttribute('data-original-icon'), 'true');
 
     await assert.rejects(
-      withButtonLoading(button, '处理中…', async () => { throw new Error('失败'); }),
+      withButtonLoading(button, '优化中…', async () => { throw new Error('失败'); }),
       /失败/,
     );
+    assert.equal(button.disabled, false);
+    assert.equal(button.getAttribute('aria-busy'), null);
+    assert.equal(button.classList.contains('is-loading'), false);
     assert.equal(button.children.length, 1);
     assert.equal(button.children[0].tagName, 'SVG');
+
+    button.setAttribute('aria-busy', 'false');
+    await assert.rejects(
+      withButtonLoading(button, '优化中…', async () => { throw new Error('再次失败'); }),
+      /再次失败/,
+    );
+    assert.equal(button.getAttribute('aria-busy'), 'false');
+    assert.equal(button.disabled, false);
+    assert.equal(button.classList.contains('is-loading'), false);
   });
 });
 
