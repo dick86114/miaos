@@ -30,6 +30,7 @@ export function createPromptOptimizationPageBinding({
   container,
   textarea,
   button,
+  controls = [],
   toast: toastFn = toast,
   createOverlay = createPromptFragmentOverlay,
 }) {
@@ -38,6 +39,7 @@ export function createPromptOptimizationPageBinding({
   let settling = false;
   let destroyed = false;
   const feedbackKey = `prompt-optimize:${context}`;
+  const initialDisabled = new Map(controls.map((control) => [control, control.disabled === true]));
 
   function setOptimizingUi(optimizing) {
     textarea.readOnly = optimizing;
@@ -47,6 +49,18 @@ export function createPromptOptimizationPageBinding({
     textarea.classList?.toggle?.('is-optimizing', optimizing);
     if (optimizing) button.setAttribute?.('aria-busy', 'true');
     else button.removeAttribute?.('aria-busy');
+
+    controls.forEach((control) => {
+      if (optimizing) {
+        control.disabled = true;
+        control.setAttribute?.('aria-disabled', 'true');
+        control.classList?.add?.('is-disabled');
+      } else {
+        control.disabled = initialDisabled.get(control) === true;
+        control.removeAttribute?.('aria-disabled');
+        control.classList?.remove?.('is-disabled');
+      }
+    });
   }
 
   function ensureOverlay(prompt) {
@@ -491,6 +505,16 @@ export function renderGenerate(container) {
     container: root.querySelector('.composer-textarea-wrap'),
     textarea: promptInput,
     button: btnOptimize,
+    controls: [
+      root.querySelector('#btn-upload-image'),
+      root.querySelector('#btn-upload-file'),
+      root.querySelector('#model-chip'),
+      root.querySelector('#ratio-chip'),
+      root.querySelector('#quality-chip'),
+      root.querySelector('#quantity-chip'),
+      root.querySelector('#btn-random'),
+      root.querySelector('#btn-generate'),
+    ].filter(Boolean),
     });
   btnOptimize.addEventListener('click', () => {
     const prompt = promptInput.value.trim();

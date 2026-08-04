@@ -236,6 +236,29 @@ test('项目页生成优先使用当前选中的供应商，不按模型 ID 跨�
   );
 });
 
+test('优化提示词时快速页与项目页会把其他工具栏控件交给绑定统一禁用', () => {
+  const pageContracts = [
+    ['生成页', generatePage],
+    ['项目页', projectPage],
+  ];
+  for (const [pageName, page] of pageContracts) {
+    const bindingBlock = getEnclosedBlock(
+      page,
+      /createPromptOptimizationPageBinding\(\{\s*manager: promptOptimizationManager/u,
+      `${pageName}必须创建提示词优化绑定`,
+    );
+    assert.match(bindingBlock, /controls:\s*\[/u, `${pageName}必须把工具栏控件列表交给优化绑定`);
+    assert.match(bindingBlock, /#btn-upload-image/u, `${pageName}必须禁用上传图片按钮`);
+    assert.match(bindingBlock, /#model-chip/u, `${pageName}必须禁用模型选择控件`);
+    assert.match(bindingBlock, /#btn-generate/u, `${pageName}必须禁用生成按钮`);
+  }
+
+  const disabledChipRule = getExactCssRuleBody(pagesCss, '.composer-chip.is-disabled');
+  assert.notEqual(disabledChipRule, '', '禁用的选择控件必须拥有独立样式规则');
+  assert.equal(hasCssDeclaration(disabledChipRule, 'pointer-events', 'none'), true, '禁用选择控件必须阻止点击');
+  assert.equal(hasCssDeclaration(disabledChipRule, 'opacity', '0.5'), true, '禁用选择控件必须呈现置灰效果');
+});
+
 test('碎片动效在请求进行中循环经历碎裂与重组', () => {
   const fragmentRule = getExactCssRuleBody(pagesCss, `.composer-fragment,\n.prompt-fragment-overlay__fragment`);
 

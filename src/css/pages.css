@@ -228,6 +228,11 @@
   color: var(--ink-2);
   border-color: var(--line);
 }
+.composer-chip.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
+}
 
 /* 优化提示词进行中：按钮旋转动画 */
 .composer-tool-btn.is-optimizing {

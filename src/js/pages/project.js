@@ -790,6 +790,16 @@ export function renderProject(container, params, routeOptions = {}) {
         container: root.querySelector('.composer-textarea-wrap'),
         textarea: promptInput,
         button: btnOptimize,
+        controls: [
+          root.querySelector('#btn-upload-image'),
+          root.querySelector('#btn-upload-file'),
+          root.querySelector('#model-chip'),
+          root.querySelector('#ratio-chip'),
+          root.querySelector('#quality-chip'),
+          root.querySelector('#quantity-chip'),
+          root.querySelector('#btn-generate'),
+          root.querySelector('#btn-new-root'),
+        ].filter(Boolean),
       });
       btnOptimize.addEventListener('click', () => {
         const prompt = promptInput.value.trim();

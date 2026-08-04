@@ -46,10 +46,22 @@ function createControl(value = '') {
   };
 }
 
-function createBinding({ manager, context, prompt = '初始提示词', createOverlay } = {}) {
+function createBinding({
+  manager,
+  context,
+  prompt = '初始提示词',
+  createOverlay,
+  controls = [],
+  controlInitialDisabled = [],
+} = {}) {
   const textarea = createControl(prompt);
   const button = createControl();
   const container = {};
+  const controlElements = controls.map((label, index) => {
+    const control = createControl(label);
+    if (controlInitialDisabled[index]) control.disabled = true;
+    return control;
+  });
   const toasts = [];
   const closedToasts = [];
   const overlays = [];
@@ -63,7 +75,14 @@ function createBinding({ manager, context, prompt = '初始提示词', createOve
       toasts.push(args);
       return () => closedToasts.push(args);
     },
-    createOverlay: createOverlay ?? ((options) => {
+    controls: controlElements,
+    createOverlay: createOverlay
+      ? (options) => {
+        const overlay = createOverlay(options);
+        overlays.push(overlay);
+        return overlay;
+      }
+      : (options) => {
       const overlay = {
         options,
         mounted: 0,
@@ -75,9 +94,9 @@ function createBinding({ manager, context, prompt = '初始提示词', createOve
       };
       overlays.push(overlay);
       return overlay;
-    }),
+      },
   });
-  return { binding, textarea, button, toasts, closedToasts, overlays };
+  return { binding, textarea, button, controls: controlElements, toasts, closedToasts, overlays };
 }
 
 function assertOptimizingUi(view) {
@@ -89,6 +108,11 @@ function assertOptimizingUi(view) {
   assert.equal(view.textarea.classList.contains('is-optimizing'), true);
   assert.equal(view.overlays.length, 1);
   assert.equal(view.overlays[0].mounted, 1);
+  view.controls.forEach((control) => {
+    assert.equal(control.disabled, true, '优化期间其他工具栏控件必须禁用');
+    assert.equal(control.getAttribute('aria-disabled'), 'true', '优化期间其他控件必须标记 aria-disabled');
+    assert.equal(control.classList.contains('is-disabled'), true, '优化期间其他控件必须带有禁用样式类');
+  });
 }
 
 function assertIdleUi(view) {
@@ -99,6 +123,53 @@ function assertIdleUi(view) {
   assert.equal(view.button.classList.contains('is-optimizing'), false);
   assert.equal(view.textarea.classList.contains('is-optimizing'), false);
 }
+
+test('优化中禁用其他工具栏控件，完成后恢复各自初始可用状态', async () => {
+  const request = createDeferred();
+  const overlaySettlement = createDeferred();
+  const manager = createPromptOptimizationManager({ optimize: () => request.promise });
+  const view = createBinding({
+    manager,
+    context: 'quick',
+    controls: ['chip', 'upload-button'],
+    controlInitialDisabled: [false, true],
+    createOverlay: () => {
+      const overlay = {
+        mounted: 0,
+        settled: 0,
+        destroyed: 0,
+        mount() { this.mounted += 1; },
+        settle() {
+          this.settled += 1;
+          return overlaySettlement.promise;
+        },
+        destroy() { this.destroyed += 1; },
+      };
+      return overlay;
+    },
+  });
+  const started = view.binding.start('一只橘猫');
+  await Promise.resolve();
+  assertOptimizingUi(view);
+
+  request.resolve('优化后的提示词');
+  await started.promise;
+  await Promise.resolve();
+  assert.equal(view.controls[0].disabled, true, '碎片结算期间其他控件必须继续保持禁用');
+
+  overlaySettlement.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assertIdleUi(view);
+  assert.equal(view.controls[0].disabled, false);
+  assert.equal(view.controls[1].disabled, true, '原本就禁用的控件恢复后必须保持禁用');
+  for (const control of view.controls) {
+    assert.equal(control.getAttribute('aria-disabled'), null, '完成后必须移除 aria-disabled');
+    assert.equal(control.classList.contains('is-disabled'), false, '完成后必须移除优化期禁用样式类');
+  }
+  view.binding.destroy();
+});
 
 test('销毁页面 binding 会关闭本页创建的常驻优化 Toast，但保留共享请求', async () => {
   const deferred = createDeferred();
