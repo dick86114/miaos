@@ -310,6 +310,25 @@ function getCssRules(css) {
   return parseCss(css).rules;
 }
 
+function getExactReducedMotionRule(rules, selector) {
+  return rules.find((rule) => rule.header === selector && isReduceMotionRule(rule));
+}
+
+function assertParticleRootVisibleInReducedMotion(rules) {
+  const rootRule = getExactReducedMotionRule(rules, '.composer-particle-field.is-optimizing');
+  assert.notEqual(rootRule, undefined, '粒子效果必须提供精确的根层减少动态效果覆盖');
+  assert.equal(
+    rootRule.declarations.some(({ property, value }) => property === 'animation' && value === 'none !important'),
+    true,
+    '粒子根层必须停止动画',
+  );
+  assert.equal(
+    rootRule.declarations.some(({ property, value }) => property === 'opacity' && value === '1'),
+    true,
+    '粒子根层必须保持可见',
+  );
+}
+
 function getAtRuleBlock(css, atRule) {
   const start = css.toLowerCase().indexOf(atRule.toLowerCase());
   if (start < 0) return '';
@@ -699,14 +718,26 @@ test('粒子减少动态效果白名单拒绝非粒子选择器与根层缺少�
   ]);
 });
 
-test('减少动态效果模式会停止粒子动画并保持粒子层可见', async () => {
+test('减少动态效果模式会停止粒子根层动画并保持粒子层可见', async () => {
   const pagesCss = stripCssComments(await readFile(path.join(cssDirectory, 'pages.css'), 'utf8'));
-  const reduceMotion = getAtRuleBlock(pagesCss, '@media (prefers-reduced-motion: reduce)');
-  const particleRule = getAtRuleBlock(reduceMotion, '.composer-particle-field.is-optimizing');
 
-  assert.notEqual(particleRule, '', '粒子效果必须提供减少动态效果覆盖');
-  assert.match(particleRule, /animation:\s*none\s*!important\s*;/u);
-  assert.match(particleRule, /opacity:\s*1\s*;/u);
+  assertParticleRootVisibleInReducedMotion(getCssRules(pagesCss));
+});
+
+test('减少动态效果模式不能用粒子伪元素规则伪造根层可见性', () => {
+  const css = stripCssComments(`
+    @media (prefers-reduced-motion: reduce) {
+      .composer-particle-field.is-optimizing::before { animation: none !important; }
+      .composer-particle-field.is-optimizing::after { animation: none !important; }
+      .composer-particle-field.is-optimizing .composer-particle { animation: none !important; }
+    }
+  `);
+
+  assert.throws(
+    () => assertParticleRootVisibleInReducedMotion(getCssRules(css)),
+    /根层减少动态效果覆盖/u,
+    '只有伪元素或粒子规则时必须判定缺少根层规则',
+  );
 });
 
 test('全局减少动态效果模式会缩短过渡并停止循环动画', async () => {
