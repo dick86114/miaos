@@ -3109,3 +3109,25 @@ i[data-lucide="loader"] {
   .image-preview-panel { max-height: calc(100vh - 24px); padding: 16px; }
   .image-preview-image { max-height: 52vh; }
 }
+
+/* ===== 快速生图持久化历史 ===== */
+.quick-history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 28px;
+}
+.quick-history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-top: 4px;
+}
+.quick-history-pagination[hidden] { display: none !important; }
+.quick-history-page-label {
+  min-width: 88px;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+}

@@ -3,21 +3,21 @@ import { icon, renderIcons } from '../icons.js';
 import { mountPage, htmlToElement, toast, withButtonLoading, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
 import {
   getProviders,
-  getDefaultProvider,
   getEnabledModels,
   getRandomPrompt,
-  ratioToSize,
   saveLastSettings,
   getLastSettings,
   imageToDataUrl,
   optimizePrompt,
   getTextProvider,
-  formatDateTime,
   getDefaults,
+  getHistory,
+  formatRelativeTime,
 } from '../store.js';
 import * as queue from '../queue.js';
 import { navigate } from '../router.js';
-import { getLatestQuickDoneTask } from '../quick-result.js';
+import { getPaginatedQuickHistory } from '../history-data.js';
+import { openImagePreview } from '../image-preview.js';
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
@@ -435,11 +435,10 @@ export function renderGenerate(container) {
   // 初始化
   updateModelChip();
 
-  // ===== 订阅队列，局部更新结果区 =====
-  // 结构只创建一次；后续队列通知仅批量移动、创建或更新对应任务卡片。
+  // ===== 活跃队列与持久化快速历史 =====
+  // 队列只承载尚未结束的任务；成功结果由 store.generateImage 持久化后进入快速历史。
   const queueView = htmlToElement(`
     <div class="queue-result-view">
-      <div class="queue-result-preview" data-queue-preview></div>
       <section class="queue-section" data-queue-active hidden>
         <div class="queue-header">
           <span class="queue-title">${icon('loader', 14)}生成中</span>
@@ -448,179 +447,163 @@ export function renderGenerate(container) {
         </div>
         <div class="queue-list" data-queue-active-list></div>
       </section>
-      <section class="queue-section" data-queue-finished hidden>
-        <div class="queue-header">
-          <span class="queue-title">最近完成</span>
-          <button type="button" class="btn btn-ghost btn-sm" data-queue-clear-finished>${icon('trash-2', 14)}<span>清空</span></button>
+      <section class="quick-history-section" aria-labelledby="quick-history-title">
+        <div class="gallery-header">
+          <span class="gallery-title" id="quick-history-title">快速历史</span>
+          <span class="gallery-count" data-quick-history-count>0 条记录</span>
         </div>
-        <div class="queue-list" data-queue-finished-list></div>
+        <div class="gallery-grid" data-quick-history-grid></div>
+        <div class="gallery-empty" data-quick-history-empty hidden>
+          ${icon('image', 40)}
+          <span>还没有快速生图记录，输入提示词开始创作吧</span>
+        </div>
+        <div class="quick-history-pagination" data-quick-history-pagination hidden>
+          <button type="button" class="btn btn-ghost btn-sm" data-quick-history-page="previous">${icon('chevron-left', 14)}<span>上一页</span></button>
+          <span class="quick-history-page-label" data-quick-history-page-label></span>
+          <button type="button" class="btn btn-ghost btn-sm" data-quick-history-page="next"><span>下一页</span>${icon('chevron-right', 14)}</button>
+        </div>
       </section>
     </div>
   `);
   resultArea.replaceChildren(queueView);
   renderIcons(queueView);
 
-  const previewArea = queueView.querySelector('[data-queue-preview]');
   const activeSection = queueView.querySelector('[data-queue-active]');
   const activeCount = queueView.querySelector('[data-queue-active-count]');
   const cancelAllQueued = queueView.querySelector('[data-queue-cancel-all]');
-  const finishedSection = queueView.querySelector('[data-queue-finished]');
+  const quickHistoryGrid = queueView.querySelector('[data-quick-history-grid]');
+  const quickHistoryEmpty = queueView.querySelector('[data-quick-history-empty]');
+  const quickHistoryCount = queueView.querySelector('[data-quick-history-count]');
+  const quickHistoryPagination = queueView.querySelector('[data-quick-history-pagination]');
+  const quickHistoryPageLabel = queueView.querySelector('[data-quick-history-page-label]');
+  const previousHistoryPage = queueView.querySelector('[data-quick-history-page="previous"]');
+  const nextHistoryPage = queueView.querySelector('[data-quick-history-page="next"]');
   const activeTaskRenderer = createKeyedListRenderer(queueView.querySelector('[data-queue-active-list]'), {
     getKey: (task) => task.id,
     getSignature: (task) => JSON.stringify(task),
-    createNode: (task) => htmlToElement(taskCardHtml(task)),
-    updateNode: (node, task) => updateTaskCard(node, task),
+    createNode: (task) => htmlToElement(activeTaskCardHtml(task)),
+    updateNode: (node, task) => updateActiveTaskCard(node, task),
     afterNode: (node) => renderIcons(node),
   });
-  const finishedTaskRenderer = createKeyedListRenderer(queueView.querySelector('[data-queue-finished-list]'), {
-    getKey: (task) => task.id,
-    getSignature: (task) => JSON.stringify(task),
-    createNode: (task) => htmlToElement(taskCardHtml(task)),
-    updateNode: (node, task) => updateTaskCard(node, task),
+  const quickHistoryRenderer = createKeyedListRenderer(quickHistoryGrid, {
+    getKey: (item) => item.key,
+    getSignature: (item) => JSON.stringify(item),
+    createNode: (item) => htmlToElement(quickHistoryCardHtml(item)),
+    updateNode: (node, item) => updateQuickHistoryCard(node, item),
     afterNode: (node) => renderIcons(node),
   });
 
-  function updateTaskCard(node, task) {
-    const next = htmlToElement(taskCardHtml(task));
+  let quickHistoryPage = 1;
+  let previousCompletedQuickTaskIds = new Set();
+  let closeImagePreview = null;
+
+  function updateActiveTaskCard(node, task) {
+    const next = htmlToElement(activeTaskCardHtml(task));
     node.className = next.className;
     node.setAttribute('data-task-id', task.id);
     node.replaceChildren(...Array.from(next.childNodes));
   }
 
-  let lastPreviewSignature = null;
-
-  function quickResultPreviewHtml(task) {
-    if (!task) {
-      return `
-        <div class="empty-state">
-          ${icon('image', 40)}
-          <span class="empty-state-text">生成的图片将显示在这里</span>
-        </div>`;
-    }
-    const result = task.result;
+  function activeTaskCardHtml(task) {
+    const isRunning = task.status === 'running';
     return `
-      <article class="result-state" data-task-id="${task.id}">
-        <div class="result-image-wrap">
-          <img src="${result.image}" alt="最新生成结果" />
-        </div>
-        <div class="result-meta">
-          <div class="result-meta-text">
+      <div class="task-card ${isRunning ? 'task-running' : 'task-queued'}" data-task-id="${task.id}">
+        <div class="task-card-status">${icon(isRunning ? 'loader' : 'clock', 16)}<span>${isRunning ? '生成中…' : '排队中'}</span></div>
+        <div class="task-card-body">
+          <p class="task-card-prompt">${escapeHtml(task.prompt) || '<span class="task-card-empty">无提示词</span>'}</p>
+          <div class="task-card-meta">
             ${task.providerName ? `<span>${icon('server', 12)}${escapeHtml(task.providerName)}</span>` : ''}
             <span>${icon('cpu', 12)}${escapeHtml(task.modelId)}</span>
             <span>${task.ratio}</span>
             <span>${escapeHtml(task.quality)}</span>
           </div>
-          <div class="result-meta-actions">
-            <button type="button" class="btn btn-secondary btn-sm" data-act="zoom" data-task-id="${task.id}">${icon('maximize-2', 14)}<span>查看大图</span></button>
-            <button type="button" class="btn btn-ghost btn-sm" data-act="download" data-task-id="${task.id}">${icon('download', 14)}<span>保存</span></button>
+        </div>
+        ${isRunning ? '' : `<button type="button" class="icon-btn task-cancel" data-task-id="${task.id}" title="取消">${icon('x', 14)}</button>`}
+      </div>`;
+  }
+
+  function quickHistoryCardHtml(item) {
+    const model = item.model || item.modelId || '';
+    const modelText = [item.providerName, model].filter(Boolean).join(' / ') || '未记录模型';
+    const paramsText = [item.ratio, item.quality].filter(Boolean).join(' · ') || '未记录参数';
+    return `
+      <article class="gallery-item quick-history-card" data-history-id="${escapeHtml(item.historyId)}">
+        <div class="gallery-item-img-wrap">
+          <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.prompt || '生成结果')}" loading="lazy" />
+          <div class="gallery-item-hover-actions">
+            <button type="button" class="icon-btn" data-history-act="preview" data-history-id="${escapeHtml(item.historyId)}" title="查看大图">${icon('maximize-2', 14)}</button>
+            <button type="button" class="icon-btn" data-history-act="download" data-history-id="${escapeHtml(item.historyId)}" title="保存到本地">${icon('download', 14)}</button>
+            <button type="button" class="icon-btn" data-history-act="detail" data-history-id="${escapeHtml(item.historyId)}" title="查看详情">${icon('external-link', 14)}</button>
           </div>
+        </div>
+        <div class="gallery-item-meta">
+          <span class="gallery-item-meta-model" title="${escapeHtml(modelText)}">${escapeHtml(modelText)}</span>
+          <span class="gallery-item-meta-params">${escapeHtml(paramsText)}</span>
+          <span class="gallery-item-meta-time">${formatRelativeTime(item.createdAt)}</span>
         </div>
       </article>`;
   }
 
-  function renderQuickResultPreview(task) {
-    const signature = task ? JSON.stringify({ id: task.id, result: task.result, finishedAt: task.finishedAt }) : 'empty';
-    if (signature === lastPreviewSignature) return;
-    lastPreviewSignature = signature;
-    previewArea.replaceChildren(htmlToElement(quickResultPreviewHtml(task)));
-    renderIcons(previewArea);
+  function updateQuickHistoryCard(node, item) {
+    const next = htmlToElement(quickHistoryCardHtml(item));
+    node.className = next.className;
+    node.setAttribute('data-history-id', item.historyId);
+    node.replaceChildren(...Array.from(next.childNodes));
+  }
+
+  function renderQuickHistory() {
+    const pageData = getPaginatedQuickHistory(getHistory(), { page: quickHistoryPage });
+    quickHistoryPage = pageData.page;
+    quickHistoryRenderer.render(pageData.items);
+    quickHistoryGrid.hidden = pageData.items.length === 0;
+    quickHistoryEmpty.hidden = pageData.items.length > 0;
+    quickHistoryCount.textContent = `${pageData.total} 条记录`;
+    quickHistoryPagination.hidden = pageData.totalPages <= 1;
+    quickHistoryPageLabel.textContent = `第 ${pageData.page} / ${pageData.totalPages} 页`;
+    previousHistoryPage.disabled = pageData.page <= 1;
+    nextHistoryPage.disabled = pageData.page >= pageData.totalPages;
+  }
+
+  function getQuickHistoryRecord(historyId) {
+    return getHistory().find((item) => item.id === historyId) || null;
+  }
+
+  function openQuickHistoryPreview(record) {
+    closeImagePreview?.();
+    closeImagePreview = openImagePreview({
+      ...record,
+      modelId: record.model || record.modelId || '',
+    }, {
+      onClose: () => { closeImagePreview = null; },
+      onDownload: (item) => downloadImage(item.image, item.id),
+      onCopyPrompt: async (promptText) => {
+        try {
+          await navigator.clipboard.writeText(promptText);
+          toast('提示词已复制', 'success');
+        } catch {
+          toast('复制失败', 'error');
+        }
+      },
+    });
   }
 
   function renderTasks(tasks) {
     const quick = tasks.filter((task) => task.source === 'quick');
     const active = quick.filter((task) => task.status === 'queued' || task.status === 'running');
-    const finished = quick
-      .filter((task) => task.status === 'done' || task.status === 'failed' || task.status === 'canceled')
-      .sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
+    const completedQuickTaskIds = new Set(quick.filter((task) => task.status === 'done').map((task) => task.id));
+    const hasNewQuickCompletion = [...completedQuickTaskIds].some((taskId) => !previousCompletedQuickTaskIds.has(taskId));
 
-    renderQuickResultPreview(getLatestQuickDoneTask(quick));
     activeTaskRenderer.render(active);
-    finishedTaskRenderer.render(finished);
     activeSection.hidden = active.length === 0;
-    finishedSection.hidden = finished.length === 0;
     activeCount.textContent = `${active.length} 个任务`;
     cancelAllQueued.hidden = !active.some((task) => task.status === 'queued');
+
+    if (hasNewQuickCompletion) quickHistoryPage = 1;
+    if (hasNewQuickCompletion || completedQuickTaskIds.size !== previousCompletedQuickTaskIds.size) renderQuickHistory();
+    previousCompletedQuickTaskIds = completedQuickTaskIds;
   }
 
-  function taskCardHtml(t) {
-    if (t.status === 'queued') {
-      return `
-        <div class="task-card task-queued" data-task-id="${t.id}">
-          <div class="task-card-status">${icon('clock', 16)}<span>排队中</span></div>
-          <div class="task-card-body">
-            <p class="task-card-prompt">${escapeHtml(t.prompt) || '<span class="task-card-empty">无提示词</span>'}</p>
-            <div class="task-card-meta">
-              ${t.providerName ? `<span>${icon('server', 12)}${escapeHtml(t.providerName)}</span>` : ''}
-              <span>${icon('cpu', 12)}${escapeHtml(t.modelId)}</span>
-              <span>${t.ratio}</span>
-              <span>${escapeHtml(t.quality)}</span>
-            </div>
-          </div>
-          <button type="button" class="icon-btn task-cancel" data-task-id="${t.id}" title="取消">${icon('x', 14)}</button>
-        </div>`;
-    }
-    if (t.status === 'running') {
-      return `
-        <div class="task-card task-running" data-task-id="${t.id}">
-          <div class="task-card-status">${icon('loader', 16)}<span>生成中…</span></div>
-          <div class="task-card-body">
-            <p class="task-card-prompt">${escapeHtml(t.prompt) || '<span class="task-card-empty">无提示词</span>'}</p>
-            <div class="task-card-meta">
-              ${t.providerName ? `<span>${icon('server', 12)}${escapeHtml(t.providerName)}</span>` : ''}
-              <span>${icon('cpu', 12)}${escapeHtml(t.modelId)}</span>
-              <span>${t.ratio}</span>
-              <span>${escapeHtml(t.quality)}</span>
-            </div>
-          </div>
-        </div>`;
-    }
-    if (t.status === 'failed') {
-      return `
-        <div class="task-card task-failed" data-task-id="${t.id}">
-          <div class="task-card-status">${icon('alert-circle', 16)}<span>失败</span></div>
-          <div class="task-card-body">
-            <p class="task-card-prompt">${escapeHtml(t.prompt) || '<span class="task-card-empty">无提示词</span>'}</p>
-            <p class="task-card-error">${escapeHtml(t.error || '未知错误')}</p>
-          </div>
-          <button type="button" class="icon-btn task-dismiss" data-task-id="${t.id}" title="移除">${icon('x', 14)}</button>
-        </div>`;
-    }
-    if (t.status === 'canceled') {
-      return `
-        <div class="task-card task-canceled" data-task-id="${t.id}">
-          <div class="task-card-status">${icon('x-circle', 16)}<span>已取消</span></div>
-          <div class="task-card-body">
-            <p class="task-card-prompt">${escapeHtml(t.prompt) || '<span class="task-card-empty">无提示词</span>'}</p>
-          </div>
-          <button type="button" class="icon-btn task-dismiss" data-task-id="${t.id}" title="移除">${icon('x', 14)}</button>
-        </div>`;
-    }
-    const r = t.result;
-    return `
-      <div class="task-card task-done" data-task-id="${t.id}">
-        <div class="task-card-image-wrap">
-          <img src="${r.image}" alt="生成结果" loading="lazy" />
-          <div class="task-card-image-actions">
-            <button type="button" class="icon-btn" data-act="zoom" data-task-id="${t.id}" title="查看大图">${icon('maximize-2', 13)}</button>
-            <button type="button" class="icon-btn" data-act="download" data-task-id="${t.id}" title="保存到本地">${icon('download', 13)}</button>
-            <button type="button" class="icon-btn" data-act="detail" data-task-id="${t.id}" title="查看详情">${icon('external-link', 13)}</button>
-            <button type="button" class="icon-btn task-dismiss" data-task-id="${t.id}" title="移除">${icon('x', 13)}</button>
-          </div>
-        </div>
-        <div class="task-card-body">
-          <p class="task-card-prompt">${escapeHtml(t.prompt) || '<span class="task-card-empty">无提示词</span>'}</p>
-          <div class="task-card-meta">
-            ${t.providerName ? `<span>${icon('server', 12)}${escapeHtml(t.providerName)}</span>` : ''}
-            <span>${icon('cpu', 12)}${escapeHtml(t.modelId)}</span>
-            <span>${t.ratio}</span>
-            <span>${escapeHtml(t.quality)}</span>
-            <span>${ratioToSize(t.ratio)}</span>
-          </div>
-        </div>
-      </div>`;
-  }
-
-  // 统一委托队列卡片操作，列表局部更新时不重复绑定每张卡片的事件监听器。
+  // 操作统一委托到结果区，历史卡片局部更新或分页时无需重复绑定监听器。
   resultArea.addEventListener('click', async (event) => {
     const target = event.target;
     const cancelButton = target.closest?.('.task-cancel');
@@ -628,97 +611,42 @@ export function renderGenerate(container) {
       queue.cancel(cancelButton.getAttribute('data-task-id'));
       return;
     }
-    const dismissButton = target.closest?.('.task-dismiss');
-    if (dismissButton) {
-      queue.removeTask(dismissButton.getAttribute('data-task-id'));
-      return;
-    }
     if (target.closest?.('[data-queue-cancel-all]')) {
       queue.cancelAll((task) => task.source === 'quick' && task.status === 'queued');
       toast('已取消未开始的任务', 'success');
       return;
     }
-    if (target.closest?.('[data-queue-clear-finished]')) {
-      queue.clearFinished(0);
+    const pageButton = target.closest?.('[data-quick-history-page]');
+    if (pageButton) {
+      const direction = pageButton.getAttribute('data-quick-history-page');
+      quickHistoryPage += direction === 'next' ? 1 : -1;
+      renderQuickHistory();
       return;
     }
-    const actionButton = target.closest?.('[data-act]');
+    const actionButton = target.closest?.('[data-history-act]');
     if (actionButton) {
-      const action = actionButton.getAttribute('data-act');
-      const id = actionButton.getAttribute('data-task-id');
-      const task = queue.getTasks().find((item) => item.id === id);
-      if (!task?.result) return;
-      if (action === 'zoom') openLightbox(task);
-      else if (action === 'download') await downloadImage(task.result.image, task.result.id);
-      else if (action === 'detail') navigate(`/detail/${task.result.id}`);
+      const record = getQuickHistoryRecord(actionButton.getAttribute('data-history-id'));
+      if (!record) return;
+      const action = actionButton.getAttribute('data-history-act');
+      if (action === 'preview') openQuickHistoryPreview(record);
+      else if (action === 'download') await downloadImage(record.image, record.id);
+      else if (action === 'detail') navigate(`/detail/${record.id}`);
       return;
     }
-    const image = target.closest?.('.task-done img, .queue-result-preview .result-image-wrap img');
+    const image = target.closest?.('.quick-history-card img');
     if (!image) return;
-    const taskId = image.closest('[data-task-id]')?.getAttribute('data-task-id');
-    const task = queue.getTasks().find((item) => item.id === taskId);
-    if (task?.result) openLightbox(task);
+    const historyId = image.closest('.quick-history-card')?.getAttribute('data-history-id');
+    const record = historyId ? getQuickHistoryRecord(historyId) : null;
+    if (record) openQuickHistoryPreview(record);
   });
 
-  let closeLightbox = null;
-
-  function openLightbox(t) {
-    closeLightbox?.();
-    const providerText = t.providerName || '未知供应商';
-    const modelText = t.modelId || '未知模型';
-    const overlay = htmlToElement(`
-      <div class="lightbox-overlay" id="lightbox">
-        <button type="button" class="lightbox-close" id="lightbox-close">${icon('x', 20)}</button>
-        <div class="lightbox-content">
-          <img src="${t.result.image}" alt="生成结果" class="lightbox-image" />
-          <div class="lightbox-info">
-            <div class="lightbox-info-row">
-              <span class="lightbox-info-label">模型</span>
-              <span class="lightbox-info-value">${escapeHtml(providerText)} / ${escapeHtml(modelText)}</span>
-            </div>
-            <div class="lightbox-info-row">
-              <span class="lightbox-info-label">参数</span>
-              <span class="lightbox-info-value">${t.ratio} · ${escapeHtml(t.quality)} · ${ratioToSize(t.ratio)} · ${formatDateTime(t.createdAt)}</span>
-            </div>
-            <div class="lightbox-info-row lightbox-prompt-row">
-              <span class="lightbox-info-label">提示词</span>
-              <span class="lightbox-info-value lightbox-prompt-text">${escapeHtml(t.prompt)}</span>
-            </div>
-          </div>
-          <div class="lightbox-meta">
-            <div style="flex:1"></div>
-            <button type="button" class="btn btn-secondary btn-sm" id="lb-download">${icon('download', 14)}<span>保存</span></button>
-            <button type="button" class="btn btn-ghost btn-sm" id="lb-copy">${icon('copy', 14)}<span>复制提示词</span></button>
-          </div>
-        </div>
-      </div>
-    `);
-    document.body.appendChild(overlay);
-    renderIcons(overlay);
-    const esc = (event) => {
-      if (event.key === 'Escape') close();
-    };
-    const close = () => {
-      overlay.remove();
-      document.removeEventListener('keydown', esc);
-      if (closeLightbox === close) closeLightbox = null;
-    };
-    closeLightbox = close;
-    overlay.addEventListener('click', (event) => { if (event.target === overlay) close(); });
-    overlay.querySelector('#lightbox-close').addEventListener('click', close);
-    document.addEventListener('keydown', esc);
-    overlay.querySelector('#lb-download').addEventListener('click', () => downloadImage(t.result.image, t.result.id));
-    overlay.querySelector('#lb-copy').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(t.prompt); toast('提示词已复制', 'success'); } catch { toast('复制失败', 'error'); }
-    });
-  }
-
   const unsubscribe = queue.subscribe(renderTasks);
+  renderQuickHistory();
   renderTasks(queue.getTasks());
 
   return () => {
     closeDropdown();
-    closeLightbox?.();
+    closeImagePreview?.();
     unsubscribe();
   };
 }

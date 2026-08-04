@@ -246,11 +246,22 @@ test('粒子层 CSS 保持在文字下方且不会拦截交互', () => {
   assert.equal(hasCssDeclaration(particleRule, 'pointer-events', 'none'), true, '粒子节点不得拦截交互');
 });
 
-test('快速生图结果区包含主展示容器，并会隐藏空状态', () => {
-  assert.match(generatePage, /data-queue-preview/u, '生成页必须提供最新结果主展示容器');
-  assert.match(generatePage, /renderQuickResultPreview\(getLatestQuickDoneTask\(quick\)\)/u, '生成页必须将最新完成图片渲染到主展示区');
-  const hiddenEmptyRule = getExactCssRuleBody(pagesCss, '.empty-state[hidden],\n.gallery-empty[hidden]');
-  assert.equal(hasCssDeclaration(hiddenEmptyRule, 'display', 'none !important'), true, '生成页与项目画廊的空状态隐藏时必须压过展示样式');
+test('快速生图仅展示活跃队列与可分页的持久化快速历史', () => {
+  assert.doesNotMatch(generatePage, /queue-result-preview/u, '生成页不得继续渲染主大图展示区');
+  assert.doesNotMatch(generatePage, /data-queue-finished/u, '生成页不得继续渲染已完成任务队列');
+  assert.doesNotMatch(generatePage, /finishedTaskRenderer|quickResultPreviewHtml|renderQuickResultPreview/u, '完成结果必须从队列视图中移除');
+
+  assert.match(generatePage, /import \{ getPaginatedQuickHistory \} from '\.\.\/history-data\.js';/u, '生成页必须使用快速历史分页选择器');
+  assert.match(generatePage, /getHistory,/u, '生成页必须读取持久化快速历史');
+  assert.match(generatePage, /openImagePreview/u, '生成页必须复用共享图片预览组件');
+  assert.match(generatePage, /data-quick-history-grid/u, '生成页必须提供快速历史卡片容器');
+  assert.match(generatePage, /data-quick-history-pagination/u, '生成页必须提供快速历史分页容器');
+  assert.match(generatePage, /getPaginatedQuickHistory\(getHistory\(\), \{ page: quickHistoryPage \}\)/u, '快速历史必须按选择器默认每页 12 条渲染');
+
+  assert.match(generatePage, /const completedQuickTaskIds = new Set\(quick\.filter\(\(task\) => task\.status === 'done'\)/u, '队列完成态必须被识别以刷新历史');
+  assert.match(generatePage, /renderQuickHistory\(\)/u, '发现新的完成任务后必须重新读取并渲染历史');
+  assert.match(generatePage, /resultArea\.addEventListener\('click', async \(event\) =>/u, '快速历史操作必须通过结果区委托处理');
+  assert.match(generatePage, /data-history-act/u, '快速历史卡片必须使用委托操作标识');
 });
 
 test('粒子遮罩必须收敛在输入区内，不能向外扩展', () => {
