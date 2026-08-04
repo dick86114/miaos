@@ -336,9 +336,9 @@ export function renderGenerate(container) {
     root.querySelectorAll('.composer-chip.is-open').forEach((c) => c.classList.remove('is-open'));
   }
 
-  function openChipDropdown(chip, html) {
+  function openChipDropdown(chip, html, dropdownClass = '') {
     closeDropdown();
-    const dd = htmlToElement(`<div class="composer-dropdown">${html}</div>`);
+    const dd = htmlToElement(`<div class="composer-dropdown${dropdownClass ? ` ${dropdownClass}` : ''}">${html}</div>`);
     chip.appendChild(dd);
     chip.classList.add('is-open');
     renderIcons(dd);
@@ -361,7 +361,7 @@ export function renderGenerate(container) {
     if (openDropdown && openDropdown.parentElement === modelChip) {
       closeDropdown();
     } else {
-      openChipDropdown(modelChip, buildModelDropdownHtml());
+      openChipDropdown(modelChip, buildModelDropdownHtml(), 'composer-dropdown--model');
     }
   });
 

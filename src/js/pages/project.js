@@ -667,9 +667,9 @@ export function renderProject(container, params, routeOptions = {}) {
       if (openDropdown) { openDropdown.remove(); openDropdown = null; }
       root.querySelectorAll('.composer-chip.is-open').forEach((c) => c.classList.remove('is-open'));
     }
-    function openChipDropdown(chip, html) {
+    function openChipDropdown(chip, html, dropdownClass = '') {
       closeDropdown();
-      const dd = htmlToElement(`<div class="composer-dropdown">${html}</div>`);
+      const dd = htmlToElement(`<div class="composer-dropdown${dropdownClass ? ` ${dropdownClass}` : ''}">${html}</div>`);
       chip.appendChild(dd);
       chip.classList.add('is-open');
       renderIcons(dd);
@@ -688,7 +688,7 @@ export function renderProject(container, params, routeOptions = {}) {
       if (e.target.closest('.composer-dropdown-item')) return;
       e.stopPropagation();
       if (openDropdown && openDropdown.parentElement === modelChip) closeDropdown();
-      else openChipDropdown(modelChip, buildModelDropdownHtml());
+      else openChipDropdown(modelChip, buildModelDropdownHtml(), 'composer-dropdown--model');
     });
     ratioChip.addEventListener('click', (e) => {
       if (e.target.closest('.composer-dropdown-item')) return;

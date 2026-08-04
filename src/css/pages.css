@@ -157,12 +157,13 @@
   white-space: nowrap;
 }
 .composer-chip--model {
-  flex: 1 1 0;
+  flex: 0 1 auto;
+  width: fit-content;
   min-width: 0;
-  max-width: none;
+  max-width: min(360px, 100%);
 }
 .composer-chip--model .chip-value {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   max-width: none;
   overflow: hidden;
@@ -419,6 +420,12 @@
   display: none;
 }
 .composer-chip.is-open .composer-dropdown { display: block; }
+.composer-chip--model .composer-dropdown--model {
+  width: max-content;
+  min-width: 0;
+  max-width: min(360px, calc(100vw - 24px));
+  box-sizing: border-box;
+}
 .composer-dropdown-item {
   display: flex;
   align-items: center;
