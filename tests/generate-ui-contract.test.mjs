@@ -55,23 +55,100 @@ function getEnclosedBlock(source, openingPattern, message) {
   return source.slice(openingBraceIndex + 1, closingBraceIndex);
 }
 
-function getComposerTextareaWrapMarkup(page, pageName) {
-  const openingMatch = /<div\s+class="composer-textarea-wrap">/u.exec(page);
-  assert.notEqual(openingMatch, null, `${pageName}必须包含 composer-textarea-wrap`);
+function getCompleteDivBlock(source, openingPattern, message) {
+  const openingMatch = openingPattern.exec(source);
+  assert.notEqual(openingMatch, null, message);
 
   const tagPattern = /<\/?div\b[^>]*>/gu;
   tagPattern.lastIndex = openingMatch.index;
   let depth = 0;
   let tagMatch;
-  while ((tagMatch = tagPattern.exec(page)) !== null) {
+  while ((tagMatch = tagPattern.exec(source)) !== null) {
     if (tagMatch[0].startsWith('</')) {
       depth -= 1;
-      if (depth === 0) return page.slice(openingMatch.index, tagMatch.index + tagMatch[0].length);
+      if (depth === 0) {
+        return {
+          markup: source.slice(openingMatch.index, tagMatch.index + tagMatch[0].length),
+          start: openingMatch.index,
+        };
+      }
     } else {
       depth += 1;
     }
   }
-  assert.fail(`${pageName}的 composer-textarea-wrap 必须正确闭合`);
+  assert.fail(`${message}必须正确闭合`);
+}
+
+function getComposerTextareaWrapMarkup(page, pageName) {
+  return getCompleteDivBlock(
+    page,
+    /<div\s+class="composer-textarea-wrap">/u,
+    `${pageName}必须包含 composer-textarea-wrap`,
+  ).markup;
+}
+
+function getDirectChildTags(markup) {
+  const tagPattern = /<\/?([a-z][\w-]*)\b[^>]*>/giu;
+  const childTags = [];
+  let depth = 0;
+  let tagMatch;
+  while ((tagMatch = tagPattern.exec(markup)) !== null) {
+    const isClosingTag = tagMatch[0].startsWith('</');
+    if (isClosingTag) {
+      depth -= 1;
+      continue;
+    }
+    if (depth === 1) childTags.push(tagMatch[0]);
+    if (!tagMatch[0].endsWith('/>')) depth += 1;
+  }
+  return childTags;
+}
+
+function assertParticleFieldStructure(textareaWrap, textareaId, pageName) {
+  const particleField = getCompleteDivBlock(
+    textareaWrap,
+    /<div\s+class="composer-particle-field"\s+aria-hidden="true">/u,
+    `${pageName}粒子层必须位于 composer-textarea-wrap 内并标记 aria-hidden`,
+  );
+  const textareaMatch = new RegExp(`<textarea\\b[^>]*\\bid="${textareaId}"`, 'u').exec(textareaWrap);
+  const directChildTags = getDirectChildTags(particleField.markup);
+  const particleTags = directChildTags.filter((tag) => /<span\s+class="composer-particle\s+particle-[a-z-]+">/u.test(tag));
+
+  assert.notEqual(textareaMatch, null, `${pageName}必须在 composer-textarea-wrap 内保留对应 textarea`);
+  assert.ok(particleField.start < textareaMatch.index, `${pageName}粒子层必须位于对应 textarea 前`);
+  for (const particleName of ['one', 'two', 'three', 'four']) {
+    const exactParticle = new RegExp(`^<span\\s+class="composer-particle\\s+particle-${particleName}">$`, 'u');
+    assert.equal(
+      directChildTags.filter((tag) => exactParticle.test(tag)).length,
+      1,
+      `${pageName}粒子层必须且只能包含一个 particle-${particleName} 直接子节点`,
+    );
+  }
+  assert.equal(particleTags.length, 4, `${pageName}粒子层必须仅包含 4 个直接子级 composer-particle 节点`);
+}
+
+function getWithButtonLoadingCallback(optimizeHandler, pageName) {
+  return getEnclosedBlock(
+    optimizeHandler,
+    /withButtonLoading\(btnOptimize,\s*'优化中…',\s*async \(\) => \{/u,
+    `${pageName}提示词优化处理器必须使用 withButtonLoading 异步回调`,
+  );
+}
+
+function assertParticleLifecycle(callback, pageName) {
+  const addMatch = /particleField\.classList\.add\('is-optimizing'\)/u.exec(callback);
+  const tryMatch = /\btry\s*\{/u.exec(callback);
+
+  assert.notEqual(addMatch, null, `${pageName}优化开始时必须激活粒子层`);
+  assert.notEqual(tryMatch, null, `${pageName}优化回调必须包含 try`);
+  assert.ok(addMatch.index < tryMatch.index, `${pageName}必须在 try 前激活粒子层`);
+
+  const finallyBlock = getEnclosedBlock(
+    callback,
+    /finally\s*\{/u,
+    `${pageName}提示词优化回调必须包含 finally`,
+  );
+  assert.match(finallyBlock, /particleField\.classList\.remove\('is-optimizing'\)/u, `${pageName}必须在 finally 中停用粒子层`);
 }
 
 function getExactCssRuleBody(css, selector) {
@@ -100,30 +177,53 @@ test('提示词优化使用位于输入区底层的粒子层并移除旧波浪�
 
   for (const [pageName, page, textareaId] of pageContracts) {
     const textareaWrap = getComposerTextareaWrapMarkup(page, pageName);
-    const particleMatch = /<div\s+class="composer-particle-field"\s+aria-hidden="true">/u.exec(textareaWrap);
-    const textareaMatch = new RegExp(`<textarea\\b[^>]*\\bid="${textareaId}"`, 'u').exec(textareaWrap);
-    const particleNodes = [...textareaWrap.matchAll(/<span\s+class="composer-particle\s+particle-(?:one|two|three|four)"><\/span>/gu)];
-
-    assert.notEqual(particleMatch, null, `${pageName}粒子层必须位于 composer-textarea-wrap 内并标记 aria-hidden`);
-    assert.notEqual(textareaMatch, null, `${pageName}必须在 composer-textarea-wrap 内保留对应 textarea`);
-    assert.ok(particleMatch.index < textareaMatch.index, `${pageName}粒子层必须位于对应 textarea 前`);
-    assert.equal(particleNodes.length, 4, `${pageName}粒子层必须包含 4 个 composer-particle 节点`);
+    assertParticleFieldStructure(textareaWrap, textareaId, pageName);
 
     const optimizeHandler = getEnclosedBlock(
       page,
       /btnOptimize\.addEventListener\('click', async \(\) => \{/u,
       `${pageName}必须定义提示词优化处理器`,
     );
-    const finallyBlock = getEnclosedBlock(
-      optimizeHandler,
-      /finally\s*\{/u,
-      `${pageName}提示词优化处理器必须包含 finally`,
-    );
-
-    assert.match(optimizeHandler, /particleField\.classList\.add\('is-optimizing'\)/u, `${pageName}优化开始时必须激活粒子层`);
-    assert.match(finallyBlock, /particleField\.classList\.remove\('is-optimizing'\)/u, `${pageName}必须在 finally 中停用粒子层`);
+    assertParticleLifecycle(getWithButtonLoadingCallback(optimizeHandler, pageName), pageName);
     assert.doesNotMatch(page, /composer-wave-bar/u, `${pageName}不得继续使用旧波浪层`);
   }
+});
+
+test('粒子结构契约拒绝把粒子移到粒子层外', () => {
+  const textareaWrap = `
+    <div class="composer-textarea-wrap">
+      <div class="composer-particle-field" aria-hidden="true">
+        <span class="composer-particle particle-one"></span>
+        <span class="composer-particle particle-two"></span>
+        <span class="composer-particle particle-three"></span>
+      </div>
+      <span class="composer-particle particle-four"></span>
+      <textarea class="composer-textarea" id="prompt-input"></textarea>
+    </div>
+  `;
+
+  assert.throws(
+    () => assertParticleFieldStructure(textareaWrap, 'prompt-input', '反向用例'),
+    /particle-four 直接子节点/u,
+    '粒子移出粒子层后不得仍通过结构契约',
+  );
+});
+
+test('优化生命周期契约拒绝在 finally 中才激活粒子层', () => {
+  const callback = `
+    try {
+      await optimizePrompt('示例');
+    } finally {
+      particleField.classList.add('is-optimizing');
+      particleField.classList.remove('is-optimizing');
+    }
+  `;
+
+  assert.throws(
+    () => assertParticleLifecycle(callback, '反向用例'),
+    /try 前激活粒子层/u,
+    '把 add 放进 finally 或清理阶段后不得仍通过生命周期契约',
+  );
 });
 
 test('粒子层 CSS 保持在文字下方且不会拦截交互', () => {
