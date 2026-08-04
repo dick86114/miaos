@@ -337,7 +337,45 @@ export async function fetchModels(provider, category = 'image') {
 // ===== 历史操作 =====
 export function getHistory() { return state.history.slice(); }
 export function getHistoryItem(id) { return state.history.find((h) => h.id === id) || null; }
-export function deleteHistory(id) { state.history = state.history.filter((h) => h.id !== id); save(); }
+export function deleteHistory(id) {
+  const nextHistory = state.history.filter((h) => h.id !== id);
+  if (nextHistory.length === state.history.length) return false;
+  state.history = nextHistory;
+  save();
+  return true;
+}
+
+// 统一历史的批量删除入口：快速记录与项目图片根据来源分别复用现有删除操作。
+export function deleteHistoryRecords(selection) {
+  const records = Array.isArray(selection) ? selection : [];
+  const seenKeys = new Set();
+  let deletedCount = 0;
+
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    if (record.source === 'quick') {
+      const historyId = record.historyId || record.id;
+      if (!historyId) continue;
+      const key = record.key || `quick:${historyId}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (deleteHistory(historyId)) deletedCount += 1;
+      continue;
+    }
+
+    if (record.source === 'project') {
+      const { projectId, versionId, imageId } = record;
+      if (!projectId || !versionId || !imageId) continue;
+      const key = record.key || `project:${projectId}:${versionId}:${imageId}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (deleteImage(projectId, versionId, imageId)) deletedCount += 1;
+    }
+  }
+
+  return deletedCount;
+}
+
 export function clearHistory() { state.history = []; save(); }
 
 // ===== 生图 =====
@@ -780,13 +818,16 @@ export function getImageBranchCount(projectId, imageId) {
 
 export function deleteImage(projectId, versionId, imageId) {
   const p = state.projects.find((p) => p.id === projectId);
-  if (!p) return;
+  if (!p) return false;
   const v = p.versions.find((v) => v.id === versionId);
-  if (!v) return;
-  v.images = v.images.filter((img) => img.id !== imageId);
+  if (!v) return false;
+  const nextImages = v.images.filter((img) => img.id !== imageId);
+  if (nextImages.length === v.images.length) return false;
+  v.images = nextImages;
   if (p.coverImageId === imageId) p.coverImageId = null;
   p.updatedAt = Date.now();
   save();
+  return true;
 }
 
 export function setProjectCover(projectId, imageId) {
