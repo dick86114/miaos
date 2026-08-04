@@ -104,29 +104,6 @@ function getDirectChildTags(markup) {
   return childTags;
 }
 
-function assertParticleFieldStructure(textareaWrap, textareaId, pageName) {
-  const particleField = getCompleteDivBlock(
-    textareaWrap,
-    /<div\s+class="composer-particle-field"\s+aria-hidden="true">/u,
-    `${pageName}粒子层必须位于 composer-textarea-wrap 内并标记 aria-hidden`,
-  );
-  const textareaMatch = new RegExp(`<textarea\\b[^>]*\\bid="${textareaId}"`, 'u').exec(textareaWrap);
-  const directChildTags = getDirectChildTags(particleField.markup);
-  const particleTags = directChildTags.filter((tag) => /<span\s+class="composer-particle\s+particle-[a-z-]+">/u.test(tag));
-
-  assert.notEqual(textareaMatch, null, `${pageName}必须在 composer-textarea-wrap 内保留对应 textarea`);
-  assert.ok(particleField.start < textareaMatch.index, `${pageName}粒子层必须位于对应 textarea 前`);
-  for (const particleName of ['one', 'two', 'three', 'four']) {
-    const exactParticle = new RegExp(`^<span\\s+class="composer-particle\\s+particle-${particleName}">$`, 'u');
-    assert.equal(
-      directChildTags.filter((tag) => exactParticle.test(tag)).length,
-      1,
-      `${pageName}粒子层必须且只能包含一个 particle-${particleName} 直接子节点`,
-    );
-  }
-  assert.equal(particleTags.length, 4, `${pageName}粒子层必须仅包含 4 个直接子级 composer-particle 节点`);
-}
-
 function getExactCssRuleBody(css, selector) {
   const normalizedTarget = selector.replace(/\s+/gu, ' ').trim();
   const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//gu, '');
@@ -162,7 +139,7 @@ test('快速与项目生图均提供 1–4 张控件，并以独立批次任务�
   }
 });
 
-test('提示词优化复用共享状态绑定，快速页固定 quick 上下文并保留现有粒子结构', () => {
+test('提示词优化复用共享状态绑定，快速页固定 quick 上下文且不再保留静态粒子 DOM', () => {
   const pageContracts = [
     ['生成页', generatePage, 'prompt-input'],
     ['项目页', projectPage, 'version-prompt'],
@@ -170,7 +147,8 @@ test('提示词优化复用共享状态绑定，快速页固定 quick 上下文�
 
   for (const [pageName, page, textareaId] of pageContracts) {
     const textareaWrap = getComposerTextareaWrapMarkup(page, pageName);
-    assertParticleFieldStructure(textareaWrap, textareaId, pageName);
+    assert.match(textareaWrap, new RegExp(`<textarea\\b[^>]*\\bid="${textareaId}"`, 'u'), `${pageName}必须在 composer-textarea-wrap 内保留对应 textarea`);
+    assert.doesNotMatch(textareaWrap, /composer-particle-field|composer-particle|particle-(?:one|two|three|four)/u, `${pageName}不得继续渲染旧粒子节点`);
     assert.doesNotMatch(page, /composer-wave-bar/u, `${pageName}不得继续使用旧波浪层`);
     assert.doesNotMatch(page, /withButtonLoading/u, `${pageName}不得再由页面局部 finally 管理优化生命周期`);
   }
@@ -183,44 +161,35 @@ test('提示词优化复用共享状态绑定，快速页固定 quick 上下文�
   assert.match(projectPage, /project:\$\{projectId\}:\$\{curVer\.id\}/u, '项目页上下文必须同时包含项目和当前版本');
 });
 
-test('粒子结构契约拒绝把粒子移到粒子层外', () => {
-  const textareaWrap = `
-    <div class="composer-textarea-wrap">
-      <div class="composer-particle-field" aria-hidden="true">
-        <span class="composer-particle particle-one"></span>
-        <span class="composer-particle particle-two"></span>
-        <span class="composer-particle particle-three"></span>
-      </div>
-      <span class="composer-particle particle-four"></span>
-      <textarea class="composer-textarea" id="prompt-input"></textarea>
-    </div>
-  `;
+test('模型 chip 在宽屏可扩展，并为完整模型名称提供 title 语义', () => {
+  const pageContracts = [
+    ['生成页', generatePage],
+    ['项目页', projectPage],
+  ];
 
-  assert.throws(
-    () => assertParticleFieldStructure(textareaWrap, 'prompt-input', '反向用例'),
-    /particle-four 直接子节点/u,
-    '粒子移出粒子层后不得仍通过结构契约',
-  );
+  for (const [pageName, page] of pageContracts) {
+    assert.match(page, /class="composer-chip composer-chip--model" id="model-chip"/u, `${pageName}模型 chip 必须使用专用响应式类`);
+    assert.match(page, /id="model-chip-value" title="选择模型"/u, `${pageName}模型值初始状态必须提供完整名称 title`);
+    assert.match(
+      page,
+      /function setModelChipLabel\(label\) \{[\s\S]*?modelChipValue\.textContent = label;[\s\S]*?modelChipValue\.title = label;[\s\S]*?\}/u,
+      `${pageName}模型变更必须同步更新可见文本和 title`,
+    );
+  }
 });
 
-test('粒子层 CSS 保持在文字下方且不会拦截交互', () => {
-  const particleFieldRule = getExactCssRuleBody(pagesCss, '.composer-particle-field');
-  const foregroundRule = getExactCssRuleBody(pagesCss, '.composer-textarea,\n.composer-source-preview');
-  const pseudoElementsRule = getExactCssRuleBody(pagesCss, '.composer-particle-field::before,\n.composer-particle-field::after');
-  const particleRule = getExactCssRuleBody(pagesCss, '.composer-particle');
+test('碎片覆盖层裁剪在输入区内、位于交互内容下方且不拦截交互', () => {
+  const fragmentOverlayRule = getExactCssRuleBody(pagesCss, `.composer-fragment-overlay,\n.prompt-fragment-overlay`);
+  const foregroundRule = getExactCssRuleBody(pagesCss, `.composer-textarea,\n.composer-source-preview`);
 
-  assert.notEqual(particleFieldRule, '', '粒子层必须拥有独立 CSS 规则');
-  assert.equal(hasCssDeclaration(particleFieldRule, 'z-index', '0'), true, '粒子层必须位于 z-index: 0');
-  assert.equal(hasCssDeclaration(particleFieldRule, 'pointer-events', 'none'), true, '粒子层不得拦截交互');
+  assert.notEqual(fragmentOverlayRule, '', '碎片覆盖层必须拥有独立 CSS 规则');
+  assert.equal(hasCssDeclaration(fragmentOverlayRule, 'inset', '0'), true, '碎片覆盖层必须与输入区边界重合，不能向外扩展');
+  assert.equal(hasCssDeclaration(fragmentOverlayRule, 'overflow', 'hidden'), true, '碎片覆盖层必须裁剪内部碎片，避免视觉越界');
+  assert.equal(hasCssDeclaration(fragmentOverlayRule, 'z-index', '0'), true, '碎片覆盖层必须位于交互内容下方');
+  assert.equal(hasCssDeclaration(fragmentOverlayRule, 'pointer-events', 'none'), true, '碎片覆盖层不得拦截交互');
 
   assert.notEqual(foregroundRule, '', 'textarea 与参考图预览必须共享前景层规则');
-  assert.equal(hasCssDeclaration(foregroundRule, 'z-index', '1'), true, 'textarea 与参考图预览必须位于 z-index: 1');
-
-  assert.notEqual(pseudoElementsRule, '', '粒子层伪元素必须拥有精确规则');
-  assert.equal(hasCssDeclaration(pseudoElementsRule, 'pointer-events', 'none'), true, '粒子层伪元素不得拦截交互');
-
-  assert.notEqual(particleRule, '', '粒子节点必须拥有独立 CSS 规则');
-  assert.equal(hasCssDeclaration(particleRule, 'pointer-events', 'none'), true, '粒子节点不得拦截交互');
+  assert.equal(hasCssDeclaration(foregroundRule, 'z-index', '1'), true, 'textarea 与参考图预览必须位于碎片覆盖层上方');
 });
 
 test('快速生图仅展示活跃队列与可分页的持久化快速历史', () => {
@@ -240,15 +209,6 @@ test('快速生图仅展示活跃队列与可分页的持久化快速历史', ()
   assert.match(generatePage, /resultArea\.addEventListener\('click', async \(event\) =>/u, '快速历史操作必须通过结果区委托处理');
   assert.match(generatePage, /data-history-act/u, '快速历史卡片必须使用委托操作标识');
 });
-
-test('粒子遮罩必须收敛在输入区内，不能向外扩展', () => {
-  const particleFieldRule = getExactCssRuleBody(pagesCss, '.composer-particle-field');
-
-  assert.notEqual(particleFieldRule, '', '粒子层必须拥有独立 CSS 规则');
-  assert.equal(hasCssDeclaration(particleFieldRule, 'inset', '0'), true, '粒子层必须与输入区边界重合，不能使用负 inset 向外扩展');
-  assert.equal(hasCssDeclaration(particleFieldRule, 'overflow', 'hidden'), true, '粒子层必须裁剪内部光晕和粒子，避免视觉越界');
-});
-
 
 test('快速任务复用项目画廊占位卡片、显示批次并提供失败详情入口', () => {
   const activeTaskCard = getEnclosedBlock(

@@ -135,6 +135,7 @@
   font-family: var(--font-sans);
   white-space: nowrap;
   position: relative;
+  flex: 0 0 auto;
 }
 .composer-chip:hover {
   background: var(--surface-3);
@@ -149,10 +150,29 @@
 .composer-chip .chip-value {
   font-weight: 500;
   color: var(--ink);
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+.composer-chip--model {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 420px;
+}
+.composer-chip--model .chip-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
+@media (max-width: 680px) {
+  .composer-chip--model {
+    flex-basis: min(100%, 220px);
+    max-width: 100%;
+  }
+  .composer-chip--model .chip-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 .composer-chip .chip-caret {
   display: inline-flex;
@@ -229,140 +249,57 @@
   to { transform: rotate(360deg); }
 }
 
-/* 优化提示词进行中：独立粒子能量场位于文字与光标下方。 */
-.composer-particle-field {
+/* 优化提示词进行中：碎片覆盖层限制在输入区内，并始终位于交互内容下方。 */
+.composer-fragment-overlay,
+.prompt-fragment-overlay {
   position: absolute;
   inset: 0;
   z-index: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.2em 0.3em;
   overflow: hidden;
-  border-radius: 16px;
+  padding: 14px 16px;
+  border-radius: inherit;
+  color: var(--brand);
   pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--motion-normal) var(--motion-ease);
+  user-select: none;
 }
 .composer-textarea,
 .composer-source-preview {
   position: relative;
   z-index: 1;
 }
-.composer-particle-field.is-optimizing {
-  opacity: 1;
-}
-.composer-particle-field::before,
-.composer-particle-field::after {
-  content: '';
-  position: absolute;
-  inset: -30%;
+.composer-fragment,
+.prompt-fragment-overlay__fragment {
+  display: inline-block;
+  font: 500 15px/1.6 var(--font-sans);
+  opacity: 0;
   pointer-events: none;
   will-change: transform, opacity;
+  animation: composer-fragment-scatter var(--motion-wave) var(--motion-ease) both;
 }
-.composer-particle-field::before {
-  background:
-    radial-gradient(circle at 18% 36%, rgba(34, 211, 238, 0.42) 0, rgba(34, 211, 238, 0) 34%),
-    radial-gradient(circle at 72% 22%, rgba(139, 92, 246, 0.34) 0, rgba(139, 92, 246, 0) 38%),
-    radial-gradient(circle at 54% 78%, rgba(236, 72, 153, 0.26) 0, rgba(236, 72, 153, 0) 36%);
+.composer-fragment-overlay.is-settling .composer-fragment,
+.prompt-fragment-overlay.prompt-fragment-overlay--settling .prompt-fragment-overlay__fragment {
+  animation: composer-fragment-settle var(--motion-normal) var(--motion-ease) both;
 }
-.composer-particle-field::after {
-  background:
-    radial-gradient(circle at 76% 64%, rgba(34, 211, 238, 0.26) 0, rgba(34, 211, 238, 0) 32%),
-    radial-gradient(circle at 34% 76%, rgba(168, 85, 247, 0.3) 0, rgba(168, 85, 247, 0) 36%),
-    radial-gradient(circle at 88% 14%, rgba(244, 114, 182, 0.22) 0, rgba(244, 114, 182, 0) 30%);
+@keyframes composer-fragment-scatter {
+  from { transform: translate3d(0, 0, 0) scale(0.92); opacity: 0.7; }
+  to { transform: translate3d(0, -16px, 0) scale(1.06); opacity: 0; }
 }
-.composer-particle-field.is-optimizing::before {
-  animation: particle-field-drift var(--motion-pulse) var(--motion-ease) infinite;
-}
-.composer-particle-field.is-optimizing::after {
-  animation: particle-field-shimmer var(--motion-wave) var(--motion-ease) infinite;
-}
-.composer-particle {
-  position: absolute;
-  z-index: 1;
-  border-radius: 50%;
-  pointer-events: none;
-  will-change: transform, opacity;
-}
-.particle-one {
-  top: 14%;
-  left: 12%;
-  width: 30px;
-  height: 30px;
-  background: radial-gradient(circle, rgba(103, 232, 249, 0.96) 0, rgba(34, 211, 238, 0.48) 32%, rgba(34, 211, 238, 0) 72%);
-}
-.particle-two {
-  top: 52%;
-  right: 10%;
-  width: 42px;
-  height: 42px;
-  background: radial-gradient(circle, rgba(196, 181, 253, 0.88) 0, rgba(139, 92, 246, 0.42) 34%, rgba(139, 92, 246, 0) 74%);
-}
-.particle-three {
-  bottom: 8%;
-  left: 38%;
-  width: 24px;
-  height: 24px;
-  background: radial-gradient(circle, rgba(251, 207, 232, 0.9) 0, rgba(244, 114, 182, 0.45) 35%, rgba(244, 114, 182, 0) 72%);
-}
-.particle-four {
-  top: 24%;
-  right: 32%;
-  width: 18px;
-  height: 18px;
-  background: radial-gradient(circle, rgba(165, 243, 252, 0.88) 0, rgba(14, 165, 233, 0.4) 36%, rgba(14, 165, 233, 0) 72%);
-}
-.composer-particle-field.is-optimizing .particle-one {
-  animation: particle-one-float var(--motion-wave) var(--motion-ease) infinite;
-}
-.composer-particle-field.is-optimizing .particle-two {
-  animation: particle-two-float var(--motion-pulse) var(--motion-ease) infinite;
-}
-.composer-particle-field.is-optimizing .particle-three {
-  animation: particle-three-float var(--motion-loop) var(--motion-ease) infinite;
-}
-.composer-particle-field.is-optimizing .particle-four {
-  animation: particle-four-float var(--motion-normal) var(--motion-ease) infinite;
-}
-@keyframes particle-field-drift {
-  0%, 100% { transform: translate3d(-3%, -1%, 0) scale(0.96); opacity: 0.45; }
-  50% { transform: translate3d(3%, 2%, 0) scale(1.04); opacity: 0.82; }
-}
-@keyframes particle-field-shimmer {
-  0%, 100% { transform: translate3d(4%, 2%, 0) scale(1.02); opacity: 0.28; }
-  50% { transform: translate3d(-4%, -2%, 0) scale(0.94); opacity: 0.66; }
-}
-@keyframes particle-one-float {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(0.88); opacity: 0.3; }
-  50% { transform: translate3d(26px, 12px, 0) scale(1.12); opacity: 0.96; }
-}
-@keyframes particle-two-float {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(0.82); opacity: 0.22; }
-  50% { transform: translate3d(-30px, -18px, 0) scale(1.08); opacity: 0.82; }
-}
-@keyframes particle-three-float {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(0.9); opacity: 0.28; }
-  50% { transform: translate3d(18px, -24px, 0) scale(1.16); opacity: 0.92; }
-}
-@keyframes particle-four-float {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(0.76); opacity: 0.24; }
-  50% { transform: translate3d(-16px, 18px, 0) scale(1.2); opacity: 0.88; }
+@keyframes composer-fragment-settle {
+  from { transform: translate3d(0, -12px, 0) scale(1.04); opacity: 0.7; }
+  to { transform: translate3d(0, 0, 0) scale(1); opacity: 0; }
 }
 
-/* 减少动态效果时保留静态能量层，同时停止所有粒子与渐变漂移。 */
+/* 减少动态效果时移除碎片动画，保留无交互的静态降级层。 */
 @media (prefers-reduced-motion: reduce) {
-  .composer-particle-field.is-optimizing {
-    animation: none !important;
-    opacity: 1;
-  }
-  .composer-particle-field.is-optimizing::before {
+  .composer-fragment,
+  .prompt-fragment-overlay__fragment {
     animation: none !important;
     transform: none;
-  }
-  .composer-particle-field.is-optimizing::after {
-    animation: none !important;
-    transform: none;
-  }
-  .composer-particle-field.is-optimizing .composer-particle {
-    animation: none !important;
-    transform: none;
+    opacity: 0.18;
   }
 }
 

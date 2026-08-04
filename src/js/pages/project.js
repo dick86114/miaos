@@ -422,12 +422,6 @@ export function renderProject(container, params, routeOptions = {}) {
 
             <div class="composer-card">
               <div class="composer-textarea-wrap">
-                <div class="composer-particle-field" aria-hidden="true">
-                  <span class="composer-particle particle-one"></span>
-                  <span class="composer-particle particle-two"></span>
-                  <span class="composer-particle particle-three"></span>
-                  <span class="composer-particle particle-four"></span>
-                </div>
                 <div class="composer-source-preview" id="source-preview" style="display:${!isChild && curVer.sourceImage ? 'flex' : 'none'};">
                   <div class="composer-source-preview-img-wrap">
                     <img id="source-thumb" src="${curVer.sourceImage ? 'file://' + encodeURI(curVer.sourceImage) : ''}" alt="参考图" />
@@ -443,9 +437,9 @@ export function renderProject(container, params, routeOptions = {}) {
               <div class="composer-toolbar">
                 <button class="composer-tool-btn" type="button" id="btn-upload-image" ${isChild ? 'disabled title="分支使用父图作为参考，无需上传"' : 'title="上传图片（图生图）"'}>${icon('plus', 16)}</button>
                 <button class="composer-tool-btn" type="button" id="btn-upload-file" title="上传文件（长文本提示词）">${icon('file-text', 16)}</button>
-                <div class="composer-chip" id="model-chip">
+                <div class="composer-chip composer-chip--model" id="model-chip">
                   <span class="chip-icon">${icon('cpu', 13)}</span>
-                  <span class="chip-value" id="model-chip-value">${escapeHtml(curVer.modelId || '选择模型')}</span>
+                  <span class="chip-value" id="model-chip-value" title="选择模型">选择模型</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
                 <div class="composer-chip" id="ratio-chip">
@@ -566,7 +560,6 @@ export function renderProject(container, params, routeOptions = {}) {
       });
     };
     const promptInput = root.querySelector('#version-prompt');
-    const particleField = root.querySelector('.composer-particle-field');
     const btnGenerate = root.querySelector('#btn-generate');
     const btnNewRoot = root.querySelector('#btn-new-root');
 
@@ -598,10 +591,16 @@ export function renderProject(container, params, routeOptions = {}) {
     const quantityChip = root.querySelector('#quantity-chip');
     const quantityChipValue = root.querySelector('#quantity-chip-value');
 
+    function setModelChipLabel(label) {
+      modelChipValue.textContent = label;
+      modelChipValue.title = label;
+    }
+
     function buildModelChipValue() {
-      if (!currentModelId) { modelChipValue.textContent = '选择模型'; return; }
-      const p = modelToProvider.get(currentModelId);
-      modelChipValue.textContent = p ? `${p.name} · ${currentModelId}` : currentModelId;
+      if (!currentModelId) { setModelChipLabel('选择模型'); return; }
+      const provider = modelToProvider.get(currentModelId);
+      const model = provider?.imageModels.find((item) => item.id === currentModelId);
+      setModelChipLabel(model ? `${provider.name} · ${model.name}` : currentModelId);
     }
     buildModelChipValue();
 
@@ -791,7 +790,6 @@ export function renderProject(container, params, routeOptions = {}) {
         container: root.querySelector('.composer-textarea-wrap'),
         textarea: promptInput,
         button: btnOptimize,
-        particleField,
       });
       btnOptimize.addEventListener('click', () => {
         const prompt = promptInput.value.trim();

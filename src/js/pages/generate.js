@@ -30,7 +30,6 @@ export function createPromptOptimizationPageBinding({
   container,
   textarea,
   button,
-  particleField,
   toast: toastFn = toast,
   createOverlay = createPromptFragmentOverlay,
 }) {
@@ -44,7 +43,6 @@ export function createPromptOptimizationPageBinding({
     button.classList?.toggle?.('is-loading', optimizing);
     button.classList?.toggle?.('is-optimizing', optimizing);
     textarea.classList?.toggle?.('is-optimizing', optimizing);
-    particleField.classList?.toggle?.('is-optimizing', optimizing);
     if (optimizing) button.setAttribute?.('aria-busy', 'true');
     else button.removeAttribute?.('aria-busy');
   }
@@ -140,12 +138,6 @@ export function renderGenerate(container) {
       </div>
       <div class="composer-card" id="composer">
         <div class="composer-textarea-wrap">
-          <div class="composer-particle-field" aria-hidden="true">
-            <span class="composer-particle particle-one"></span>
-            <span class="composer-particle particle-two"></span>
-            <span class="composer-particle particle-three"></span>
-            <span class="composer-particle particle-four"></span>
-          </div>
           <div class="composer-source-preview" id="source-preview" style="display:none;">
             <div class="composer-source-preview-img-wrap">
               <img id="source-thumb" alt="参考图" />
@@ -161,9 +153,9 @@ export function renderGenerate(container) {
         <div class="composer-toolbar" id="composer-toolbar">
           <button class="composer-tool-btn" type="button" id="btn-upload-image" title="上传图片（图生图）">${icon('plus', 16)}</button>
           <button class="composer-tool-btn" type="button" id="btn-upload-file" title="上传文件（长文本提示词）">${icon('file-text', 16)}</button>
-          <div class="composer-chip" id="model-chip">
+          <div class="composer-chip composer-chip--model" id="model-chip">
             <span class="chip-icon">${icon('cpu', 13)}</span>
-            <span class="chip-value" id="model-chip-value">选择模型</span>
+            <span class="chip-value" id="model-chip-value" title="选择模型">选择模型</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
           <div class="composer-chip" id="ratio-chip">
@@ -194,7 +186,6 @@ export function renderGenerate(container) {
   mountPage(container, root);
 
   const promptInput = root.querySelector('#prompt-input');
-  const particleField = root.querySelector('.composer-particle-field');
   const btnGenerate = root.querySelector('#btn-generate');
   const btnRandom = root.querySelector('#btn-random');
   const resultArea = root.querySelector('#result-area');
@@ -219,16 +210,17 @@ export function renderGenerate(container) {
     return models[0] ? models[0].id : '';
   }
 
+  function setModelChipLabel(label) {
+    modelChipValue.textContent = label;
+    modelChipValue.title = label;
+  }
+
   function updateModelChip() {
     const models = getEnabledModelsForProvider(currentProviderId);
     const defModelId = getDefaultModelId();
     currentModelId = defModelId;
-    if (!defModelId) {
-      modelChipValue.textContent = '选择模型';
-    } else {
-      const m = models.find((x) => x.id === defModelId);
-      modelChipValue.textContent = m ? m.name : '选择模型';
-    }
+    const model = models.find((item) => item.id === defModelId);
+    setModelChipLabel(model ? model.name : '选择模型');
   }
 
   function buildModelDropdownHtml() {
@@ -470,8 +462,7 @@ export function renderGenerate(container) {
     container: root.querySelector('.composer-textarea-wrap'),
     textarea: promptInput,
     button: btnOptimize,
-    particleField,
-  });
+    });
   btnOptimize.addEventListener('click', () => {
     const prompt = promptInput.value.trim();
     if (!prompt) { toast('请先输入提示词', 'error'); promptInput.focus(); return; }

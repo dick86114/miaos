@@ -49,7 +49,6 @@ function createControl(value = '') {
 function createBinding({ manager, context, prompt = '初始提示词' }) {
   const textarea = createControl(prompt);
   const button = createControl();
-  const particleField = createControl();
   const container = {};
   const toasts = [];
   const overlays = [];
@@ -59,7 +58,6 @@ function createBinding({ manager, context, prompt = '初始提示词' }) {
     container,
     textarea,
     button,
-    particleField,
     toast: (...args) => toasts.push(args),
     createOverlay: (options) => {
       const overlay = {
@@ -75,7 +73,7 @@ function createBinding({ manager, context, prompt = '初始提示词' }) {
       return overlay;
     },
   });
-  return { binding, textarea, button, particleField, toasts, overlays };
+  return { binding, textarea, button, toasts, overlays };
 }
 
 function assertOptimizingUi(view) {
@@ -85,7 +83,6 @@ function assertOptimizingUi(view) {
   assert.equal(view.button.classList.contains('is-loading'), true);
   assert.equal(view.button.classList.contains('is-optimizing'), true);
   assert.equal(view.textarea.classList.contains('is-optimizing'), true);
-  assert.equal(view.particleField.classList.contains('is-optimizing'), true);
   assert.equal(view.overlays.length, 1);
   assert.equal(view.overlays[0].mounted, 1);
 }
@@ -97,7 +94,6 @@ function assertIdleUi(view) {
   assert.equal(view.button.classList.contains('is-loading'), false);
   assert.equal(view.button.classList.contains('is-optimizing'), false);
   assert.equal(view.textarea.classList.contains('is-optimizing'), false);
-  assert.equal(view.particleField.classList.contains('is-optimizing'), false);
 }
 
 test('快速页离开后重新挂载会恢复共享 optimizing 状态且重复启动不会创建第二个请求', async () => {
