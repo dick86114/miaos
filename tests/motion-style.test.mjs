@@ -632,14 +632,14 @@ test('减少动态效果容器只保留明确安全的动画与过渡覆盖', as
   assert.deepEqual(getReducedMotionOverrideProblems(rules), []);
 });
 
-test('减少动态效果模式会让波浪进度保持可见且不循环', async () => {
+test('减少动态效果模式会停止粒子动画并保持粒子层可见', async () => {
   const pagesCss = stripCssComments(await readFile(path.join(cssDirectory, 'pages.css'), 'utf8'));
   const reduceMotion = getAtRuleBlock(pagesCss, '@media (prefers-reduced-motion: reduce)');
-  const waveRule = getAtRuleBlock(reduceMotion, '.composer-wave-bar::before');
+  const particleRule = getAtRuleBlock(reduceMotion, '.composer-particle-field.is-optimizing');
 
-  assert.notEqual(waveRule, '', '波浪进度条必须提供减少动态效果覆盖');
-  assert.match(waveRule, /animation:\s*none\s*!important\s*;/u);
-  assert.match(waveRule, /transform:\s*translateX\(0\)\s*;/u);
+  assert.notEqual(particleRule, '', '粒子效果必须提供减少动态效果覆盖');
+  assert.match(particleRule, /animation:\s*none\s*!important\s*;/u);
+  assert.match(particleRule, /opacity:\s*1\s*;/u);
 });
 
 test('全局减少动态效果模式会缩短过渡并停止循环动画', async () => {
