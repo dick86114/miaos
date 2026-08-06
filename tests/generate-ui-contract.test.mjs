@@ -351,7 +351,7 @@ test('快速任务复用项目画廊占位卡片、显示批次并提供失败�
   assert.match(generatePage, /openQuickTaskFailurePreview/u, '失败详情操作必须打开共享详情弹窗');
 });
 
-test('快速生图提示词输入框按内容自适应且最多十行，历史不再保留重复详情按钮', () => {
+test('快速与项目生图输入框自动最多十行，但手动拖拽不受十行高度限制，历史不再保留重复详情按钮', () => {
   assert.match(generatePage, /const PROMPT_INPUT_MAX_LINES = 10;/u, '快速生图页必须声明十行上限');
   assert.match(generatePage, /function syncPromptInputHeight\(textarea\)/u, '快速生图页必须提供输入框高度同步函数');
   assert.match(generatePage, /promptInput\.addEventListener\('input', \(\) => syncPromptInputHeight\(promptInput\)\)/u, '输入时必须同步高度');
@@ -359,9 +359,19 @@ test('快速生图提示词输入框按内容自适应且最多十行，历史�
   const optimizationFinalize = getEnclosedBlock(generatePage, /function finalizeState\(state\) \{/u, '优化绑定必须定义完成处理');
   assert.match(optimizationFinalize, /textarea\.dispatchEvent\?\.\(new Event\('input'/u, '优化结果回填后必须触发输入框高度同步');
 
+  assert.match(projectPage, /const PROJECT_PROMPT_MAX_LINES = 10;/u, '项目生图页必须声明十行上限');
+  assert.match(projectPage, /function syncProjectPromptHeight\(textarea\)/u, '项目生图页必须提供输入框高度同步函数');
+  assert.match(projectPage, /Math\.min\(textarea\.scrollHeight, maxHeight\)/u, '项目输入框必须在十行上限内随内容增高');
+  assert.match(projectPage, /textarea\.style\.overflowY = textarea\.scrollHeight > maxHeight \? 'auto' : 'hidden';/u, '项目输入框超出十行时必须在内部滚动');
+
   const composerTextareaRule = getExactCssRuleBody(pagesCss, '.composer-textarea');
-  assert.equal(hasCssDeclaration(composerTextareaRule, 'overflow-y', 'auto'), true, '超过十行后输入框必须在内部滚动');
-  assert.equal(hasCssDeclaration(composerTextareaRule, 'resize', 'none'), true, '输入框高度必须由内容控制，不允许手动拖拽破坏上限');
+  const projectTextareaRule = getExactCssRuleBody(pagesCss, '.composer-textarea--project');
+  assert.equal(hasCssDeclaration(composerTextareaRule, 'overflow-y', 'auto'), true, '快速输入框超过十行后必须在内部滚动');
+  assert.equal(hasCssDeclaration(composerTextareaRule, 'resize', 'vertical'), true, '快速输入框必须允许手动纵向拖拽');
+  assert.equal(hasCssDeclaration(composerTextareaRule, 'max-height', 'none'), true, '快速输入框手动拖拽不得受十行 CSS 高度限制');
+  assert.equal(hasCssDeclaration(projectTextareaRule, 'max-height', 'none'), true, '项目输入框手动拖拽不得受十行 CSS 高度限制');
+  assert.equal(hasCssDeclaration(projectTextareaRule, 'resize', 'vertical'), true, '项目输入框必须保留手动纵向拖拽');
+  assert.equal(hasCssDeclaration(projectTextareaRule, 'overflow-y', 'auto'), true, '项目输入框超出十行时必须支持内部滚动');
 
   const quickHistoryCard = getEnclosedBlock(
     generatePage,
@@ -378,7 +388,14 @@ test('所有成功图片预览统一进入详情页，失败任务仍使用失�
   assert.match(historyPage, /import \{ buildImageDetailRoute \} from '\.\.\/image-detail-data\.js';/u, '历史页必须使用统一详情路由');
   assert.match(projectPage, /import \{ buildImageDetailRoute, buildProjectPromptChain \} from '\.\.\/image-detail-data\.js';/u, '项目页必须使用统一详情路由和提示词链选择器');
   assert.match(generatePage, /navigate\(buildImageDetailRoute\(record, \{ origin: 'generate' \}\)\)/u, '快速历史预览必须进入详情页');
-  assert.match(historyPage, /navigate\(buildImageDetailRoute\(record, \{ origin: 'history' \}\)\)/u, '全量历史预览必须进入详情页');
+  assert.match(historyPage, /historyState: \{ \.\.\.controller\.getState\(\), scrollTop: container\.scrollTop \}/u, '历史预览必须把当前页码、筛选条件和滚动位置传入详情页');
+  assert.match(historyPage, /requestAnimationFrame\(\(\) => container\.scrollTo\(\{ top: restoreScrollTop \}\)\)/u, '返回历史页后必须在路由重置滚动之后恢复原位置');
+  assert.match(detailPage, /historyPage: routeOptions\.historyPage/u, '详情页必须把历史页码转发给详情数据解析器');
+  assert.match(detailPage, /historyQuery: routeOptions\.historyQuery/u, '详情页必须把历史搜索条件转发给详情数据解析器');
+  assert.match(detailPage, /historySource: routeOptions\.historySource/u, '详情页必须把历史来源筛选转发给详情数据解析器');
+  assert.match(detailPage, /historyProject: routeOptions\.historyProject/u, '详情页必须把历史项目筛选转发给详情数据解析器');
+  assert.match(detailPage, /historyScroll: routeOptions\.historyScroll/u, '详情页必须把历史滚动位置转发给详情数据解析器');
+  assert.match(historyPage, /navigate\(buildImageDetailRoute\(record, \{[\s\S]*?origin: 'history',[\s\S]*?historyState: \{ \.\.\.controller\.getState\(\), scrollTop: container\.scrollTop \}[\s\S]*?\}\)\)/u, '全量历史预览必须进入详情页并保留页码、筛选与滚动位置');
   assert.match(projectPage, /navigate\(buildImageDetailRoute\(\{[\s\S]*?origin: 'project'/u, '项目图片预览必须进入详情页并保留项目来源');
 
   const quickFailurePreview = getEnclosedBlock(generatePage, /function openQuickTaskFailurePreview\(task\) \{/u, '快速页必须保留失败详情函数');
@@ -387,19 +404,50 @@ test('所有成功图片预览统一进入详情页，失败任务仍使用失�
   assert.match(projectFailurePreview, /openImagePreview\(/u, '项目失败任务仍需使用失败详情弹层');
 });
 
-test('统一详情页完整显示当前与父节点提示词，并允许右侧独立滚动', () => {
-  assert.match(detailPage, /resolveImageDetailRecord/u, '详情页必须读取统一图片详情记录');
+test('统一详情页保持图片区和参数区双栏分离，右侧整列统一滚动且提示词链不可收缩错位', () => {
+  assert.match(detailPage, /function syncDetailPromptHeight\(textarea\)/u, '详情页必须按文本内容同步提示词块高度');
+  assert.match(detailPage, /root\.querySelectorAll\('\.detail-textarea'\)\.forEach\(syncDetailPromptHeight\)/u, '当前与父节点提示词都必须同步高度');
   assert.match(detailPage, /data-detail-prompt-chain/u, '项目图片详情必须渲染父节点提示词链');
   assert.match(detailPage, /class="detail-textarea detail-current-prompt"[^>]*readonly/u, '当前提示词必须完整只读展示');
   assert.match(detailPage, /class="detail-textarea detail-chain-textarea"[^>]*readonly/u, '父节点提示词必须完整只读展示');
   assert.doesNotMatch(detailPage, /prompt\.slice\(/u, '详情页提示词不得为了预览而截断');
 
   const currentPromptRule = getExactCssRuleBody(pagesCss, '.detail-current-prompt');
+  const layoutRule = getExactCssRuleBody(pagesCss, '.detail-layout');
   const panelRule = getExactCssRuleBody(pagesCss, '.detail-panel');
+  const sectionRule = getExactCssRuleBody(pagesCss, '.detail-section');
+  const chainRule = getExactCssRuleBody(pagesCss, '.detail-prompt-chain');
   const chainListRule = getExactCssRuleBody(pagesCss, '.detail-prompt-chain-list');
-  assert.equal(hasCssDeclaration(currentPromptRule, 'overflow-y', 'auto'), true, '当前提示词过长时必须在右侧文本区滚动');
-  assert.equal(hasCssDeclaration(panelRule, 'overflow-y', 'auto'), true, '右侧详情面板必须可独立滚动');
-  assert.equal(hasCssDeclaration(chainListRule, 'overflow-y', 'auto'), true, '父节点提示词链过长时必须独立滚动');
+  assert.equal(hasCssDeclaration(currentPromptRule, 'overflow-y', 'hidden'), true, '当前提示词块不得单独滚动');
+  assert.equal(hasCssDeclaration(layoutRule, 'display', 'grid'), true, '预览图片区与右侧参数区必须保持双栏布局');
+  assert.equal(hasCssDeclaration(layoutRule, 'min-height', '0'), true, '双栏容器必须允许右侧滚动区域正确收缩');
+  assert.equal(hasCssDeclaration(panelRule, 'overflow-y', 'auto'), true, '右侧详情面板必须是唯一滚动容器');
+  assert.equal(hasCssDeclaration(panelRule, 'min-height', '0'), true, '右侧详情面板必须在固定列高内滚动');
+  assert.equal(hasCssDeclaration(sectionRule, 'flex', '0 0 auto'), true, '详情分区不得在滚动容器内被压缩重叠');
+  assert.equal(hasCssDeclaration(chainRule, 'flex', '0 0 auto'), true, '父节点提示词链不得收缩并覆盖后续参数区');
+  assert.equal(hasCssDeclaration(chainListRule, 'overflow-y', 'visible'), true, '父节点提示词链不得单独滚动');
+});
+
+test('项目时间线在溢出时才滚动，节点使用信息长方块并支持定位与清晰的首尾连接线', () => {
+  assert.match(projectPage, /class="pwb-timeline-card" data-timeline-card="\$\{ver\.id\}"/u, '时间线节点必须使用可定位的信息长方块');
+  assert.doesNotMatch(projectPage, /<img src="\$\{latestImg\.image\}"/u, '时间线节点不得继续显示图片缩略图');
+  assert.match(projectPage, /function bindTimelinePanning\(timelineOuter\)/u, '时间线必须绑定指针横向拖动');
+  assert.match(projectPage, /const TIMELINE_DRAG_THRESHOLD = 12;/u, '时间线必须使用足够的拖动阈值，避免普通点击被吞掉');
+  assert.match(projectPage, /pointerdown/u, '时间线拖动必须支持鼠标和触摸指针');
+  assert.match(projectPage, /event\.target\.closest\?\.\('\[data-timeline-card\], button, input, textarea, a'\)/u, '时间线拖动不得从可点击卡片或按钮区域触发');
+  assert.match(projectPage, /Math\.abs\(distance\) > TIMELINE_DRAG_THRESHOLD/u, '仅明显的横向移动才应进入拖动状态');
+  assert.match(projectPage, /Math\.abs\(event\.clientY - pointer\.y\)/u, '垂直抖动不得误判为横向拖动');
+  assert.match(projectPage, /closest\('\[data-timeline-card\]'\)/u, '点击信息方块必须定位到对应节点');
+  assert.match(projectPage, /event\.key === 'Enter' \|\| event\.key === ' '/u, '信息方块必须支持键盘定位');
+  const timelineOuterRule = getExactCssRuleBody(pagesCss, '.pwb-timeline-outer');
+  const timelineCardRule = getExactCssRuleBody(pagesCss, '.pwb-timeline-card');
+  const childrenRule = getExactCssRuleBody(pagesCss, '.pwb-tree-children');
+  assert.equal(hasCssDeclaration(timelineOuterRule, 'overflow-x', 'auto'), true, '时间线未溢出时不得显示横向滚动条');
+  assert.equal(hasCssDeclaration(timelineOuterRule, 'touch-action', 'pan-x'), true, '时间线必须允许触摸横向滑动');
+  assert.equal(hasCssDeclaration(timelineCardRule, 'cursor', 'pointer'), true, '信息方块必须呈现为可点击控件');
+  assert.equal(hasCssDeclaration(childrenRule, 'padding-top', '32px'), true, '父卡片底部至子卡片顶部必须预留完整连接线空间');
+  assert.match(pagesCss, /\.pwb-tree-children::before[\s\S]*?border-left: 2px solid var\(--brand\);/u, '连接线必须从父卡片尾部开始');
+  assert.match(pagesCss, /\.pwb-tree-children > \.pwb-tree-node-col::before[\s\S]*?border-left: 2px solid var\(--brand\);/u, '连接线必须接到子卡片头部');
 });
 
 test('统一详情页支持点击全屏、滚轮缩放与拖拽平移', () => {

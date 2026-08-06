@@ -376,7 +376,7 @@ export function createStatisticsDashboardHtml(data) {
     </section>`;
 }
 
-export function renderHistory(container) {
+export function renderHistory(container, params = [], routeOptions = {}) {
   const root = htmlToElement(`
     <div class="history-page">
       <div class="settings-tabs history-page-tabs">
@@ -439,6 +439,12 @@ export function renderHistory(container) {
   renderIcons(root);
 
   const controller = createHistoryPageController();
+  controller.setFilters({
+    query: routeOptions.query,
+    source: routeOptions.source,
+    projectId: routeOptions.project,
+  });
+  controller.setPage(routeOptions.page);
   const searchInput = root.querySelector('#history-search-input');
   const sourceFilter = root.querySelector('#history-source-filter');
   const projectFilter = root.querySelector('#history-project-filter');
@@ -483,6 +489,8 @@ export function renderHistory(container) {
     const pageData = controller.getPage();
     const state = controller.getState();
     const selectedItems = controller.getSelectedItems();
+    if (searchInput.value !== state.query) searchInput.value = state.query;
+    if (sourceFilter.value !== state.source) sourceFilter.value = state.source;
     projectFilter.hidden = state.source !== 'project';
     if (projectFilter.value !== state.projectId) projectFilter.value = state.projectId;
     const records = pageData.items.map((item) => ({
@@ -512,7 +520,10 @@ export function renderHistory(container) {
   }
 
   function openHistoryPreview(record) {
-    navigate(buildImageDetailRoute(record, { origin: 'history' }));
+    navigate(buildImageDetailRoute(record, {
+      origin: 'history',
+      historyState: { ...controller.getState(), scrollTop: container.scrollTop },
+    }));
   }
 
   function findPageRecord(key) {
@@ -619,7 +630,14 @@ export function renderHistory(container) {
   });
 
   renderView();
-  return () => {};
+  const parsedScrollTop = Number.parseInt(routeOptions.scroll, 10);
+  const restoreScrollTop = Number.isFinite(parsedScrollTop) && parsedScrollTop > 0 ? parsedScrollTop : 0;
+  const restoreScrollFrame = restoreScrollTop > 0
+    ? requestAnimationFrame(() => container.scrollTo({ top: restoreScrollTop }))
+    : null;
+  return () => {
+    if (restoreScrollFrame !== null) cancelAnimationFrame(restoreScrollFrame);
+  };
 }
 
 export function createHistoryCardHtml(item, batchMode = false, selectedItems = []) {

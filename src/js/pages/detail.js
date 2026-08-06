@@ -57,6 +57,11 @@ export function renderDetail(container, params, routeOptions = {}) {
     origin: routeOptions.origin,
     projectId: routeOptions.project,
     versionId: routeOptions.version,
+    historyPage: routeOptions.historyPage,
+    historyQuery: routeOptions.historyQuery,
+    historySource: routeOptions.historySource,
+    historyProject: routeOptions.historyProject,
+    historyScroll: routeOptions.historyScroll,
   }, {
     history: getHistory(),
     projects: getProjects(),
@@ -126,6 +131,14 @@ export function renderDetail(container, params, routeOptions = {}) {
     </div>
   `);
   mountPage(container, root);
+
+  // 当前提示词与父节点提示词均按真实内容高度展开，滚动只交给右侧详情面板。
+  function syncDetailPromptHeight(textarea) {
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }
+  root.querySelectorAll('.detail-textarea').forEach(syncDetailPromptHeight);
 
   let closeFullscreenPreview = null;
   function openDetailImageFullscreen(imageSource, altText) {

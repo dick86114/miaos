@@ -181,3 +181,32 @@ test('项目路由解析版本和图片定位参数并传给项目页', async ()
     routeOptions: { version: 'version A', image: 'image-2' },
   });
 });
+
+test('详情页左侧菜单按进入来源高亮，而不是按图片来源高亮', async () => {
+  globalThis.document = createDocument();
+  globalThis.window = createWindow('#/detail/image-1?source=quick&origin=generate');
+  const { createRouter } = await loadRouter();
+  const container = new FakeElement();
+  const navItems = ['generate', 'projects', 'history'].map((key) => {
+    const item = new FakeElement('button');
+    item.setAttribute('data-nav-key', key);
+    return item;
+  });
+  const router = createRouter({
+    windowRef: globalThis.window,
+    routes: [{ pattern: /^\/detail\/([^/]+)\/?$/, render() {} }],
+  });
+
+  router.init(container, navItems);
+  assert.equal(navItems[0].getAttribute('data-active'), 'true');
+  assert.equal(navItems[2].getAttribute('data-active'), 'false');
+
+  globalThis.window.location.hash = '#/detail/image-2?source=project&origin=history';
+  router.dispatch();
+  assert.equal(navItems[1].getAttribute('data-active'), 'false');
+  assert.equal(navItems[2].getAttribute('data-active'), 'true');
+
+  globalThis.window.location.hash = '#/detail/image-3?source=project&origin=project';
+  router.dispatch();
+  assert.equal(navItems[1].getAttribute('data-active'), 'true');
+});

@@ -13,7 +13,23 @@ function findImage(version, imageId) {
   return (Array.isArray(version?.images) ? version.images : []).find((image) => image.id === imageId) || null;
 }
 
-function getBackTarget({ source, origin, projectId, versionId, imageId }) {
+function buildHistoryBackPath(historyState = {}) {
+  const params = new URLSearchParams();
+  const page = Number.parseInt(historyState.page, 10);
+  const query = String(historyState.query || '').trim();
+  const source = String(historyState.source || 'all');
+  const projectId = String(historyState.projectId || '').trim();
+  const scrollTop = Number.parseInt(historyState.scrollTop, 10);
+  if (Number.isFinite(page) && page > 1) params.set('page', String(page));
+  if (query) params.set('query', query);
+  if (source === 'quick' || source === 'project') params.set('source', source);
+  if (source === 'project' && projectId) params.set('project', projectId);
+  if (Number.isFinite(scrollTop) && scrollTop > 0) params.set('scroll', String(scrollTop));
+  const queryString = params.toString();
+  return queryString ? `/history?${queryString}` : '/history';
+}
+
+function getBackTarget({ source, origin, projectId, versionId, imageId, historyState }) {
   if (origin === 'generate') return { label: '返回快速生图', path: '/generate' };
   if (source === 'project' && origin === 'project' && projectId) {
     return {
@@ -21,7 +37,7 @@ function getBackTarget({ source, origin, projectId, versionId, imageId }) {
       path: `/project/${encodeURIComponent(projectId)}?version=${encodeURIComponent(versionId || '')}&image=${encodeURIComponent(imageId || '')}`,
     };
   }
-  return { label: '返回历史', path: '/history' };
+  return { label: '返回历史', path: buildHistoryBackPath(historyState) };
 }
 
 /**
@@ -49,13 +65,26 @@ export function buildProjectPromptChain(project, version) {
 /**
  * 将卡片记录转换为详情页地址。origin 决定详情页返回的页面。
  */
-export function buildImageDetailRoute(record, { origin = 'history' } = {}) {
+export function buildImageDetailRoute(record, { origin = 'history', historyState = null } = {}) {
   const imageId = record?.imageId || record?.id || '';
   const source = record?.source === 'project' ? 'project' : 'quick';
-  const params = new URLSearchParams({ source, origin: String(origin || 'history') });
+  const normalizedOrigin = String(origin || 'history');
+  const params = new URLSearchParams({ source, origin: normalizedOrigin });
   if (source === 'project') {
     if (record.projectId) params.set('project', record.projectId);
     if (record.versionId) params.set('version', record.versionId);
+  }
+  if (normalizedOrigin === 'history' && historyState) {
+    const page = Number.parseInt(historyState.page, 10);
+    const query = String(historyState.query || '').trim();
+    const historySource = String(historyState.source || 'all');
+    const projectId = String(historyState.projectId || '').trim();
+    const scrollTop = Number.parseInt(historyState.scrollTop, 10);
+    if (Number.isFinite(page) && page > 1) params.set('historyPage', String(page));
+    if (query) params.set('historyQuery', query);
+    if (historySource === 'quick' || historySource === 'project') params.set('historySource', historySource);
+    if (historySource === 'project' && projectId) params.set('historyProject', projectId);
+    if (Number.isFinite(scrollTop) && scrollTop > 0) params.set('historyScroll', String(scrollTop));
   }
   return `/detail/${encodeURIComponent(imageId)}?${params.toString()}`;
 }
@@ -93,7 +122,20 @@ export function resolveImageDetailRecord(route = {}, { history = [], projects = 
       quality: image.quality || version.quality || '',
       createdAt: image.createdAt || version.createdAt || 0,
       canDelete: false,
-      backTarget: getBackTarget({ source, origin, projectId: project.id, versionId: version.id, imageId: image.id }),
+      backTarget: getBackTarget({
+        source,
+        origin,
+        projectId: project.id,
+        versionId: version.id,
+        imageId: image.id,
+        historyState: {
+          page: route.historyPage,
+          query: route.historyQuery,
+          source: route.historySource,
+          projectId: route.historyProject,
+          scrollTop: route.historyScroll,
+        },
+      }),
     };
   }
 
@@ -109,6 +151,17 @@ export function resolveImageDetailRecord(route = {}, { history = [], projects = 
     modelId: item.modelId || item.model || '',
     model: item.model || item.modelId || '',
     canDelete: true,
-    backTarget: getBackTarget({ source, origin, imageId: item.id }),
+    backTarget: getBackTarget({
+      source,
+      origin,
+      imageId: item.id,
+      historyState: {
+        page: route.historyPage,
+        query: route.historyQuery,
+        source: route.historySource,
+        projectId: route.historyProject,
+        scrollTop: route.historyScroll,
+      },
+    }),
   };
 }

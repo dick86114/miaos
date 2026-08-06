@@ -83,3 +83,45 @@ test('项目父节点缺失时详情仍可打开且不虚构提示词链', () =>
   assert.equal(detail.prompt, '孤儿图片提示词');
   assert.deepEqual(detail.promptChain, []);
 });
+
+test('从历史分页预览图片后返回时保留页码与筛选条件', () => {
+  const project = createProject();
+  const route = buildImageDetailRoute({
+    source: 'project',
+    imageId: 'child-image',
+    projectId: project.id,
+    versionId: 'child',
+  }, {
+    origin: 'history',
+    historyState: {
+      page: 2,
+      query: '当前图片',
+      source: 'project',
+      projectId: project.id,
+      scrollTop: 720,
+    },
+  });
+
+  assert.equal(
+    route,
+    '/detail/child-image?source=project&origin=history&project=project-1&version=child&historyPage=2&historyQuery=%E5%BD%93%E5%89%8D%E5%9B%BE%E7%89%87&historySource=project&historyProject=project-1&historyScroll=720',
+  );
+
+  const detail = resolveImageDetailRecord({
+    imageId: 'child-image',
+    source: 'project',
+    projectId: project.id,
+    versionId: 'child',
+    origin: 'history',
+    historyPage: '2',
+    historyQuery: '当前图片',
+    historySource: 'project',
+    historyProject: project.id,
+    historyScroll: '720',
+  }, { history: [], projects: [project] });
+
+  assert.deepEqual(detail.backTarget, {
+    label: '返回历史',
+    path: '/history?page=2&query=%E5%BD%93%E5%89%8D%E5%9B%BE%E7%89%87&source=project&project=project-1&scroll=720',
+  });
+});

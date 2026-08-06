@@ -41,6 +41,8 @@ export { buildProjectPromptChain };
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
 const QUANTITIES = [1, 2, 3, 4];
+const PROJECT_PROMPT_MAX_LINES = 10;
+const TIMELINE_DRAG_THRESHOLD = 12;
 
 // 管理工作台存续期间的弹窗，避免离页后旧弹窗继续操作已销毁的页面。
 export function createProjectPageLifecycle() {
@@ -213,20 +215,17 @@ export function renderProject(container, params, routeOptions = {}) {
 
       return `
         <div class="pwb-timeline-node" data-version-id="${ver.id}">
-          <div class="pwb-marker-wrap">
-            <div class="pwb-marker" title="切换到该版本">${latestImg
-              ? `<img src="${latestImg.image}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover" />`
-              : icon('minus', 18)}</div>
-            <button type="button" class="pwb-timeline-delete icon-btn" data-root-delete="${ver.id}" title="删除该版本及其所有下游节点">${icon('trash-2', 12)}</button>
-          </div>
-          <div class="pwb-labels">
-            <span class="pwb-label-title" data-root-name="${ver.id}">${escapeHtml(ver.name)}</span>
+          <article class="pwb-timeline-card" data-timeline-card="${ver.id}" title="切换到该版本" role="button" tabindex="0" aria-label="定位到版本 ${escapeHtml(ver.name)}">
+            <div class="pwb-timeline-card-header">
+              <span class="pwb-label-title" data-root-name="${ver.id}">${escapeHtml(ver.name)}</span>
+              <button type="button" class="pwb-timeline-delete icon-btn" data-root-delete="${ver.id}" title="删除该版本及其所有下游节点">${icon('trash-2', 12)}</button>
+            </div>
             <span class="pwb-label-meta" title="${escapeHtml(ver.prompt)}">${promptPreview}</span>
             <span class="pwb-label-count-time">
               <span class="pwb-label-count">${ver.images.length} 张</span>
               <span class="pwb-label-time">· ${latestTime}</span>
             </span>
-          </div>
+          </article>
         </div>`;
     }
 
@@ -442,7 +441,7 @@ export function renderProject(container, params, routeOptions = {}) {
                   </div>
                   <button class="icon-btn" type="button" id="btn-remove-source" title="移除参考图">${icon('x', 14)}</button>
                 </div>
-                <textarea class="composer-textarea" id="version-prompt" spellcheck="false" placeholder="描述你想生成的画面…">${escapeHtml(curVer.prompt)}</textarea>
+                <textarea class="composer-textarea composer-textarea--project" id="version-prompt" spellcheck="false" placeholder="描述你想生成的画面…">${escapeHtml(curVer.prompt)}</textarea>
               </div>
               <div class="composer-toolbar">
                 <button class="composer-tool-btn" type="button" id="btn-upload-image" ${isChild ? 'disabled title="分支使用父图作为参考，无需上传"' : 'title="上传图片（图生图）"'}>${icon('plus', 16)}</button>
@@ -563,6 +562,20 @@ export function renderProject(container, params, routeOptions = {}) {
       });
     };
     const promptInput = root.querySelector('#version-prompt');
+    // 项目提示词不设行数上限：内容变长时自动扩展，同时保留 CSS 的手动纵向拖拽。
+    // 项目输入框与快速生图保持一致：随内容增高至十行，超过后在框内滚动。
+    function syncProjectPromptHeight(textarea) {
+      if (!textarea || typeof getComputedStyle !== 'function') return;
+      const styles = getComputedStyle(textarea);
+      const lineHeight = Number.parseFloat(styles.lineHeight) || 24;
+      const verticalPadding = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
+      const maxHeight = lineHeight * PROJECT_PROMPT_MAX_LINES + verticalPadding;
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+    syncProjectPromptHeight(promptInput);
+    promptInput.addEventListener('input', () => syncProjectPromptHeight(promptInput));
     const btnGenerate = root.querySelector('#btn-generate');
     const btnNewRoot = root.querySelector('#btn-new-root');
 
@@ -776,6 +789,7 @@ export function renderProject(container, params, routeOptions = {}) {
           const res = await window.api.pickTextFile();
           if (res.canceled) return;
           promptInput.value = res.content;
+          syncProjectPromptHeight(promptInput);
           promptInput.focus();
           toast(`已导入文件「${res.fileName}」`, 'success');
         } catch (e) {
@@ -938,8 +952,78 @@ export function renderProject(container, params, routeOptions = {}) {
       renderWorkbench(container, newProj);
     });
 
-    // ========== 时间轴：切换节点 / 删除节点 ==========
-    root.querySelector('.pwb-timeline-outer').addEventListener('click', async (e) => {
+    // ========== 时间轴：鼠标/触摸横向拖动、切换节点与删除节点 ==========
+    function bindTimelinePanning(timelineOuter) {
+      let pointer = null;
+      let dragged = false;
+      let suppressClick = false;
+      const onPointerDown = (event) => {
+        // 卡片点击只负责切换版本；横向拖动仅从卡片外的留白与连线区域开始。
+        if (event.target.closest?.('[data-timeline-card], button, input, textarea, a')) return;
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        pointer = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          scrollLeft: timelineOuter.scrollLeft,
+        };
+        dragged = false;
+        timelineOuter.setPointerCapture?.(event.pointerId);
+      };
+      const onPointerMove = (event) => {
+        if (!pointer || pointer.id !== event.pointerId) return;
+        const distance = event.clientX - pointer.x;
+        const verticalDistance = Math.abs(event.clientY - pointer.y);
+        if (
+          Math.abs(distance) > TIMELINE_DRAG_THRESHOLD &&
+          Math.abs(distance) > verticalDistance &&
+          !dragged
+        ) {
+          dragged = true;
+          timelineOuter.classList.add('is-dragging');
+        }
+        if (!dragged) return;
+        timelineOuter.scrollLeft = pointer.scrollLeft - distance;
+        event.preventDefault?.();
+      };
+      const stopPanning = (event) => {
+        if (!pointer || pointer.id !== event.pointerId) return;
+        timelineOuter.releasePointerCapture?.(event.pointerId);
+        suppressClick = dragged;
+        timelineOuter.classList.remove('is-dragging');
+        pointer = null;
+        if (suppressClick) setTimeout(() => { suppressClick = false; }, 0);
+      };
+      const blockDraggedClick = (event) => {
+        if (!suppressClick) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
+      timelineOuter.addEventListener('pointerdown', onPointerDown);
+      timelineOuter.addEventListener('pointermove', onPointerMove);
+      timelineOuter.addEventListener('pointerup', stopPanning);
+      timelineOuter.addEventListener('pointercancel', stopPanning);
+      timelineOuter.addEventListener('click', blockDraggedClick, true);
+      return () => {
+        timelineOuter.removeEventListener('pointerdown', onPointerDown);
+        timelineOuter.removeEventListener('pointermove', onPointerMove);
+        timelineOuter.removeEventListener('pointerup', stopPanning);
+        timelineOuter.removeEventListener('pointercancel', stopPanning);
+        timelineOuter.removeEventListener('click', blockDraggedClick, true);
+      };
+    }
+    const timelineOuter = root.querySelector('.pwb-timeline-outer');
+    const unbindTimelinePanning = bindTimelinePanning(timelineOuter);
+    timelineOuter.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        if (event.target.closest?.('button, input, textarea, a')) return;
+        const card = event.target.closest?.('[data-timeline-card]');
+        if (!card) return;
+        event.preventDefault();
+        card.click();
+      }
+    });
+    timelineOuter.addEventListener('click', async (e) => {
       // 删节点（主节点或子节点统一处理）
       const nodeDel = e.target.closest('[data-root-delete]');
       if (nodeDel) {
@@ -962,10 +1046,10 @@ export function renderProject(container, params, routeOptions = {}) {
         renderWorkbench(container, getProject(project.id));
         return;
       }
-      // 点节点
-      const nodeCol = e.target.closest('.pwb-tree-node-col');
-      if (nodeCol) {
-        const vid = nodeCol.getAttribute('data-version-id');
+      // 点击信息方块定位到对应版本；删除按钮已在前面优先处理。
+      const timelineCard = e.target.closest('[data-timeline-card]');
+      if (timelineCard) {
+        const vid = timelineCard.getAttribute('data-timeline-card');
         if (vid === curVer.id) return;
         const outerEl = root.querySelector('.pwb-timeline-outer');
         const savedScroll = outerEl ? outerEl.scrollLeft : 0;
@@ -1122,6 +1206,7 @@ export function renderProject(container, params, routeOptions = {}) {
       closeImagePreview?.();
       promptOptimizationBinding?.destroy();
       galleryController.dispose();
+      unbindTimelinePanning();
       pageLifecycle.cleanup();
       unsubscribe();
     };

@@ -96,8 +96,8 @@
 .composer-textarea {
   width: 100%;
   min-height: calc(1.6em + 8px);
-  max-height: calc(16em + 8px);
-  resize: none;
+  max-height: none;
+  resize: vertical;
   overflow-y: auto;
   border: none;
   outline: none;
@@ -107,6 +107,12 @@
   color: var(--ink);
   background: transparent;
   font-family: var(--font-sans);
+}
+.composer-textarea--project {
+  min-height: 80px;
+  max-height: none;
+  resize: vertical;
+  overflow-y: auto;
 }
 .composer-textarea::placeholder { color: var(--ink-3); }
 .composer-textarea.is-optimizing { opacity: 0.28; }
@@ -916,12 +922,17 @@
 .detail-icon-btn.danger { color: var(--state-error); }
 .detail-icon-btn.danger:hover { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.3); }
 
-.detail-layout { display: flex; gap: 24px; min-height: 100%; }
-.detail-image-col { flex: 0 0 60%; max-width: 60%; }
-.detail-panel-col { flex: 0 0 40%; max-width: 40%; }
+.detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(360px, 2fr);
+  gap: 24px;
+  height: calc(100vh - 152px);
+  min-height: 0;
+}
+.detail-image-col, .detail-panel-col { min-width: 0; min-height: 0; }
 .detail-image {
   width: 100%;
-  height: calc(100vh - 152px);
+  height: 100%;
   object-fit: contain;
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2);
@@ -935,11 +946,12 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
-  max-height: calc(100vh - 152px);
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
   box-shadow: var(--shadow-1);
 }
-.detail-section { display: flex; flex-direction: column; gap: 10px; }
+.detail-section { display: flex; flex: 0 0 auto; flex-direction: column; gap: 10px; }
 .detail-section-title { font-size: 13px; font-weight: 600; color: var(--ink-2); letter-spacing: 0.02em; }
 .detail-textarea {
   width: 100%;
@@ -952,25 +964,24 @@
   color: var(--ink);
   background: var(--surface);
   resize: none;
-  overflow-y: auto;
+  overflow-y: hidden;
   font-family: var(--font-sans);
   transition: border-color var(--motion-normal) var(--motion-ease), box-shadow var(--motion-normal) var(--motion-ease);
 }
 .detail-textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 .detail-current-prompt {
-  min-height: 180px;
-  max-height: 32vh;
-  overflow-y: auto;
+  min-height: 120px;
+  max-height: none;
+  overflow-y: hidden;
   white-space: pre-wrap;
 }
-.detail-prompt-chain { min-height: 0; }
+.detail-prompt-chain { flex: 0 0 auto; min-height: auto; }
 .detail-prompt-chain-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 28vh;
-  overflow-y: auto;
-  padding-right: 4px;
+  max-height: none;
+  overflow-y: visible;
 }
 .detail-prompt-chain-node {
   display: flex;
@@ -987,8 +998,9 @@
   color: var(--ink-2);
 }
 .detail-chain-textarea {
-  min-height: 88px;
-  max-height: 16vh;
+  min-height: 72px;
+  max-height: none;
+  overflow-y: hidden;
   background: var(--surface);
 }
 
@@ -1054,14 +1066,12 @@
   color: var(--ink-3);
 }
 
-/* 详情页响应式：窄窗口时上下堆叠 */
-@media (max-width: 980px) {
-  .detail-layout { flex-direction: column; }
-  .detail-image-col, .detail-panel-col { flex: 1 1 auto; max-width: 100%; }
-  .detail-image { height: auto; max-height: 55vh; }
-  .detail-panel { max-height: none; overflow-y: visible; }
-  .detail-current-prompt, .detail-prompt-chain-list { max-height: none; }
-  .detail-chain-textarea { max-height: 240px; }
+/* 详情页响应式：仅在窄屏时上下堆叠，右侧参数仍保持整列滚动。 */
+@media (max-width: 760px) {
+  .detail-layout { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .detail-image-col { height: min(48vh, 420px); }
+  .detail-panel-col { height: min(62vh, 640px); }
+  .detail-image, .detail-panel { height: 100%; max-height: none; }
 }
 
 /* ===== 小尺寸按钮 & 控件 ===== */
@@ -1392,15 +1402,18 @@ i[data-lucide="loader"] {
 
 /* 横向时间轴滚动区 */
 .pwb-timeline-outer {
-  overflow-x: scroll;
+  overflow-x: auto;
   overflow-y: hidden;
   margin: 0 -20px;
   padding: 4px 20px 20px;
   position: relative;
+  touch-action: pan-x;
+  cursor: grab;
 }
+.pwb-timeline-outer:has(.pwb-tree-root:only-child) { cursor: default; }
+.pwb-timeline-outer.is-dragging { cursor: grabbing; user-select: none; }
 .pwb-timeline-outer::-webkit-scrollbar {
   height: 10px;
-  display: block !important;
 }
 .pwb-timeline-outer::-webkit-scrollbar-track {
   background: var(--surface-2);
@@ -1422,8 +1435,9 @@ i[data-lucide="loader"] {
   display: flex;
   flex-direction: row;
   gap: 24px;
+  width: max-content;
+  min-width: 100%;
   padding: 0 8px 8px;
-  min-width: max-content;
 }
 
 /* 每个节点列（包含节点自身 + 子节点行） */
@@ -1431,16 +1445,15 @@ i[data-lucide="loader"] {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 14px;
-  min-width: 180px;
+  gap: 0;
+  min-width: 230px;
 }
 
 .pwb-tree-node-col.is-active > .pwb-timeline-node { background: transparent; }
-.pwb-tree-node-col.is-active > .pwb-timeline-node .pwb-marker {
-  background: var(--brand);
+.pwb-tree-node-col.is-active > .pwb-timeline-node .pwb-timeline-card {
   border-color: var(--brand);
-  color: var(--brand-ink);
-  box-shadow: 0 0 0 4px var(--brand-soft);
+  background: var(--brand-soft);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.14), var(--shadow-2);
 }
 .pwb-tree-node-col.is-active > .pwb-timeline-node .pwb-label-title { color: var(--brand); }
 .pwb-tree-node-col.is-active > .pwb-timeline-node .pwb-label-count {
@@ -1448,41 +1461,80 @@ i[data-lucide="loader"] {
   color: var(--brand);
 }
 
-/* 子节点横向排列容器 */
+/* 子节点横向排列容器：线段从父卡片底边出发，并连接到每张子卡片顶边。 */
 .pwb-tree-children {
   display: flex;
   flex-direction: row;
   gap: 20px;
-  padding-top: 16px;
+  padding-top: 32px;
   position: relative;
 }
 
-/* 父节点到子节点区的垂直连接线 */
+/* 父卡片尾部到分叉横线。 */
 .pwb-tree-children::before {
   content: '';
   position: absolute;
   top: 0;
   left: 50%;
-  width: 1px;
   height: 16px;
-  background: var(--line);
+  border-left: 2px solid var(--brand);
+  opacity: 0.72;
   transform: translateX(-50%);
 }
 
-/* 多个子节点之间的水平连接线 */
+/* 多个子节点之间的分叉横线。 */
 .pwb-tree-children::after {
   content: '';
   position: absolute;
-  top: 0;
-  left: 10px;
-  right: 10px;
-  height: 1px;
-  background: var(--line);
+  top: 16px;
+  left: 50%;
+  right: 50%;
+  height: 2px;
+  background: var(--brand);
+  opacity: 0.72;
   display: none;
 }
 .pwb-tree-children:has(> .pwb-tree-node-col:nth-child(2))::after {
+  left: 10px;
+  right: 10px;
   display: block;
 }
+
+/* 分叉横线到每张子卡片头部。 */
+.pwb-tree-children > .pwb-tree-node-col { position: relative; }
+.pwb-tree-children > .pwb-tree-node-col::before {
+  content: '';
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  height: 16px;
+  border-left: 2px solid var(--brand);
+  opacity: 0.72;
+  transform: translateX(-50%);
+}
+
+/* 时间线信息长方块：替代节点缩略图，完整承载版本状态。 */
+.pwb-timeline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 230px;
+  min-height: 104px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: border-color var(--motion-normal) var(--motion-ease), background-color var(--motion-normal) var(--motion-ease), box-shadow var(--motion-normal) var(--motion-ease);
+}
+.pwb-timeline-card:hover { border-color: var(--brand); box-shadow: var(--shadow-2); }
+.pwb-timeline-card-header { display: flex; align-items: flex-start; gap: 8px; }
+.pwb-timeline-card-header .pwb-label-title { flex: 1; text-align: left; white-space: normal; overflow: visible; text-overflow: clip; cursor: pointer; }
+.pwb-timeline-card .pwb-label-meta { display: -webkit-box; min-height: 30px; text-align: left; white-space: normal; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.pwb-timeline-card .pwb-label-count-time { justify-content: flex-start; margin-top: auto; }
+.pwb-timeline-card .pwb-timeline-delete { position: static; flex: 0 0 auto; opacity: 0; }
+.pwb-timeline-card:hover .pwb-timeline-delete { opacity: 1; }
 
 /* 节点自身样式（复用 .pwb-timeline-node） */
 .pwb-timeline-node {
@@ -1493,8 +1545,7 @@ i[data-lucide="loader"] {
   align-items: center;
   gap: 10px;
   width: 100%;
-  cursor: pointer;
-  padding: 4px 2px;
+  padding: 0;
   border-radius: var(--r-md);
   transition: background-color var(--motion-normal) var(--motion-ease);
 }
