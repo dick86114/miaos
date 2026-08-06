@@ -1,9 +1,10 @@
 // 设置页面：通用设置 / 模型供应商 / 关于与更新
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, escapeHtml, escapeAttr, withButtonLoading } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, promptDialog, escapeHtml, escapeAttr, withButtonLoading } from '../ui.js';
 import { renderReleaseNotes } from '../release-notes.js';
 import {
   getProviders,
+  getStateSnapshot,
   getProvider,
   saveProvider,
   deleteProvider,
@@ -99,6 +100,7 @@ export function renderSettings(container) {
     },
     // 默认模型
     defaults: getDefaults(),
+    pairing: { active: false, qrDataUrl: '', confirmationCode: '', expiresAt: 0 },
   };
 
   const root = htmlToElement(`<div class="settings-wrap"><div class="settings-layout"></div></div>`);
@@ -107,9 +109,18 @@ export function renderSettings(container) {
   refresh();
   loadVersion();
   const unsubscribeUpdateStatus = bindUpdateEvents();
+  const unsubscribeConfigPairingEnded = window.api?.onConfigPairingEnded?.(({ reason } = {}) => {
+    if (!pageState.pairing.active) return;
+    pageState.pairing = { active: false, qrDataUrl: '', confirmationCode: '', expiresAt: 0 };
+    refresh();
+    if (reason === 'consumed') toast('Android 已读取一次性配对配置', 'success');
+    else if (reason === 'expired') toast('局域网配对已过期', 'info');
+  });
 
   return () => {
     unsubscribeUpdateStatus?.();
+    unsubscribeConfigPairingEnded?.();
+    if (pageState.pairing.active) window.api?.stopConfigPairing?.();
   };
 
   function getInner() { return root.querySelector('.settings-layout'); }
@@ -254,6 +265,30 @@ export function renderSettings(container) {
             <option value="">（即将支持）</option>
           </select>
           <div class="form-hint">视频生成功能开发中</div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-section-header">
+          <div class="settings-section-title">${icon('arrow-right-left', 16)}<span>Android 配置迁移</span></div>
+        </div>
+        <div class="form-group">
+          <div class="form-hint">导出经过加密的供应商配置和 API Key，可在原生 Android 客户端导入。配置文件只保存在你选择的位置。</div>
+          <div class="settings-inline-actions">
+            <button class="btn btn-secondary" id="btn-export-android-config" type="button">${icon('download', 14)}<span>导出加密配置</span></button>
+            <button class="btn btn-secondary" id="btn-start-config-pairing" type="button">${icon('wifi', 14)}<span>局域网二维码配对</span></button>
+          </div>
+          ${pageState.pairing.active ? `
+            <div class="config-pairing-panel">
+              <img class="config-pairing-qr" src="${escapeAttr(pageState.pairing.qrDataUrl)}" alt="局域网配对二维码" />
+              <div class="config-pairing-confirmation" aria-label="配对确认短码">
+                <span>配对确认短码</span>
+                <strong>${escapeHtml(pageState.pairing.confirmationCode || '------')}</strong>
+              </div>
+              <div class="form-hint">请让 Android 与本机连接同一 Wi-Fi，然后扫描二维码，并在 Android 上核对相同的短码。二维码将在 5 分钟后失效。</div>
+              <button class="btn btn-ghost btn-sm" id="btn-stop-config-pairing" type="button">停止配对</button>
+            </div>
+          ` : ''}
         </div>
       </div>
     `;
@@ -462,6 +497,8 @@ export function renderSettings(container) {
   // ========== 关于与更新 ==========
   function renderAbout() {
     const u = pageState.update;
+    const currentVersion = u.current?.version || '—';
+    const modeTag = u.current?.isPackaged === false ? ' <span class="tag tag-soft">开发模式</span>' : '';
     return `
       <div class="page-header">
         <h1 class="page-title">关于与更新</h1>
@@ -476,7 +513,7 @@ export function renderSettings(container) {
           <div class="settings-about-logo"><img src="assets/logo.png" alt="妙生" /></div>
           <div class="settings-about-info">
             <div class="settings-about-name">妙生 · miaos</div>
-            <div class="settings-about-version">当前版本：<span id="cur-ver">—</span></div>
+            <div class="settings-about-version">当前版本：<span id="cur-ver">${escapeHtml(currentVersion)}</span>${modeTag}</div>
             <div class="settings-about-desc">本地运行的 AI 生图工具，内置 Grsai、Aiping，并支持 OpenAI 兼容供应商。</div>
           </div>
         </div>
@@ -541,6 +578,57 @@ export function renderSettings(container) {
 
   function bindGeneralEvents() {
     const inner = getInner();
+
+    // 导出 Android 加密配置
+    const exportConfigButton = inner.querySelector('#btn-export-android-config');
+    if (exportConfigButton) {
+      exportConfigButton.addEventListener('click', async () => {
+        if (!window.api?.exportConfig) { toast('当前运行环境不支持配置导出', 'error'); return; }
+        const password = await promptDialog('导入 Android 时需要使用同一密码。', { title: '导出 Android 加密配置', inputType: 'password', placeholder: '请输入配置密码', confirmLabel: '导出' });
+        if (password === null) return;
+        if (!password) { toast('配置密码不能为空', 'error'); return; }
+        await withButtonLoading(exportConfigButton, '导出中…', async () => {
+          try {
+            const result = await window.api.exportConfig(getStateSnapshot(), password);
+            if (result?.canceled) return;
+            if (!result?.ok) throw new Error(result?.error || '配置导出失败');
+            toast('Android 加密配置已导出', 'success');
+          } catch (error) {
+            toast(error.message || '配置导出失败', 'error');
+          }
+        });
+      });
+    }
+
+    // 局域网二维码配对
+    const startPairingButton = inner.querySelector('#btn-start-config-pairing');
+    if (startPairingButton) {
+      startPairingButton.addEventListener('click', async () => {
+        if (!window.api?.startConfigPairing) { toast('当前运行环境不支持局域网配对', 'error'); return; }
+        const password = await promptDialog('Android 扫码后需要使用同一密码解密配置。', { title: '启动局域网二维码配对', inputType: 'password', placeholder: '请输入配置密码', confirmLabel: '启动配对' });
+        if (password === null) return;
+        if (!password) { toast('配置密码不能为空', 'error'); return; }
+        await withButtonLoading(startPairingButton, '启动中…', async () => {
+          try {
+            const result = await window.api.startConfigPairing(getStateSnapshot(), password);
+            if (!result?.ok) throw new Error(result?.error || '启动配对失败');
+            pageState.pairing = { active: true, qrDataUrl: result.qrDataUrl, confirmationCode: result.confirmationCode || '', expiresAt: result.expiresAt };
+            refresh();
+            toast('局域网配对已启动', 'success');
+          } catch (error) {
+            toast(error.message || '启动配对失败', 'error');
+          }
+        });
+      });
+    }
+    const stopPairingButton = inner.querySelector('#btn-stop-config-pairing');
+    if (stopPairingButton) {
+      stopPairingButton.addEventListener('click', async () => {
+        await window.api?.stopConfigPairing?.();
+        pageState.pairing = { active: false, qrDataUrl: '', confirmationCode: '', expiresAt: 0 };
+        refresh();
+      });
+    }
 
     // 主题模式切换
     const themeGroup = inner.querySelector('#theme-mode');
@@ -1031,14 +1119,12 @@ export function renderSettings(container) {
   function loadVersion() {
     if (!window.api || !window.api.updateGetCurrentVersion) return;
     window.api.updateGetCurrentVersion().then((info) => {
-      pageState.update.current = info;
-      const el = document.getElementById('cur-ver');
-      if (el) {
-        el.textContent = info.version || '—';
-        if (info.isPackaged === false) {
-          el.insertAdjacentHTML('afterend', ' <span class="tag tag-soft">开发模式</span>');
-        }
-      }
+      pageState.update.current = info || null;
+      // 初始渲染通常停留在“通用”标签；版本信息返回后若正在关于页，重绘以更新卡片。
+      if (pageState.tab === 'about') refresh();
+    }).catch(() => {
+      pageState.update.current = null;
+      if (pageState.tab === 'about') refresh();
     });
   }
 

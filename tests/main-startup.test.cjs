@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { pathToFileURL } = require('node:url');
 const Module = require('node:module');
 const { EventEmitter } = require('node:events');
 
@@ -24,6 +25,9 @@ const EXPECTED_CHANNELS = [
   'provider-secret-has',
   'provider-secret-delete',
   'provider-secret-migrate',
+  'export-config',
+  'start-config-pairing',
+  'stop-config-pairing',
   'save-image',
   'show-in-folder',
   'test-connection',
@@ -93,7 +97,7 @@ function createNetworkMock(calls, networkResponse) {
   };
 }
 
-function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, safeStorageImpl, networkResponse } = {}) {
+function createElectronMock({ homePath, setPathImpl, openDialogResult, saveDialogResult, fsImpl, safeStorageImpl, networkResponse } = {}) {
   const tempPath = path.join(homePath, 'temp');
   let userDataPath = null;
   const calls = {
@@ -109,10 +113,13 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
     ipcHandlers: {},
     showItemInFolder: [],
     openDialogOptions: [],
+    saveDialogOptions: [],
     networkRequests: [],
     externalUrls: [],
     windowOpenHandler: null,
     browserWindowOptions: [],
+    windowHandlers: {},
+    webContentsEvents: [],
   };
 
   class BrowserWindowMock {
@@ -122,7 +129,7 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
       calls.sequence.push('createWindow');
       this.webContents = {
         id: 100,
-        send() {},
+        send(channel, payload) { calls.webContentsEvents.push([channel, payload]); },
         setWindowOpenHandler(handler) { calls.windowOpenHandler = handler; },
       };
     }
@@ -133,6 +140,10 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
 
     isDestroyed() {
       return false;
+    }
+
+    on(name, handler) {
+      calls.windowHandlers[name] = handler;
     }
 
     static getAllWindows() {
@@ -178,7 +189,10 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, fsImpl, s
     },
     dialog: {
       showErrorBox(title, message) { calls.errorBox.push([title, message]); },
-      showSaveDialog() {},
+      showSaveDialog(windowOrOptions, maybeOptions) {
+        calls.saveDialogOptions.push(maybeOptions || windowOrOptions);
+        return Promise.resolve(saveDialogResult || { canceled: true });
+      },
       showOpenDialog(windowOrOptions, maybeOptions) {
         calls.openDialogOptions.push(maybeOptions || windowOrOptions);
         return Promise.resolve(openDialogResult || { canceled: true, filePaths: [] });
@@ -233,6 +247,9 @@ async function runMainWithMock(options = {}) {
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === 'electron') return electronMock;
+    if (request === './src/main/services/config-pairing' && parent?.filename === mainPath && options.configPairingModule) {
+      return options.configPairingModule;
+    }
     if ((request === 'fs' || request === 'node:fs') && options.fsImpl) return options.fsImpl;
     if (request === 'electron-updater') return updaterMock;
     if (request === 'https' || request === 'node:https' || request === 'http' || request === 'node:http') return networkMock;
@@ -486,7 +503,7 @@ test('app.setPath 非预期异常会传播且不显示数据目录错误', async
   }
 });
 
-test('正常启动精确注册 18 个真实安全 handler（原 14 个加 4 个密钥 handler），未知 sender 全部被拒绝', async () => {
+test('正常启动精确注册 21 个真实安全 handler（含配置导出与局域网配对），未知 sender 全部被拒绝', async () => {
   const homePath = createTempHome('miaos-ipc-registrations-');
   try {
     const { calls } = await runMainWithMock({ homePath });
@@ -500,6 +517,130 @@ test('正常启动精确注册 18 个真实安全 handler（原 14 个加 4 个�
       assert.deepEqual(result, { ok: false, error: 'IPC 来源不受信任', code: 'IPC_UNTRUSTED_SENDER' });
     }
     assert.deepEqual(calls.networkRequests, []);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('导出配置只把主进程密钥放入加密文件，文件不含明文 API Key', async () => {
+  const homePath = createTempHome('miaos-config-export-');
+  const outputPath = path.join(homePath, 'android-config.miaos');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      saveDialogResult: { canceled: false, filePath: outputPath },
+    });
+    const result = await calls.ipcHandlers['export-config'](trustedEvent(), {
+      providers: [{
+        id: 'p_grsai',
+        name: 'Grsai',
+        type: 'grsai',
+        endpoint: 'https://example.invalid/generate',
+        capabilities: ['image'],
+        imageModels: [{ id: 'gpt-image-2', name: 'gpt-image-2', enabled: true }],
+        textModels: [],
+        videoModels: [],
+        hasApiKey: true,
+      }],
+      defaults: { defaultImageProvider: 'p_grsai', defaultImageModel: 'gpt-image-2' },
+      themeMode: 'system',
+      history: [{ imagePath: '/private/image.png' }],
+    }, '导出密码');
+
+    assert.deepEqual(result, { ok: true, filePath: outputPath });
+    const raw = fs.readFileSync(outputPath, 'utf8');
+    assert.equal(raw.includes('test-key'), false);
+    const { decryptConfig } = await import('../src/js/config-transfer.js');
+    const payload = decryptConfig(raw, '导出密码');
+    assert.equal(payload.secrets.p_grsai, 'test-key');
+    assert.equal('history' in payload, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('macOS 窗口关闭会主动撤销尚未读取的局域网配对服务', async () => {
+  const homePath = createTempHome('miaos-config-pairing-window-close-');
+  let stopCalls = 0;
+  const pairing = {
+    confirmationCode: '5CD61B',
+    async start() {
+      return {
+        expiresAt: Date.now() + 5 * 60 * 1000,
+        urls: ['http://192.168.1.9:43210/miaos/pair?token=abc_DEF-123'],
+      };
+    },
+    async stop() { stopCalls += 1; },
+  };
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      configPairingModule: { createConfigPairingServer: () => pairing },
+    });
+    const result = await calls.ipcHandlers['start-config-pairing'](trustedEvent(), {
+      providers: [{
+        id: 'p_grsai',
+        name: 'Grsai',
+        type: 'grsai',
+        endpoint: 'https://example.invalid/generate',
+        capabilities: ['image'],
+        imageModels: [{ id: 'gpt-image-2', name: 'gpt-image-2', enabled: true }],
+        textModels: [],
+        videoModels: [],
+      }],
+      defaults: {},
+      themeMode: 'system',
+    }, '导出密码');
+
+    assert.equal(result.ok, true);
+    assert.equal(typeof calls.windowHandlers.closed, 'function');
+    await calls.windowHandlers.closed();
+    assert.equal(stopCalls, 1);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('配对服务读取完成会通知 macOS 设置页撤销二维码状态', async () => {
+  const homePath = createTempHome('miaos-config-pairing-consumed-');
+  let pairingOptions;
+  const pairing = {
+    confirmationCode: '5CD61B',
+    async start() {
+      return {
+        expiresAt: Date.now() + 5 * 60 * 1000,
+        urls: ['http://192.168.1.9:43210/miaos/pair?token=abc_DEF-123'],
+      };
+    },
+    async stop() {},
+  };
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      configPairingModule: {
+        createConfigPairingServer(options) {
+          pairingOptions = options;
+          return pairing;
+        },
+      },
+    });
+    await calls.ipcHandlers['start-config-pairing'](trustedEvent(), {
+      providers: [{
+        id: 'p_grsai',
+        name: 'Grsai',
+        type: 'grsai',
+        endpoint: 'https://example.invalid/generate',
+        capabilities: ['image'],
+        imageModels: [{ id: 'gpt-image-2', name: 'gpt-image-2', enabled: true }],
+        textModels: [],
+        videoModels: [],
+      }],
+      defaults: {},
+      themeMode: 'system',
+    }, '导出密码');
+
+    pairingOptions.onStopped('consumed');
+    assert.deepEqual(calls.webContentsEvents.at(-1), ['config-pairing-ended', { reason: 'consumed' }]);
   } finally {
     cleanupTempHome(homePath);
   }
@@ -1059,6 +1200,35 @@ test('真实 generate handler 恢复真实 WebP，转换为 PNG 后进入下游�
     const rejectedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(zeroVp8Path));
     assert.equal(rejectedResult.code, 'IPC_SOURCE_IMAGE_INVALID_IMAGE');
     assert.equal(calls.networkRequests.length, 2);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('保存图片支持 generated 内的 file URL，避免渲染层 fetch 本地文件失败', async () => {
+  const homePath = createTempHome('miaos-save-generated-file-');
+  try {
+    const generatedDir = path.join(homePath, '.miaos', 'generated');
+    const sourcePath = path.join(generatedDir, 'source.png');
+    const targetPath = path.join(homePath, 'downloads', 'saved.png');
+    fs.mkdirSync(path.dirname(sourcePath), { recursive: true });
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+    fs.writeFileSync(sourcePath, PNG_BYTES);
+
+    const { calls } = await runMainWithMock({
+      homePath,
+      saveDialogResult: { canceled: false, filePath: targetPath },
+    });
+    const result = await calls.ipcHandlers['save-image'](
+      trustedEvent(),
+      pathToFileURL(sourcePath).href,
+      'miaos-source.png',
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.canceled, undefined);
+    assert.deepEqual(fs.readFileSync(targetPath), PNG_BYTES);
+    assert.equal(calls.saveDialogOptions.length, 1);
   } finally {
     cleanupTempHome(homePath);
   }

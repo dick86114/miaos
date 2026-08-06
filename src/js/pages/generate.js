@@ -7,7 +7,6 @@ import {
   getRandomPrompt,
   saveLastSettings,
   getLastSettings,
-  imageToDataUrl,
   optimizePrompt,
   getTextProvider,
   getDefaults,
@@ -18,6 +17,7 @@ import * as queue from '../queue.js';
 import { navigate } from '../router.js';
 import { getPaginatedQuickHistory } from '../history-data.js';
 import { openImagePreview } from '../image-preview.js';
+import { buildImageDetailRoute } from '../image-detail-data.js';
 import { createPromptOptimizationManager, createPromptFragmentOverlay } from '../prompt-optimization.js';
 import { getQuickQueueViewState } from '../queue-view-state.js';
 
@@ -88,6 +88,7 @@ export function createPromptOptimizationPageBinding({
 
     if (state.status === 'succeeded') {
       textarea.value = String(state.result ?? '');
+      if (typeof Event === 'function') textarea.dispatchEvent?.(new Event('input', { bubbles: true }));
       toastFn('提示词已优化', 'success', { key: feedbackKey });
     } else if (state.status === 'failed') {
       const message = state.error?.message || '未知错误';
@@ -155,6 +156,19 @@ export function createPromptOptimizationPageBinding({
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
 const QUANTITIES = [1, 2, 3, 4];
+const PROMPT_INPUT_MAX_LINES = 10;
+
+// 提示词输入框随内容增高，最多十行，超过后仅在输入框内滚动。
+export function syncPromptInputHeight(textarea) {
+  if (!textarea || typeof getComputedStyle !== 'function') return;
+  const styles = getComputedStyle(textarea);
+  const lineHeight = Number.parseFloat(styles.lineHeight) || 24;
+  const verticalPadding = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
+  const maxHeight = lineHeight * PROMPT_INPUT_MAX_LINES + verticalPadding;
+  textarea.style.height = 'auto';
+  textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+}
 
 export function renderGenerate(container) {
   const providers = getProviders();
@@ -236,6 +250,8 @@ export function renderGenerate(container) {
   const sourcePreview = root.querySelector('#source-preview');
   const sourceThumb = root.querySelector('#source-thumb');
   const composerCard = root.querySelector('#composer');
+  syncPromptInputHeight(promptInput);
+  promptInput.addEventListener('input', () => syncPromptInputHeight(promptInput));
 
   // ===== 模型下拉 =====
   const modelChip = root.querySelector('#model-chip');
@@ -462,6 +478,7 @@ export function renderGenerate(container) {
       const res = await window.api.pickTextFile();
       if (res.canceled) return;
       promptInput.value = res.content;
+      syncPromptInputHeight(promptInput);
       promptInput.focus();
       toast(`已导入文件「${res.fileName}」`, 'success');
     } catch (e) {
@@ -531,6 +548,7 @@ export function renderGenerate(container) {
   // ===== 随机提示词 =====
   btnRandom.addEventListener('click', () => {
     promptInput.value = getRandomPrompt();
+    syncPromptInputHeight(promptInput);
     promptInput.focus();
   });
 
@@ -708,7 +726,6 @@ export function renderGenerate(container) {
           <div class="gallery-item-hover-actions">
             <button type="button" class="icon-btn" data-history-act="preview" data-history-id="${escapeHtml(item.historyId)}" title="查看大图">${icon('maximize-2', 14)}</button>
             <button type="button" class="icon-btn" data-history-act="download" data-history-id="${escapeHtml(item.historyId)}" title="保存到本地">${icon('download', 14)}</button>
-            <button type="button" class="icon-btn" data-history-act="detail" data-history-id="${escapeHtml(item.historyId)}" title="查看详情">${icon('external-link', 14)}</button>
           </div>
         </div>
         <div class="gallery-item-meta">
@@ -744,22 +761,7 @@ export function renderGenerate(container) {
   }
 
   function openQuickHistoryPreview(record) {
-    closeImagePreview?.();
-    closeImagePreview = openImagePreview({
-      ...record,
-      modelId: record.model || record.modelId || '',
-    }, {
-      onClose: () => { closeImagePreview = null; },
-      onDownload: (item) => downloadImage(item.image, item.id),
-      onCopyPrompt: async (promptText) => {
-        try {
-          await navigator.clipboard.writeText(promptText);
-          toast('提示词已复制', 'success');
-        } catch {
-          toast('复制失败', 'error');
-        }
-      },
-    });
+    navigate(buildImageDetailRoute(record, { origin: 'generate' }));
   }
 
   function openQuickTaskFailurePreview(task) {
@@ -843,7 +845,6 @@ export function renderGenerate(container) {
       const action = actionButton.getAttribute('data-history-act');
       if (action === 'preview') openQuickHistoryPreview(record);
       else if (action === 'download') await downloadImage(record.image, record.id);
-      else if (action === 'detail') navigate(`/detail/${record.id}`);
       return;
     }
     const image = target.closest?.('.quick-history-card img');
@@ -867,8 +868,7 @@ export function renderGenerate(container) {
 
 async function downloadImage(src, id) {
   try {
-    const dataUrl = await imageToDataUrl(src);
-    const res = await window.api.saveImage(dataUrl, `miaos-${id}.png`);
+    const res = await window.api.saveImage(src, `miaos-${id}.png`);
     if (res.ok) toast('图片已保存', 'success');
     else if (!res.canceled) toast('保存失败：' + (res.error || '未知错误'), 'error');
   } catch (e) {

@@ -23,3 +23,9 @@ npm-debug.log*
 
 # Codex brainstorming 临时产物
 .superpowers/
+
+# Android 构建与本机 SDK 配置
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toast, withButtonLoading, confirmDialog, dismissActiveConfirm, createEventLoopGuard } from '../src/js/ui.js';
+import { readFileSync } from 'node:fs';
+import { toast, withButtonLoading, confirmDialog, promptDialog, dismissActiveConfirm, createEventLoopGuard } from '../src/js/ui.js';
 import { syncUpdateCheckButton } from '../src/js/pages/settings.js';
 
 class FakeClassList {
@@ -212,6 +213,41 @@ test('应用内确认弹窗可用 Escape 与取消返回 false，并恢复触发
     const pendingCancel = confirmDialog('确定删除吗？');
     documentRef.body.querySelector('[data-confirm-cancel]').dispatchEvent({ type: 'click' });
     assert.equal(await pendingCancel, false);
+  });
+});
+
+test('macOS 配对面板展示非敏感确认短码，并提供与 Android 核对说明', () => {
+  const settingsSource = readFileSync(new URL('../src/js/pages/settings.js', import.meta.url), 'utf8');
+  const pagesCss = readFileSync(new URL('../src/css/pages.css', import.meta.url), 'utf8');
+
+  assert.match(settingsSource, /config-pairing-confirmation/);
+  assert.match(settingsSource, /配对确认短码/);
+  assert.match(settingsSource, /Android 上核对相同的短码/);
+  assert.match(pagesCss, /\.config-pairing-confirmation\s*\{/);
+});
+
+test('配对服务自动结束时，macOS 设置页会撤销二维码状态', () => {
+  const preloadSource = readFileSync(new URL('../preload.js', import.meta.url), 'utf8');
+  const settingsSource = readFileSync(new URL('../src/js/pages/settings.js', import.meta.url), 'utf8');
+
+  assert.match(preloadSource, /onConfigPairingEnded/);
+  assert.match(settingsSource, /onConfigPairingEnded/);
+  assert.match(settingsSource, /Android 已读取一次性配对配置/);
+});
+
+test('应用内密码输入框确认时返回输入值，取消时返回 null', async () => {
+  await withFakeDom(async (documentRef) => {
+    const pending = promptDialog('请输入迁移密码', { inputType: 'password' });
+    const input = documentRef.body.querySelector('[data-prompt-input]');
+    assert.ok(input);
+    assert.equal(input.type, 'password');
+    input.value = 'secret-123';
+    documentRef.body.querySelector('[data-prompt-accept]').dispatchEvent({ type: 'click' });
+    assert.equal(await pending, 'secret-123');
+
+    const pendingCancel = promptDialog('请输入迁移密码');
+    documentRef.body.querySelector('[data-prompt-cancel]').dispatchEvent({ type: 'click' });
+    assert.equal(await pendingCancel, null);
   });
 });
 

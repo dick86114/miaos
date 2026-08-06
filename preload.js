@@ -3,6 +3,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   saveImage: (dataUrl, suggestedName) =>
     ipcRenderer.invoke('save-image', dataUrl, suggestedName),
+  exportConfig: (state, password) => ipcRenderer.invoke('export-config', state, password),
+  startConfigPairing: (state, password) => ipcRenderer.invoke('start-config-pairing', state, password),
+  stopConfigPairing: () => ipcRenderer.invoke('stop-config-pairing'),
+  onConfigPairingEnded: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('config-pairing-ended', listener);
+    return () => ipcRenderer.off('config-pairing-ended', listener);
+  },
   showInFolder: (filePath) => ipcRenderer.invoke('show-in-folder', filePath),
   platform: process.platform,
   testConnection: (provider) => ipcRenderer.invoke('test-connection', provider),

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>历史与统计 - 妙生</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-container": "#a078ff",
+                        "on-secondary-container": "#00424e",
+                        "surface-stroke": "#27272A",
+                        "error-container": "#93000a",
+                        "status-success": "#10B981",
+                        "on-primary-fixed": "#23005c",
+                        "on-surface": "#e5e1e4",
+                        "surface-variant": "#353437",
+                        "secondary-fixed-dim": "#4cd7f6",
+                        "on-secondary": "#003640",
+                        "secondary-fixed": "#acedff",
+                        "surface-container-low": "#1c1b1d",
+                        "on-primary-fixed-variant": "#5516be",
+                        "on-background": "#e5e1e4",
+                        "status-warning": "#F59E0B",
+                        "on-primary": "#3c0091",
+                        "surface-container-high": "#2a2a2c",
+                        "surface-elevated": "#18181B",
+                        "error": "#ffb4ab",
+                        "tertiary-fixed-dim": "#ffb869",
+                        "tertiary": "#ffb869",
+                        "surface-bright": "#39393b",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#201f22",
+                        "on-surface-variant": "#cbc3d7",
+                        "surface-tint": "#d0bcff",
+                        "on-error": "#690005",
+                        "tertiary-container": "#ca801e",
+                        "surface-container-highest": "#353437",
+                        "secondary": "#4cd7f6",
+                        "status-waiting": "#71717A",
+                        "on-tertiary": "#482900",
+                        "on-tertiary-fixed": "#2c1700",
+                        "on-tertiary-fixed-variant": "#673d00",
+                        "status-processing": "#3B82F6",
+                        "background-deep": "#000000",
+                        "primary-fixed-dim": "#d0bcff",
+                        "secondary-container": "#03b5d3",
+                        "tertiary-fixed": "#ffdcbb",
+                        "inverse-on-surface": "#313032",
+                        "outline": "#958ea0",
+                        "primary-fixed": "#e9ddff",
+                        "on-primary-container": "#340080",
+                        "inverse-primary": "#6d3bd7",
+                        "on-secondary-fixed-variant": "#004e5c",
+                        "surface-dim": "#131315",
+                        "surface-container-lowest": "#0e0e10",
+                        "on-secondary-fixed": "#001f26",
+                        "surface": "#131315",
+                        "outline-variant": "#494454",
+                        "status-error": "#EF4444",
+                        "background": "#131315",
+                        "on-tertiary-container": "#3f2300",
+                        "primary": "#d0bcff",
+                        "inverse-surface": "#e5e1e4"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-screen": "20px",
+                        "section-gap": "32px",
+                        "unit": "4px",
+                        "gutter-grid": "12px",
+                        "card-padding": "16px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "label-xs": ["Inter"],
+                        "code-sm": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "headline-md": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "label-xs": ["11px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "code-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;family=Hanken+Grotesk:wght@600;700&amp;display=swap" rel="stylesheet"/>
+</head>
+<body class="bg-background-deep text-on-surface font-body-md min-h-screen pt-16 pb-20 selection:bg-primary/30">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-surface-stroke flex items-center justify-between px-margin-screen h-16 transition-colors duration-200">
+<button class="text-on-surface hover:bg-surface-container-highest/50 p-2 rounded-full transition-colors active:scale-95">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="font-headline-md text-headline-md font-bold text-primary dark:text-primary">妙生</h1>
+<button class="text-on-surface hover:bg-surface-container-highest/50 p-2 rounded-full transition-colors active:scale-95">
+<span class="material-symbols-outlined">layers</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="max-w-4xl mx-auto pt-section-gap px-margin-screen md:px-0">
+<!-- Tabs -->
+<div class="flex gap-4 border-b border-surface-stroke mb-8 px-margin-screen md:px-0">
+<button class="pb-2 font-headline-md text-body-lg text-on-surface-variant hover:text-on-surface font-medium transition-colors" onclick="switchTab('history')">历史记录</button>
+<button class="pb-2 font-headline-md text-body-lg text-primary border-b-2 border-primary font-medium" onclick="switchTab('stats')">统计分析</button>
+</div>
+<!-- History Tab (Hidden by default) -->
+<div class="hidden animate-[fadeIn_0.3s_ease-out]" id="tab-history">
+<!-- Filters -->
+<div class="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide px-margin-screen md:px-0">
+<button class="bg-surface-elevated border border-primary text-primary px-4 py-1.5 rounded-full font-label-xs text-label-xs transition-colors hover:bg-primary-container/20">全部</button>
+<button class="bg-surface-container border border-surface-stroke text-on-surface-variant px-4 py-1.5 rounded-full font-label-xs text-label-xs transition-colors hover:border-primary hover:text-primary">快速生图</button>
+<button class="bg-surface-container border border-surface-stroke text-on-surface-variant px-4 py-1.5 rounded-full font-label-xs text-label-xs transition-colors hover:border-primary hover:text-primary">项目生成</button>
+</div>
+<!-- Grid -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-gutter-grid px-margin-screen md:px-0">
+<!-- Card 1 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="A highly detailed, ultra-realistic digital portrait of a futuristic cyborg wearing high-tech streetwear. The image features neon cyan and deep purple rim lighting against a stark black background, emphasizing the metallic textures and glowing optical sensors. Shot in an atmospheric, cinematic style reminiscent of modern cyberpunk aesthetics." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAPRDQ7lLe9av4EGRR6EFKUoqTQuaB9-oTjvambCOiJKA0AfsYOk3JT6PbX3SiI0vuD4Hfsyp7l3mInBQ983uH65a175J8iaie9OaMlPvTRJ_Y2WTY0XUF3IWVAEkPbMAH_qwDa9Y1rYN9lxegENfDpEle8BsrJcSMEA5c2fWd9v8QqyxtRT-UnblxdTAyugiMEqg15ffvXZYlV84rVi4L74zoj9Q2KxqINaiZR2DWOmxDep16QCJT7aA"/>
+<div class="absolute top-2 right-2 bg-surface-elevated/80 backdrop-blur-sm border border-surface-stroke px-2 py-0.5 rounded text-[10px] text-on-surface flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+                            完成
+                        </div>
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">SDXL v1.0 • 1024x1024</p>
+<p class="text-[10px] text-on-surface-variant mt-1">2小时前</p>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="A serene, minimalist architectural rendering of a modern concrete and glass home nestled in a lush, foggy forest. The lighting is soft and diffused, creating a calm, early morning mood. The design emphasizes clean lines, geometric shapes, and a seamless integration with nature, maintaining a tech-minimalist vibe." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBjQi7aUbC1ogBx_JpP4dmRmGwl2uVcLTctUTX9y3vfFA6Of4o4fCB9IkfFMWGbVcD76xWa-9OKuGcbB1a-d4p2xrbS2-RwtSDQuaAG06yp9HyKMIoS5ofHAfJNJu5dOsJKzzoKuFZh2_yv2rvXbyArlWeYisfguopbdPckfunTT_1ENZeNHi5t21tlA6-Tefq_DHifJle2VaIuF7h9ehwj3QYRrUuyTPEtVmeXfY8eDGgxQ78vo-j3Tw"/>
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">Midjourney v6 • 16:9</p>
+<p class="text-[10px] text-on-surface-variant mt-1">5小时前</p>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="A macro photography shot of an intricate, glowing mechanical lotus flower. The petals are made of brushed dark titanium with glowing blue energy lines pulsating through them. The background is pure pitch black to emphasize the high contrast and intricate details of the cybernetic flora. Tech-minimalist aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAaf20nIpDQPF-oG0AupAwJWg1_16ZI8Ax4Bl-PwR76boI1bWg5lDebOb7mD1Y2pKW8EFgflG7adRmwhOkUsy_UWP49u2psx-4ZX9a3ZvqnJ96WElrwCuTldjXE2XGBUwxMnaqnw3bQGpPJP4QWTFa_umidRNLwn_BS-zyxmV8Uwh91aKHKXM8DQZtbOX8g4OBc6pFdSU-1VrcGozPlxBZstgJWXBVrkumrZyXekZqSkHC-wkRab66Chw"/>
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">DALL-E 3 • 1024x1024</p>
+<p class="text-[10px] text-on-surface-variant mt-1">昨天 14:30</p>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="An abstract, generative digital art piece consisting of swirling, glowing particle ribbons in shades of deep indigo and vivid magenta over a dark void. The fluid motion conveys a sense of data flow and AI processing, rendered with extreme sharpness and a subtle bloom effect on the brightest areas." src="https://lh3.googleusercontent.com/aida-public/AB6AXuADxaR4-QyG8VC0DQ3x8ez4y0rtFphTsVKTkcdx7cI_KMuha_7pEQichp_rJTNn-09WrVmtPsKkHtoV-XUXuy8WJVLfBCRGbzt3Mud0P27G4tpF9U45XmUWRs5AWZc_ZEE94j9JQGa3sY8qmwQzAt6LapTD1Da8UqQ_CemGMLz64WObBm8N9hjGTF8z8DUaYMa8GLJYZb8qrBrQfCqUVVGpC9fnDChBqpIcsNzcxbdw-PcEOcnQXqYgYQ"/>
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">SDXL v1.0 • 1024x1024</p>
+<p class="text-[10px] text-on-surface-variant mt-1">昨天 09:15</p>
+</div>
+</div>
+</div>
+<div class="mt-8 text-center px-margin-screen md:px-0">
+<button class="bg-surface-container border border-surface-stroke text-on-surface-variant px-6 py-2 rounded-full font-body-md text-body-md hover:text-on-surface hover:border-on-surface transition-colors">加载更多</button>
+</div>
+</div>
+<!-- Stats Tab (Active) -->
+<div class="block animate-[fadeIn_0.3s_ease-out] px-margin-screen md:px-0" id="tab-stats">
+<!-- Overview Cards -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-4 shadow-[0_4px_24px_rgba(139,92,246,0.05)]">
+<p class="text-on-surface-variant text-label-xs mb-1">图片总数</p>
+<p class="font-headline-md text-headline-md text-primary">1,248</p>
+</div>
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-4 shadow-[0_4px_24px_rgba(139,92,246,0.05)]">
+<p class="text-on-surface-variant text-label-xs mb-1">今日生成</p>
+<p class="font-headline-md text-headline-md text-on-surface">24</p>
+</div>
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-4 shadow-[0_4px_24px_rgba(139,92,246,0.05)]">
+<p class="text-on-surface-variant text-label-xs mb-1">本周生成</p>
+<p class="font-headline-md text-headline-md text-on-surface">156</p>
+</div>
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-4 shadow-[0_4px_24px_rgba(139,92,246,0.05)]">
+<p class="text-on-surface-variant text-label-xs mb-1">项目总数</p>
+<p class="font-headline-md text-headline-md text-on-surface">12</p>
+</div>
+</div>
+<!-- Generation Trend Chart -->
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-card-padding mb-8">
+<h3 class="font-headline-md text-body-lg text-on-surface mb-6">近 30 天生成趋势</h3>
+<div class="h-48 w-full relative">
+<!-- SVG Line Chart Mockup with Neon Glow -->
+<svg class="w-full h-full preserve-3d" style="filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.4));" viewbox="0 0 400 150">
+<!-- Grid lines -->
+<line stroke="#27272A" stroke-dasharray="4" stroke-width="1" x1="0" x2="400" y1="30" y2="30"></line>
+<line stroke="#27272A" stroke-dasharray="4" stroke-width="1" x1="0" x2="400" y1="75" y2="75"></line>
+<line stroke="#27272A" stroke-dasharray="4" stroke-width="1" x1="0" x2="400" y1="120" y2="120"></line>
+<!-- Area Fill -->
+<path d="M0,150 L0,110 Q20,110 40,90 T80,100 T120,60 T160,80 T200,40 T240,70 T280,30 T320,50 T360,20 T400,40 L400,150 Z" fill="url(#purpleGradient)" opacity="0.2"></path>
+<!-- Neon Line -->
+<path d="M0,110 Q20,110 40,90 T80,100 T120,60 T160,80 T200,40 T240,70 T280,30 T320,50 T360,20 T400,40" fill="none" stroke="#8b5cf6" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"></path>
+<defs>
+<lineargradient id="purpleGradient" x1="0%" x2="0%" y1="0%" y2="100%">
+<stop offset="0%" stop-color="#8b5cf6" stop-opacity="1"></stop>
+<stop offset="100%" stop-color="#8b5cf6" stop-opacity="0"></stop>
+</lineargradient>
+</defs>
+</svg>
+</div>
+<div class="flex justify-between mt-2 text-[10px] text-on-surface-variant">
+<span>30天前</span>
+<span>今天</span>
+</div>
+</div>
+<div class="grid md:grid-cols-2 gap-8 mb-8">
+<!-- Source Distribution -->
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-card-padding">
+<h3 class="font-headline-md text-body-lg text-on-surface mb-6">来源占比</h3>
+<div class="flex flex-col gap-6">
+<div class="space-y-2">
+<div class="flex justify-between text-body-sm">
+<span class="text-on-surface flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-[#8b5cf6]"></span>快速生图</span>
+<span class="font-code-sm text-primary">68%</span>
+</div>
+<div class="h-2 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-[#8b5cf6] rounded-full" style="width: 68%; box-shadow: 0 0 10px rgba(139,92,246,0.5);"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-body-sm">
+<span class="text-on-surface flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-surface-container-highest"></span>项目生成</span>
+<span class="font-code-sm text-on-surface-variant">32%</span>
+</div>
+<div class="h-2 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-surface-container-highest rounded-full" style="width: 32%;"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Model Leaderboard -->
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-card-padding">
+<h3 class="font-headline-md text-body-lg text-on-surface mb-6">模型使用排行</h3>
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="text-label-xs text-primary bg-primary/10 px-2 py-0.5 rounded">1</span>
+<span class="font-code-sm text-code-sm text-on-surface">Midjourney v6</span>
+</div>
+<span class="text-primary font-bold">542</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="text-label-xs text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">2</span>
+<span class="font-code-sm text-code-sm text-on-surface">SDXL 1.0</span>
+</div>
+<span class="text-on-surface-variant">428</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="text-label-xs text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">3</span>
+<span class="font-code-sm text-code-sm text-on-surface">DALL-E 3</span>
+</div>
+<span class="text-on-surface-variant">185</span>
+</div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="text-label-xs text-on-surface-variant bg-surface-container px-2 py-0.5 rounded">4</span>
+<span class="font-code-sm text-code-sm text-on-surface">Stable Diffusion 1.5</span>
+</div>
+<span class="text-on-surface-variant">93</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Activity Heatmap -->
+<div class="bg-surface/50 backdrop-blur-md rounded-xl border border-surface-stroke p-card-padding mb-8">
+<h3 class="font-headline-md text-body-lg text-on-surface mb-4">活跃热力图</h3>
+<div class="grid grid-cols-[repeat(12,1fr)] grid-rows-5 gap-1 p-2">
+<div class="aspect-square bg-[#8b5cf6]/10 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/40 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/20 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/80 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/10 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/60 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/30 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/100 rounded-sm shadow-[0_0_8px_rgba(139,92,246,0.6)]"></div>
+<div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/20 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/50 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/30 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/10 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/70 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/20 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div>
+<div class="aspect-square bg-[#8b5cf6]/40 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/10 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/60 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/20 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/90 rounded-sm shadow-[0_0_8px_rgba(139,92,246,0.4)]"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/10 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/50 rounded-sm"></div><div class="aspect-square bg-surface-container-high rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/30 rounded-sm"></div><div class="aspect-square bg-[#8b5cf6]/10 rounded-sm"></div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-t border-surface-stroke flex justify-around items-center h-20 px-2 transition-all duration-300">
+<button class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface active:scale-90 transition-all duration-300">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">bolt</span>
+<span class="font-label-xs text-label-xs mt-1">快速生图</span>
+</button>
+<button class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface active:scale-90 transition-all duration-300">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">folder_open</span>
+<span class="font-label-xs text-label-xs mt-1">项目</span>
+</button>
+<button class="flex flex-col items-center justify-center text-[#8b5cf6] dark:text-[#8b5cf6] bg-[#8b5cf6]/10 rounded-xl px-3 py-1 active:scale-90 transition-all duration-300">
+<span class="material-symbols-outlined" style='font-variation-settings: "FILL" 1;'>history</span>
+<span class="font-label-xs text-label-xs mt-1">历史</span>
+</button>
+<button class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface active:scale-90 transition-all duration-300">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+<span class="font-label-xs text-label-xs mt-1">设置</span>
+</button>
+</nav>
+<style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<script>
+        function switchTab(tabId) {
+            const tabs = ['history', 'stats'];
+            
+            tabs.forEach(id => {
+                const el = document.getElementById(`tab-${id}`);
+                if (id === tabId) {
+                    el.classList.remove('hidden');
+                    el.classList.add('block');
+                } else {
+                    el.classList.remove('block');
+                    el.classList.add('hidden');
+                }
+            });
+
+            const tabContainer = document.querySelector('.flex.gap-4.border-b');
+            const btns = tabContainer.querySelectorAll('button');
+            btns.forEach(btn => {
+                if(btn.innerText.includes(tabId === 'history' ? '历史记录' : '统计分析')) {
+                    btn.className = "pb-2 font-headline-md text-body-lg text-primary border-b-2 border-primary font-medium";
+                } else {
+                    btn.className = "pb-2 font-headline-md text-body-lg text-on-surface-variant hover:text-on-surface font-medium transition-colors";
+                }
+            })
+        }
+    </script>
+</body></html>

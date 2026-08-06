@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>项目详情与演进 - 妙生</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700;800&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+                "secondary": "#006591",
+                "surface-dim": "#cbdbf5",
+                "on-primary-container": "#fffbff",
+                "inverse-on-surface": "#eaf1ff",
+                "outline-variant": "#cbc3d7",
+                "primary-fixed": "#e9ddff",
+                "inverse-primary": "#d0bcff",
+                "background": "#f8f9ff",
+                "surface-variant": "#d3e4fe",
+                "outline": "#7b7486",
+                "surface-container-low": "#eff4ff",
+                "on-error-container": "#93000a",
+                "on-tertiary-container": "#fffbff",
+                "on-secondary-container": "#004666",
+                "surface-container-highest": "#d3e4fe",
+                "on-surface": "#0b1c30",
+                "on-secondary-fixed-variant": "#004c6e",
+                "on-background": "#0b1c30",
+                "secondary-fixed": "#c9e6ff",
+                "on-surface-variant": "#494454",
+                "on-primary-fixed-variant": "#5516be",
+                "secondary-container": "#39b8fd",
+                "tertiary-container": "#a76500",
+                "error-container": "#ffdad6",
+                "surface-bright": "#f8f9ff",
+                "tertiary": "#855000",
+                "on-secondary-fixed": "#001e2f",
+                "on-secondary": "#ffffff",
+                "surface-container-lowest": "#ffffff",
+                "primary": "#6b38d4",
+                "surface-tint": "#6d3bd7",
+                "secondary-fixed-dim": "#89ceff",
+                "on-primary-fixed": "#23005c",
+                "tertiary-fixed": "#ffdcbb",
+                "inverse-surface": "#213145",
+                "on-primary": "#ffffff",
+                "on-tertiary-fixed-variant": "#673d00",
+                "surface-container": "#e5eeff",
+                "on-error": "#ffffff",
+                "on-tertiary-fixed": "#2c1700",
+                "primary-container": "#8455ef",
+                "on-tertiary": "#ffffff",
+                "tertiary-fixed-dim": "#ffb869",
+                "error": "#ba1a1a",
+                "surface": "#f8f9ff",
+                "primary-fixed-dim": "#d0bcff",
+                "surface-container-high": "#dce9ff",
+                "cyber-bg": "#0d0e15",
+                "cyber-surface": "#161824",
+                "cyber-accent": "#8b5cf6"
+        },
+        "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+        },
+        "spacing": {
+                "unit": "4px",
+                "xs": "4px",
+                "gutter": "24px",
+                "margin-desktop": "48px",
+                "lg": "24px",
+                "md": "16px",
+                "margin-mobile": "16px",
+                "xxl": "64px",
+                "xl": "40px",
+                "sm": "8px"
+        },
+        "fontFamily": {
+                "headline-md": [
+                        "Hanken Grotesk"
+                ],
+                "body-md": [
+                        "Hanken Grotesk"
+                ],
+                "label-sm": [
+                        "JetBrains Mono"
+                ],
+                "body-lg": [
+                        "Hanken Grotesk"
+                ],
+                "body-sm": [
+                        "Hanken Grotesk"
+                ],
+                "label-md": [
+                        "JetBrains Mono"
+                ],
+                "headline-lg": [
+                        "Hanken Grotesk"
+                ],
+                "display-lg": [
+                        "Hanken Grotesk"
+                ],
+                "headline-lg-mobile": [
+                        "Hanken Grotesk"
+                ]
+        },
+        "fontSize": {
+                "headline-md": [
+                        "24px",
+                        {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                        }
+                ],
+                "body-md": [
+                        "16px",
+                        {
+                                "lineHeight": "24px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "label-sm": [
+                        "12px",
+                        {
+                                "lineHeight": "14px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "body-lg": [
+                        "18px",
+                        {
+                                "lineHeight": "28px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "body-sm": [
+                        "14px",
+                        {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                        }
+                ],
+                "label-md": [
+                        "14px",
+                        {
+                                "lineHeight": "16px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "500"
+                        }
+                ],
+                "headline-lg": [
+                        "32px",
+                        {
+                                "lineHeight": "40px",
+                                "letterSpacing": "-0.01em",
+                                "fontWeight": "700"
+                        }
+                ],
+                "display-lg": [
+                        "48px",
+                        {
+                                "lineHeight": "56px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "800"
+                        }
+                ],
+                "headline-lg-mobile": [
+                        "28px",
+                        {
+                                "lineHeight": "36px",
+                                "fontWeight": "700"
+                        }
+                ]
+        }
+},
+    },
+  }
+</script>
+<style>
+        /* Hide scrollbar for horizontal scrolling elements but keep functionality */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-cyber-bg text-gray-200 font-body-md min-h-screen pt-16 pb-24 antialiased selection:bg-cyber-accent selection:text-white">
+<!-- TopAppBar from JSON -->
+<header class="fixed top-0 w-full z-50 bg-cyber-bg/80 backdrop-blur-xl border-b border-white/10 flex items-center justify-between px-margin-mobile h-16 transition-colors duration-200">
+<button class="text-gray-300 hover:bg-white/5 p-2 -ml-2 rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">menu</span>
+</button>
+<h1 class="font-headline-lg text-[20px] font-bold text-gray-100">项目详情与演进</h1>
+<button class="text-gray-300 hover:bg-white/5 p-2 -mr-2 rounded-full transition-colors">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">layers</span>
+</button>
+</header>
+<main class="w-full max-w-7xl mx-auto mt-6">
+<!-- Project Header -->
+<section class="px-margin-mobile mb-6">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-md text-headline-md text-white">霓虹都市景观 V2</h2>
+<span class="px-2 py-1 rounded-md bg-cyber-surface border border-white/10 text-gray-400 font-label-sm text-label-sm flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">cloud_done</span> 已同步
+                </span>
+</div>
+</section>
+<!-- Creation Area -->
+<section class="px-margin-mobile mb-lg">
+<div class="bg-cyber-surface border border-white/10 rounded-xl p-md flex flex-col gap-4 relative overflow-hidden backdrop-blur-md">
+<!-- Subtle background glow -->
+<div class="absolute -top-10 -right-10 w-32 h-32 bg-cyber-accent/20 blur-[60px] rounded-full pointer-events-none"></div>
+<div class="flex flex-col gap-2">
+<label class="font-label-sm text-label-sm text-gray-400 uppercase tracking-wider">提示词指令</label>
+<textarea class="w-full bg-cyber-bg/50 border border-white/10 rounded-lg p-3 font-body-md text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-cyber-accent transition-colors resize-none h-24" placeholder="输入您的画面描述...">极简主义赛博朋克街道，高对比度霓虹灯光，雨后积水反光，深邃的黑色阴影，冷色调环境，极高细节，8k分辨率，辛烷值渲染</textarea>
+</div>
+<!-- Model Settings Bar -->
+<div class="flex items-center gap-3 overflow-x-auto no-scrollbar pb-1">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-cyber-bg/50 border border-white/10 hover:bg-white/5 transition-colors whitespace-nowrap text-gray-300">
+<span class="material-symbols-outlined text-[16px] text-cyber-accent">dns</span>
+<span class="font-label-sm text-label-sm">SDXL Turbo</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-cyber-bg/50 border border-white/10 hover:bg-white/5 transition-colors whitespace-nowrap text-gray-300">
+<span class="material-symbols-outlined text-[16px] text-amber-500">tune</span>
+<span class="font-label-sm text-label-sm">LORA: CyberNeon</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-cyber-bg/50 border border-white/10 hover:bg-white/5 transition-colors whitespace-nowrap text-gray-300">
+<span class="material-symbols-outlined text-[16px] text-gray-500">aspect_ratio</span>
+<span class="font-label-sm text-label-sm">9:16</span>
+</button>
+</div>
+<!-- Generate Action -->
+<div class="mt-2 flex gap-3">
+<button class="flex-1 bg-cyber-accent text-white font-label-sm text-label-sm uppercase tracking-wider py-3 rounded-lg flex justify-center items-center gap-2 hover:bg-[#7c3aed] active:scale-[0.98] transition-all shadow-[0_4px_20px_0_rgba(139,92,246,0.3)]">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+                        生成变体
+                    </button>
+<button class="px-4 border border-white/10 text-gray-300 rounded-lg hover:bg-white/5 active:scale-[0.98] transition-all flex items-center justify-center bg-cyber-bg/50">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Version History Vertical Timeline -->
+<section class="px-margin-mobile pb-xxl">
+<h3 class="font-label-sm text-label-sm text-gray-400 uppercase tracking-wider mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">account_tree</span> 演进路径
+</h3>
+<div class="relative ml-2 pl-6 border-l-2 border-white/10 space-y-8">
+<!-- Main Node v1.0 -->
+<div class="relative">
+<div class="absolute -left-[31px] top-4 w-4 h-4 rounded-full bg-cyber-bg border-2 border-gray-500 z-10 flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-gray-500"></div>
+</div>
+<div class="bg-cyber-surface border border-white/5 rounded-xl p-4 flex gap-4 backdrop-blur-sm">
+<div class="w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-cyber-bg border border-white/10">
+<img alt="Thumbnail" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDgbj5Y8POKdXa24D17ZuyfnuOGJ-cw5WMT9-cVsypttvzuKhlHehZr8nMUGzdYeEf93E_NMyzFNU1L4UWU8tjqsr-3ggIRU0f646ZrPo2gncDbuOo_4q9fFh9r7Gf5GHfK9fkDXh9w2gs9bpTgvyPaZVDrX_BaZPJjXo7X0_1Ytd_94bDmE9WI75V1KNonaaTsANmv4lxU4PBYGXFLhjqfoOr_ZVHHygt9rdBoLLaCtEOFt1yqF9OHOQ"/>
+</div>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-xs font-bold px-2 py-0.5 rounded bg-gray-800 text-gray-300">v1.0</span>
+<span class="text-sm font-medium text-gray-200">基础构图</span>
+</div>
+<p class="text-xs text-gray-500 line-clamp-2">极简主义赛博朋克街道，高对比度霓虹灯光，雨后积水反光...</p>
+</div>
+<div class="flex gap-2 mt-2">
+<button class="text-xs px-3 py-1 rounded bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 transition-colors">详情</button>
+<button class="text-xs px-3 py-1 rounded bg-cyber-accent/20 hover:bg-cyber-accent/30 text-cyber-accent border border-cyber-accent/20 transition-colors">派生</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Child Node v1.1 -->
+<div class="relative ml-8">
+<div class="absolute -left-[45px] top-6 w-8 h-px bg-white/10"></div>
+<div class="absolute -left-[63px] top-4 w-4 h-4 rounded-full bg-cyber-bg border-2 border-cyber-accent z-10 flex items-center justify-center">
+<div class="w-1.5 h-1.5 rounded-full bg-cyber-accent"></div>
+</div>
+<div class="bg-cyber-surface/60 border border-cyber-accent/30 rounded-xl p-4 flex gap-4 backdrop-blur-sm shadow-[0_0_15px_rgba(139,92,246,0.05)] relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-cyber-accent"></div>
+<div class="w-20 h-20 rounded-lg overflow-hidden shrink-0 bg-cyber-bg border border-white/10">
+<img alt="Thumbnail" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-XabuaOAQA9_SgzPxc4GOFKWCc-SFaMcZdH283beD22uSfDt_e9jyWeFe_xzxsNs-jA_p05iV1JX2cZwOhYr2Wh8EjDKPxvKAYJjUv859vpa-k_XuRIp7WD_TdGetuioijWY8HW-FrYV5wp362E6Mh14XqxjKYuIKrY2H1PFHnLMwpocK7uCQa5PYT8XF5iu0A99Wo___ohA1Q1zE9Sk0HjkLCkM587SHJhRJtd05DhadsAmsuf_EZQ"/>
+</div>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-xs font-bold px-2 py-0.5 rounded bg-cyber-accent text-white">v1.1</span>
+<span class="text-sm font-medium text-cyber-accent">色彩强化 (当前)</span>
+</div>
+<p class="text-xs text-gray-500 line-clamp-2">强化冷色调环境，极高细节，8k分辨率，辛烷值渲染...</p>
+</div>
+<div class="flex gap-2 mt-2">
+<button class="text-xs px-3 py-1 rounded bg-white/5 hover:bg-white/10 text-gray-300 border border-white/5 transition-colors">详情</button>
+<button class="text-xs px-3 py-1 rounded bg-cyber-accent/20 hover:bg-cyber-accent/30 text-cyber-accent border border-cyber-accent/20 transition-colors">派生</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Child Node v1.1.1 (Nested further) -->
+<div class="relative ml-8">
+<div class="absolute -left-[45px] top-6 w-8 h-px bg-white/10"></div>
+<div class="absolute -left-[47px] top-6 w-4 h-4 rounded-full bg-cyber-bg border-2 border-gray-600 z-10 flex items-center justify-center scale-75">
+<div class="w-1.5 h-1.5 rounded-full bg-gray-600"></div>
+</div>
+<div class="bg-cyber-surface/40 border border-white/5 rounded-xl p-3 flex gap-3 backdrop-blur-sm opacity-80 hover:opacity-100 transition-opacity">
+<div class="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-cyber-bg border border-white/10">
+<img alt="Thumbnail" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJFL6glCdFLhxCfWHtLG5kdOGiQchK-PCPp_WmO227tqSNRv-driLRs0WjQu57fcdeuTs7bXZZzu3cQkq3mMC1MhV_WcgSUTNDtEV6mjH0lXq3cue1GJTStxBRRc0eHZzvwQgiZhSGBdzzzCTZ04j0tL8dt2VkCyNxYt3TYbrvGw7_YT8RPU5C71m3u4MtcuWtWTLml-ZEFvDMr5j6qZfylK2v9HIp49vhFBXxyMpgXj7i8LPnvdJ1gA"/>
+</div>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">v1.1.1</span>
+<span class="text-xs font-medium text-gray-300">赛博朋克重绘</span>
+</div>
+</div>
+<div class="flex gap-2 mt-1">
+<button class="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gray-400 transition-colors">详情</button>
+<button class="text-[10px] px-2 py-1 rounded bg-cyber-accent/10 hover:bg-cyber-accent/20 text-cyber-accent transition-colors">派生</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar from JSON -->
+<nav class="fixed bottom-0 w-full z-50 pb-safe bg-cyber-bg/90 backdrop-blur-xl border-t border-white/10 flex justify-around items-center h-20 px-2 transition-all duration-300">
+<!-- 快速生图 -->
+<a class="flex flex-col items-center justify-center text-gray-500 px-3 py-1 hover:text-gray-300 transition-colors" href="#">
+<span class="material-symbols-outlined mb-1">bolt</span>
+<span class="font-label-sm text-label-sm">快速生图</span>
+</a>
+<!-- 项目 (ACTIVE STATE) -->
+<a class="flex flex-col items-center justify-center text-cyber-accent bg-cyber-accent/10 rounded-xl px-4 py-1.5" href="#">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">folder_open</span>
+<span class="font-label-sm text-label-sm">项目</span>
+</a>
+<!-- 历史 -->
+<a class="flex flex-col items-center justify-center text-gray-500 px-3 py-1 hover:text-gray-300 transition-colors" href="#"><span class="material-symbols-outlined mb-1">history</span>
+<span class="font-label-sm text-label-sm">历史</span></a>
+<!-- 设置 -->
+<a class="flex flex-col items-center justify-center text-gray-500 px-3 py-1 hover:text-gray-300 transition-colors" href="#">
+<span class="material-symbols-outlined mb-1">settings</span>
+<span class="font-label-sm text-label-sm">设置</span>
+</a>
+</nav>
+</body></html>

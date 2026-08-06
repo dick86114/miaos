@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>妙生 - 设置</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700&amp;family=Inter:wght@400;600&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-tertiary-fixed-variant": "#673d00",
+                        "on-primary-container": "#340080",
+                        "tertiary-fixed": "#ffdcbb",
+                        "status-success": "#10B981",
+                        "background": "#131315",
+                        "inverse-on-surface": "#313032",
+                        "surface-container-low": "#1c1b1d",
+                        "error": "#ffb4ab",
+                        "surface-elevated": "#18181B",
+                        "on-tertiary-fixed": "#2c1700",
+                        "secondary-container": "#03b5d3",
+                        "surface-variant": "#353437",
+                        "surface-container-high": "#2a2a2c",
+                        "secondary-fixed-dim": "#4cd7f6",
+                        "surface-bright": "#39393b",
+                        "surface-container": "#201f22",
+                        "on-secondary-fixed": "#001f26",
+                        "surface-dim": "#131315",
+                        "secondary-fixed": "#acedff",
+                        "on-tertiary": "#482900",
+                        "status-warning": "#F59E0B",
+                        "error-container": "#93000a",
+                        "outline": "#958ea0",
+                        "on-background": "#e5e1e4",
+                        "secondary": "#4cd7f6",
+                        "background-deep": "#000000",
+                        "surface-container-highest": "#353437",
+                        "on-surface-variant": "#cbc3d7",
+                        "tertiary": "#ffb869",
+                        "status-waiting": "#71717A",
+                        "on-secondary-fixed-variant": "#004e5c",
+                        "on-surface": "#e5e1e4",
+                        "tertiary-fixed-dim": "#ffb869",
+                        "inverse-surface": "#e5e1e4",
+                        "on-primary-fixed-variant": "#5516be",
+                        "on-error": "#690005",
+                        "status-error": "#EF4444",
+                        "surface": "#131315",
+                        "surface-stroke": "#27272A",
+                        "on-primary": "#3c0091",
+                        "on-tertiary-container": "#3f2300",
+                        "on-secondary-container": "#00424e",
+                        "on-primary-fixed": "#23005c",
+                        "primary-fixed-dim": "#d0bcff",
+                        "tertiary-container": "#ca801e",
+                        "status-processing": "#3B82F6",
+                        "outline-variant": "#494454",
+                        "surface-tint": "#d0bcff",
+                        "primary-container": "#a078ff",
+                        "primary": "#d0bcff",
+                        "surface-container-lowest": "#0e0e10",
+                        "inverse-primary": "#6d3bd7",
+                        "on-error-container": "#ffdad6",
+                        "primary-fixed": "#e9ddff",
+                        "on-secondary": "#003640"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "8": "8px"
+                    },
+                    spacing: {
+                        "unit": "4px",
+                        "gutter-grid": "12px",
+                        "margin-screen": "20px",
+                        "card-padding": "16px",
+                        "section-gap": "32px"
+                    },
+                    fontFamily: {
+                        "code-sm": ["JetBrains Mono"],
+                        "label-xs": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Hanken Grotesk"],
+                        "body-md": ["Inter"],
+                        "headline-lg": ["Hanken Grotesk"]
+                    },
+                    fontSize: {
+                        "code-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+                        "label-xs": ["11px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #131315;
+            color: #e5e1e4;
+        }
+        .cyber-card {
+            background: rgba(24, 24, 27, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid #27272A;
+            border-radius: 8px;
+        }
+        .cyber-input {
+            background: #18181B;
+            border: 1px solid #27272A;
+            border-radius: 8px;
+            color: #e5e1e4;
+        }
+        .cyber-input:focus {
+            border-color: #d0bcff;
+            outline: none;
+        }
+        .glass-nav {
+            background: rgba(19, 19, 21, 0.8);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="antialiased min-h-screen flex flex-col pb-24">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-surface-stroke flat no shadows">
+<div class="flex items-center justify-between px-margin-screen h-16 w-full">
+<button class="text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-highest/50 transition-colors duration-200 active:scale-95 p-2 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="font-headline-lg text-headline-lg font-bold text-primary dark:text-primary">妙生</h1>
+<button class="text-on-surface-variant dark:text-on-surface-variant hover:bg-surface-container-highest/50 transition-colors duration-200 active:scale-95 p-2 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined">layers</span>
+</button>
+</div>
+</header>
+<!-- Main Content -->
+<main class="flex-grow pt-24 px-margin-screen pb-safe max-w-4xl mx-auto w-full">
+<div class="flex flex-col gap-section-gap">
+<!-- 外观设置 -->
+<section class="flex flex-col gap-unit-4">
+<h2 class="font-headline-md text-headline-md text-on-surface">外观设置</h2>
+<div class="cyber-card p-card-padding flex gap-4">
+<button class="flex-1 py-3 px-4 rounded-8 border border-surface-stroke text-on-surface-variant hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">light_mode</span>
+<span class="font-body-md text-body-md">明亮</span>
+</button>
+<button class="flex-1 py-3 px-4 rounded-8 bg-primary/20 border border-primary text-primary flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">dark_mode</span>
+<span class="font-body-md text-body-md">暗黑</span>
+</button>
+<button class="flex-1 py-3 px-4 rounded-8 border border-surface-stroke text-on-surface-variant hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">settings_system_daydream</span>
+<span class="font-body-md text-body-md">跟随系统</span>
+</button>
+</div>
+</section>
+<!-- 默认模型管理 -->
+<section class="flex flex-col gap-unit-4">
+<h2 class="font-headline-md text-headline-md text-on-surface">默认模型管理</h2>
+<div class="cyber-card p-card-padding flex flex-col gap-4">
+<div class="flex flex-col gap-2">
+<label class="font-label-xs text-label-xs text-on-surface-variant uppercase">图像生成模型</label>
+<div class="relative">
+<select class="cyber-input w-full p-3 appearance-none font-body-md text-body-md">
+<option>Stable Diffusion XL</option>
+<option>Stable Diffusion v1.5</option>
+<option>Midjourney v6</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="flex flex-col gap-2">
+<label class="font-label-xs text-label-xs text-on-surface-variant uppercase">文本辅助模型</label>
+<div class="relative">
+<select class="cyber-input w-full p-3 appearance-none font-body-md text-body-md">
+<option>GPT-4o</option>
+<option>Claude 3.5 Sonnet</option>
+<option>Llama 3 70B</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 数据迁移 -->
+<section class="flex flex-col gap-unit-4">
+<h2 class="font-headline-md text-headline-md text-on-surface">数据迁移</h2>
+<div class="cyber-card p-card-padding flex flex-col gap-6">
+<div class="flex flex-col gap-4">
+<button class="w-full py-4 px-6 bg-primary text-on-primary rounded-8 font-body-md text-body-md font-semibold flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors">
+<span class="material-symbols-outlined">lock</span>
+                            导出加密配置
+                        </button>
+<button class="w-full py-4 px-6 border border-primary text-primary rounded-8 font-body-md text-body-md font-semibold flex items-center justify-center gap-2 hover:bg-primary/10 transition-colors">
+<span class="material-symbols-outlined">qr_code_scanner</span>
+                            扫描二维码导入
+                        </button>
+</div>
+<div class="flex justify-between items-center pt-4 border-t border-surface-stroke">
+<span class="font-body-md text-body-md text-on-surface-variant">本地缓存使用量</span>
+<div class="flex items-center gap-2">
+<span class="font-code-sm text-code-sm text-on-surface">1.2 GB / 5.0 GB</span>
+<div class="w-24 h-1 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary w-1/4"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 关于妙生 -->
+<section class="flex flex-col gap-unit-4">
+<h2 class="font-headline-md text-headline-md text-on-surface">关于妙生</h2>
+<div class="cyber-card p-card-padding flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md text-on-surface">妙生</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant mt-1">版本号 V1.2.0 (Stable)</span>
+</div>
+<button class="py-2 px-4 border border-surface-stroke text-on-surface-variant rounded-8 font-body-md text-body-md hover:border-primary hover:text-primary transition-colors">
+                        检查更新
+                    </button>
+</div>
+</section>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 pb-safe bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-t border-surface-stroke flat no shadows">
+<div class="flex justify-around items-center w-full h-20 px-2">
+<a class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface transition-all duration-300 active:scale-90" href="#">
+<span class="material-symbols-outlined">bolt</span>
+<span class="font-label-xs text-label-xs mt-1">快速生图</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface transition-all duration-300 active:scale-90" href="#">
+<span class="material-symbols-outlined">folder_open</span>
+<span class="font-label-xs text-label-xs mt-1">项目</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface transition-all duration-300 active:scale-90" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-xs text-label-xs mt-1">历史</span>
+</a>
+<a class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface transition-all duration-300 active:scale-90" href="#">
+<span class="material-symbols-outlined">bar_chart</span>
+<span class="font-label-xs text-label-xs mt-1">统计</span>
+</a>
+<a class="flex flex-col items-center justify-center text-primary dark:text-primary bg-primary-container/20 rounded-xl px-3 py-1 transition-all duration-300 active:scale-90" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">settings</span>
+<span class="font-label-xs text-label-xs mt-1">设置</span>
+</a>
+</div>
+</nav>
+</body></html>

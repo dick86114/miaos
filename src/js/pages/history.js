@@ -6,11 +6,10 @@ import {
   getProjects,
   deleteHistoryRecords,
   formatRelativeTime,
-  imageToDataUrl,
 } from '../store.js';
 import { navigate } from '../router.js';
 import { getUnifiedHistory } from '../history-data.js';
-import { openImagePreview } from '../image-preview.js';
+import { buildImageDetailRoute } from '../image-detail-data.js';
 
 const HISTORY_PAGE_SIZE = 24;
 
@@ -455,7 +454,6 @@ export function renderHistory(container) {
   const batchBar = root.querySelector('[data-history-batch-bar]');
   const selectedCount = root.querySelector('[data-history-selected-count]');
   const deleteSelectedButton = root.querySelector('[data-history-delete-selected]');
-  let closeImagePreview = null;
 
   function renderProjectFilterOptions() {
     const projects = getProjects();
@@ -514,27 +512,7 @@ export function renderHistory(container) {
   }
 
   function openHistoryPreview(record) {
-    closeImagePreview?.();
-    closeImagePreview = openImagePreview({
-      ...record,
-      modelId: record.model || record.modelId || '',
-      versionName: record.versionName || record.projectName || '',
-    }, {
-      onClose: () => { closeImagePreview = null; },
-      onNavigateToProject: ({ projectId, versionId, imageId }) => {
-        closeImagePreview?.();
-        navigate(`/project/${encodeURIComponent(projectId)}?version=${encodeURIComponent(versionId || '')}&image=${encodeURIComponent(imageId || '')}`);
-      },
-      onDownload: (item) => downloadImage(item.image, item.id || item.imageId),
-      onCopyPrompt: async (promptText) => {
-        try {
-          await navigator.clipboard.writeText(promptText);
-          toast('提示词已复制', 'success');
-        } catch {
-          toast('复制失败', 'error');
-        }
-      },
-    });
+    navigate(buildImageDetailRoute(record, { origin: 'history' }));
   }
 
   function findPageRecord(key) {
@@ -641,7 +619,7 @@ export function renderHistory(container) {
   });
 
   renderView();
-  return () => closeImagePreview?.();
+  return () => {};
 }
 
 export function createHistoryCardHtml(item, batchMode = false, selectedItems = []) {
@@ -693,8 +671,7 @@ function navigateToProject(record) {
 
 async function downloadImage(src, id) {
   try {
-    const dataUrl = await imageToDataUrl(src);
-    const result = await window.api.saveImage(dataUrl, `miaos-${id}.png`);
+    const result = await window.api.saveImage(src, `miaos-${id}.png`);
     if (result.ok) toast('图片已保存', 'success');
     else if (!result.canceled) toast('保存失败：' + (result.error || '未知错误'), 'error');
   } catch (error) {

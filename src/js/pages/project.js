@@ -18,7 +18,6 @@ import {
   formatRelativeTime,
   formatDateTime,
   ratioToSize,
-  imageToDataUrl,
   updateVersionFields,
   getImageBranchCount,
   optimizePrompt,
@@ -28,6 +27,7 @@ import {
 } from '../store.js';
 import { navigate } from '../router.js';
 import { openImagePreview } from '../image-preview.js';
+import { buildImageDetailRoute, buildProjectPromptChain } from '../image-detail-data.js';
 import * as queue from '../queue.js';
 import { createPromptOptimizationManager } from '../prompt-optimization.js';
 import { createPromptOptimizationPageBinding } from './generate.js';
@@ -35,6 +35,8 @@ import { createPromptOptimizationPageBinding } from './generate.js';
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
 });
+
+export { buildProjectPromptChain };
 
 const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
 const QUALITIES = ['标准', '高清', '超高清'];
@@ -164,30 +166,6 @@ export function resolveProjectRouteTarget(project, routeOptions = {}) {
     ? version.images.find((item) => item.id === routeOptions.image) || null
     : null;
   return { versionId: version?.id || null, imageId: image?.id || null };
-}
-
-/**
- * 构建从根节点到当前版本父节点的提示词链，用于详情追溯整条衍生路径。
- * 每级优先取参考图生成时保存的提示词，缺失时回退到该节点版本提示词。
- */
-export function buildProjectPromptChain(project, version) {
-  const chain = [];
-  let current = version;
-  let guard = 0;
-  while (current && current.parentId && guard < 50) {
-    guard += 1;
-    const parent = project.versions.find((v) => v.id === current.parentId);
-    if (!parent) break;
-    const parentImage = current.parentImageId
-      ? parent.images.find((image) => image.id === current.parentImageId)
-      : null;
-    chain.unshift({
-      label: parent.name || '未命名节点',
-      prompt: parentImage?.prompt || parent.prompt || '',
-    });
-    current = parent;
-  }
-  return chain;
 }
 
 export function renderProject(container, params, routeOptions = {}) {
@@ -560,21 +538,12 @@ export function renderProject(container, params, routeOptions = {}) {
     const pageLifecycle = createProjectPageLifecycle();
     let closeImagePreview = null;
     const openProjectImagePreview = (image, version) => {
-      closeImagePreview?.();
-      closeImagePreview = openImagePreview({
-        ...image,
+      navigate(buildImageDetailRoute({
+        source: 'project',
+        imageId: image.id,
         projectId: project.id,
         versionId: version.id,
-        versionName: version.name,
-        prompt: image.prompt || version.prompt || '',
-        promptChain: buildProjectPromptChain(project, version),
-      }, {
-        onDownload: (record) => downloadImage(record.image, record.id),
-        onCopyPrompt: async (promptText) => {
-          try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
-          catch { toast('复制失败', 'error'); }
-        },
-      });
+      }, { origin: 'project' }));
     };
     const openProjectTaskFailurePreview = (taskId) => {
       const task = queue.getTasks().find((item) => item.id === taskId && item.versionId === curVer.id && item.status === 'failed');
@@ -1147,10 +1116,6 @@ export function renderProject(container, params, routeOptions = {}) {
       navigate('/projects');
     });
 
-    if (pendingImageId) {
-      const pendingImage = curVer.images.find((image) => image.id === pendingImageId);
-      if (pendingImage) openProjectImagePreview(pendingImage, curVer);
-    }
 
     const cleanup = () => {
       closeDropdown();
@@ -1252,8 +1217,7 @@ function buildModelToProviderMap(providers) {
 }
 async function downloadImage(src, id) {
   try {
-    const dataUrl = await imageToDataUrl(src);
-    const res = await window.api.saveImage(dataUrl, `miaos-proj-${id}.png`);
+    const res = await window.api.saveImage(src, `miaos-proj-${id}.png`);
     if (res.ok) toast('图片已保存', 'success');
     else if (!res.canceled) toast('保存失败：' + (res.error || '未知错误'), 'error');
   } catch (e) { toast('保存失败：' + e.message, 'error'); }

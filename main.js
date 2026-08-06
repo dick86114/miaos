@@ -4,6 +4,8 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const os = require('os');
+const QRCode = require('qrcode');
 const { autoUpdater } = require('electron-updater');
 const { resolveAppDataPath } = require('./src/main/app-data');
 const {
@@ -22,11 +24,13 @@ const { createSecretsVault } = require('./src/main/secrets-vault');
 const { assertProviderId } = require('./src/main/provider-id');
 const { getRuntimeSecurityConfig } = require('./src/main/runtime-security');
 const { buildAipingImageRequest } = require('./src/main/services/aiping-image-adapter');
+const { createConfigPairingServer } = require('./src/main/services/config-pairing');
 const crypto = require('crypto');
 
 let mainWindow = null;
 let updateInfoCache = null;
 let secretsVault = null;
+let activeConfigPairing = null;
 const providerTransactions = new Map();
 const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
 const imageFileAccess = createImageFileAccess({
@@ -258,6 +262,17 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+
+  // macOS 关闭最后一个窗口时应用进程仍会存活；必须同时撤销一次性局域网配对服务。
+  mainWindow.on('closed', async () => {
+    try {
+      await stopActiveConfigPairing('window-closed');
+    } catch (_) {
+      // 窗口已销毁，配对服务仅做尽力关闭，避免抛出未处理异常。
+    } finally {
+      mainWindow = null;
+    }
+  });
 
   // 设置 Dock 图标（macOS）
   if (process.platform === 'darwin' && icon) {
@@ -578,40 +593,156 @@ registerSecureHandler({
   },
 });
 
+async function buildEncryptedConfigContent(state, password) {
+  const { createConfigPayload, encryptConfig } = await import('./src/js/config-transfer.js');
+  const secrets = {};
+  for (const provider of state.providers) {
+    const value = secretsVault?.get(provider.id);
+    if (value) secrets[provider.id] = value;
+  }
+  return encryptConfig(createConfigPayload(state, secrets), password);
+}
+
+function validateConfigTransferArgs(state, password) {
+  validateObject(state, '配置状态');
+  if (!Array.isArray(state.providers)) throw new Error('配置供应商列表不正确');
+  validateString(password, { field: '配置密码', minLength: 1, maxLength: 1000 });
+  for (const provider of state.providers) validateProviderId(provider?.id);
+}
+
+function notifyConfigPairingEnded(reason) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('config-pairing-ended', { reason });
+}
+
+async function stopActiveConfigPairing(reason = 'cancelled') {
+  const pairing = activeConfigPairing;
+  activeConfigPairing = null;
+  if (pairing) await pairing.stop(reason);
+}
+
+// 导出加密配置文件：密钥只在主进程读取并进入加密 payload，不回传渲染层。
+registerSecureHandler({
+  ipcMain,
+  channel: 'export-config',
+  getMainWindow: () => mainWindow,
+  validate: validateConfigTransferArgs,
+  handle: async (_event, state, password) => {
+    const content = await buildEncryptedConfigContent(state, password);
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出妙生 Android 配置',
+      defaultPath: `miaos-config-${new Date().toISOString().slice(0, 10)}.miaos`,
+      filters: [{ name: '妙生加密配置', extensions: ['miaos'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(result.filePath, content, { encoding: 'utf8', mode: 0o600 });
+    try { fs.chmodSync(result.filePath, 0o600); } catch (_) {}
+    return { ok: true, filePath: result.filePath };
+  },
+});
+
+// 启动局域网一次性配置配对，并返回用于二维码的临时地址。
+registerSecureHandler({
+  ipcMain,
+  channel: 'start-config-pairing',
+  getMainWindow: () => mainWindow,
+  validate: validateConfigTransferArgs,
+  handle: async (_event, state, password) => {
+    await stopActiveConfigPairing('replaced');
+    const encryptedConfig = await buildEncryptedConfigContent(state, password);
+    let pairing;
+    pairing = createConfigPairingServer({
+      encryptedConfig,
+      networkInterfaces: os.networkInterfaces(),
+      onStopped: (reason) => {
+        if (activeConfigPairing !== pairing) return;
+        activeConfigPairing = null;
+        if (reason === 'consumed' || reason === 'expired') notifyConfigPairingEnded(reason);
+      },
+    });
+    const info = await pairing.start();
+    const url = info.urls[0];
+    if (!url) {
+      await pairing.stop();
+      throw new Error('未找到局域网地址，请确认 macOS 与 Android 连接到同一 Wi-Fi');
+    }
+    activeConfigPairing = pairing;
+    return {
+      ok: true,
+      url,
+      urls: info.urls,
+      qrDataUrl: await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', margin: 2, width: 320 }),
+      confirmationCode: pairing.confirmationCode,
+      expiresAt: info.expiresAt,
+    };
+  },
+});
+
+// 停止局域网一次性配置配对。
+registerSecureHandler({
+  ipcMain,
+  channel: 'stop-config-pairing',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => {
+    await stopActiveConfigPairing('cancelled');
+    return { ok: true };
+  },
+});
+
 // 保存图片到磁盘（下载）
+// 生成结果是受主进程管理的 file:// 路径。sandbox 渲染层不能 fetch 这类本地文件，
+// 因此由主进程直接校验并读取生成目录内的图片，避免保存前转换 data URL 失败。
+async function validateSaveImageSource(imageSource) {
+  if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
+    await validateDataUrl(imageSource, { decodeImageBuffer });
+    return;
+  }
+  imageFileAccess.resolveGeneratedFile(imageSource);
+}
+
+async function readSaveImageBuffer(imageSource) {
+  if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
+    const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/]*={0,2})$/.exec(imageSource);
+    if (!match) throw new Error('无效的图片数据');
+    return Buffer.from(match[1], 'base64');
+  }
+
+  // 复用参考图的安全读取链：拒绝目录外路径、符号链接、替换攻击和不可解码图片。
+  const dataUrl = await imageFileAccess.readSourceImageAsDataUrl(imageSource);
+  const match = /^data:image\/(?:png|jpeg|webp|bmp);base64,([A-Za-z0-9+/]*={0,2})$/.exec(dataUrl);
+  if (!match) throw new Error('无效的本地生成图片');
+  return Buffer.from(match[1], 'base64');
+}
+
 registerSecureHandler({
   ipcMain,
   channel: 'save-image',
   getMainWindow: () => mainWindow,
-  validate: async (dataUrl, suggestedName) => { await validateDataUrl(dataUrl, { decodeImageBuffer }); validateSuggestedName(suggestedName); },
-  handle: async (_event, dataUrl, suggestedName) => {
-  try {
-    const safeSuggestedName = validateSuggestedName(suggestedName);
-    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: '保存图片',
-      defaultPath: safeSuggestedName,
-      filters: [
-        { name: 'PNG 图片', extensions: ['png'] },
-        { name: 'JPEG 图片', extensions: ['jpg'] },
-        { name: '所有文件', extensions: ['*'] },
-      ],
-    });
-    if (canceled || !filePath) return { ok: false, canceled: true };
+  validate: async (imageSource, suggestedName) => {
+    await validateSaveImageSource(imageSource);
+    validateSuggestedName(suggestedName);
+  },
+  handle: async (_event, imageSource, suggestedName) => {
+    try {
+      const safeSuggestedName = validateSuggestedName(suggestedName);
+      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: '保存图片',
+        defaultPath: safeSuggestedName,
+        filters: [
+          { name: 'PNG 图片', extensions: ['png'] },
+          { name: 'JPEG 图片', extensions: ['jpg'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (canceled || !filePath) return { ok: false, canceled: true };
 
-    // 解析 data URL
-    const match = /^data:(image\/(\w+));base64,(.*)$/.exec(dataUrl);
-    let buffer;
-    if (match) {
-      buffer = Buffer.from(match[3], 'base64');
-    } else {
-      // 本地文件路径：直接读取
-      buffer = fs.readFileSync(dataUrl);
+      const buffer = await readSaveImageBuffer(imageSource);
+      fs.writeFileSync(filePath, buffer);
+      return { ok: true, filePath: await imageFileAccess.authorizePastedImage(filePath) };
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
-    fs.writeFileSync(filePath, buffer);
-    return { ok: true, filePath: await imageFileAccess.authorizePastedImage(filePath) };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
   },
 });
 
@@ -1428,6 +1559,11 @@ if (shouldStartApp) {
     }
   });
 }
+
+app.on('before-quit', () => {
+  // 进程退出时同样尽力释放临时端口；正常读取、超时和窗口关闭也都会主动撤销。
+  void stopActiveConfigPairing('app-quit').catch(() => {});
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

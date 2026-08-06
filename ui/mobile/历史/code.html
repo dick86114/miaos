@@ -1,0 +1,301 @@
+<!DOCTYPE html><html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>历史与统计 - 妙生</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-background": "#e5e1e4",
+                        "surface-container-highest": "#353437",
+                        "on-primary": "#3c0091",
+                        "surface-bright": "#39393b",
+                        "status-waiting": "#71717A",
+                        "tertiary": "#ffb869",
+                        "on-secondary-fixed": "#001f26",
+                        "on-primary-fixed-variant": "#5516be",
+                        "outline": "#958ea0",
+                        "surface-container-lowest": "#0e0e10",
+                        "surface-container-low": "#1c1b1d",
+                        "status-success": "#10B981",
+                        "status-processing": "#3B82F6",
+                        "surface-variant": "#353437",
+                        "on-secondary-fixed-variant": "#004e5c",
+                        "surface": "#131315",
+                        "surface-tint": "#d0bcff",
+                        "secondary": "#4cd7f6",
+                        "on-tertiary-container": "#3f2300",
+                        "primary-container": "#a078ff",
+                        "on-secondary-container": "#00424e",
+                        "secondary-fixed-dim": "#4cd7f6",
+                        "primary-fixed": "#e9ddff",
+                        "on-primary-container": "#340080",
+                        "surface-container": "#201f22",
+                        "on-tertiary": "#482900",
+                        "outline-variant": "#494454",
+                        "surface-stroke": "#27272A",
+                        "tertiary-fixed-dim": "#ffb869",
+                        "primary": "#d0bcff",
+                        "on-secondary": "#003640",
+                        "on-tertiary-fixed-variant": "#673d00",
+                        "background-deep": "#000000",
+                        "surface-container-high": "#2a2a2c",
+                        "background": "#131315",
+                        "tertiary-fixed": "#ffdcbb",
+                        "tertiary-container": "#ca801e",
+                        "primary-fixed-dim": "#d0bcff",
+                        "on-surface-variant": "#cbc3d7",
+                        "status-error": "#EF4444",
+                        "error-container": "#93000a",
+                        "secondary-fixed": "#acedff",
+                        "inverse-primary": "#6d3bd7",
+                        "on-tertiary-fixed": "#2c1700",
+                        "surface-dim": "#131315",
+                        "on-primary-fixed": "#23005c",
+                        "surface-elevated": "#18181B",
+                        "on-error": "#690005",
+                        "inverse-surface": "#e5e1e4",
+                        "secondary-container": "#03b5d3",
+                        "inverse-on-surface": "#313032",
+                        "on-error-container": "#ffdad6",
+                        "on-surface": "#e5e1e4",
+                        "status-warning": "#F59E0B",
+                        "error": "#ffb4ab"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter-grid": "12px",
+                        "unit": "4px",
+                        "margin-screen": "20px",
+                        "card-padding": "16px",
+                        "section-gap": "32px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "code-sm": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "label-xs": ["Inter"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "headline-md": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "code-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-xs": ["11px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;family=Hanken+Grotesk:wght@600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+</head>
+<body class="bg-background-deep text-on-surface font-body-md min-h-screen pt-16 pb-20 selection:bg-primary/30">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-surface-stroke flex items-center justify-between px-margin-screen h-16 transition-colors duration-200">
+<button class="text-on-surface hover:bg-surface-container-highest/50 p-2 rounded-full transition-colors active:scale-95">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<h1 class="font-headline-md text-headline-md font-bold text-primary dark:text-primary">妙生</h1>
+<button class="text-on-surface hover:bg-surface-container-highest/50 p-2 rounded-full transition-colors active:scale-95">
+<span class="material-symbols-outlined">layers</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="max-w-4xl mx-auto pt-section-gap px-margin-screen md:px-0">
+<!-- Tabs -->
+<div class="flex gap-4 border-b border-surface-stroke mb-8 px-margin-screen md:px-0">
+<button class="pb-2 font-headline-md text-body-lg text-primary border-b-2 border-primary font-medium" onclick="switchTab('history')">历史记录</button>
+<button class="pb-2 font-headline-md text-body-lg text-on-surface-variant hover:text-on-surface font-medium transition-colors" onclick="switchTab('stats')">统计分析</button>
+</div>
+<!-- History Tab (Default Active) -->
+<div class="block animate-[fadeIn_0.3s_ease-out]" id="tab-history">
+<!-- Filters -->
+<div class="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide px-margin-screen md:px-0">
+<button class="bg-surface-elevated border border-primary text-primary px-4 py-1.5 rounded-full font-label-xs text-label-xs transition-colors hover:bg-primary-container/20">全部</button>
+<button class="bg-surface-container border border-surface-stroke text-on-surface-variant px-4 py-1.5 rounded-full font-label-xs text-label-xs transition-colors hover:border-primary hover:text-primary">快速生图</button>
+<button class="bg-surface-container border border-surface-stroke text-on-surface-variant px-4 py-1.5 rounded-full font-label-xs text-label-xs transition-colors hover:border-primary hover:text-primary">项目生成</button>
+</div>
+<!-- Grid -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-gutter-grid px-margin-screen md:px-0">
+<!-- Card 1 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="A highly detailed, ultra-realistic digital portrait of a futuristic cyborg wearing high-tech streetwear. The image features neon cyan and deep purple rim lighting against a stark black background, emphasizing the metallic textures and glowing optical sensors. Shot in an atmospheric, cinematic style reminiscent of modern cyberpunk aesthetics." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAPRDQ7lLe9av4EGRR6EFKUoqTQuaB9-oTjvambCOiJKA0AfsYOk3JT6PbX3SiI0vuD4Hfsyp7l3mInBQ983uH65a175J8iaie9OaMlPvTRJ_Y2WTY0XUF3IWVAEkPbMAH_qwDa9Y1rYN9lxegENfDpEle8BsrJcSMEA5c2fWd9v8QqyxtRT-UnblxdTAyugiMEqg15ffvXZYlV84rVi4L74zoj9Q2KxqINaiZR2DWOmxDep16QCJT7aA">
+<div class="absolute top-2 right-2 bg-surface-elevated/80 backdrop-blur-sm border border-surface-stroke px-2 py-0.5 rounded text-[10px] text-on-surface flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-status-success"></span>
+                            完成
+                        </div>
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">SDXL v1.0 • 1024x1024</p>
+<p class="text-[10px] text-on-surface-variant mt-1">2小时前</p>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="A serene, minimalist architectural rendering of a modern concrete and glass home nestled in a lush, foggy forest. The lighting is soft and diffused, creating a calm, early morning mood. The design emphasizes clean lines, geometric shapes, and a seamless integration with nature, maintaining a tech-minimalist vibe." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBjQi7aUbC1ogBx_JpP4dmRmGwl2uVcLTctUTX9y3vfFA6Of4o4fCB9IkfFMWGbVcD76xWa-9OKuGcbB1a-d4p2xrbS2-RwtSDQuaAG06yp9HyKMIoS5ofHAfJNJu5dOsJKzzoKuFZh2_yv2rvXbyArlWeYisfguopbdPckfunTT_1ENZeNHi5t21tlA6-Tefq_DHifJle2VaIuF7h9ehwj3QYRrUuyTPEtVmeXfY8eDGgxQ78vo-j3Tw">
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">Midjourney v6 • 16:9</p>
+<p class="text-[10px] text-on-surface-variant mt-1">5小时前</p>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="A macro photography shot of an intricate, glowing mechanical lotus flower. The petals are made of brushed dark titanium with glowing blue energy lines pulsating through them. The background is pure pitch black to emphasize the high contrast and intricate details of the cybernetic flora. Tech-minimalist aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAaf20nIpDQPF-oG0AupAwJWg1_16ZI8Ax4Bl-PwR76boI1bWg5lDebOb7mD1Y2pKW8EFgflG7adRmwhOkUsy_UWP49u2psx-4ZX9a3ZvqnJ96WElrwCuTldjXE2XGBUwxMnaqnw3bQGpPJP4QWTFa_umidRNLwn_BS-zyxmV8Uwh91aKHKXM8DQZtbOX8g4OBc6pFdSU-1VrcGozPlxBZstgJWXBVrkumrZyXekZqSkHC-wkRab66Chw">
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">DALL-E 3 • 1024x1024</p>
+<p class="text-[10px] text-on-surface-variant mt-1">昨天 14:30</p>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke overflow-hidden hover:border-primary transition-colors cursor-pointer group relative">
+<div class="aspect-square relative overflow-hidden bg-surface-container">
+<img class="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" data-alt="An abstract, generative digital art piece consisting of swirling, glowing particle ribbons in shades of deep indigo and vivid magenta over a dark void. The fluid motion conveys a sense of data flow and AI processing, rendered with extreme sharpness and a subtle bloom effect on the brightest areas." src="https://lh3.googleusercontent.com/aida-public/AB6AXuADxaR4-QyG8VC0DQ3x8ez4y0rtFphTsVKTkcdx7cI_KMuha_7pEQichp_rJTNn-09WrVmtPsKkHtoV-XUXuy8WJVLfBCRGbzt3Mud0P27G4tpF9U45XmUWRs5AWZc_ZEE94j9JQGa3sY8qmwQzAt6LapTD1Da8UqQ_CemGMLz64WObBm8N9hjGTF8z8DUaYMa8GLJYZb8qrBrQfCqUVVGpC9fnDChBqpIcsNzcxbdw-PcEOcnQXqYgYQ">
+</div>
+<div class="p-3">
+<p class="font-code-sm text-code-sm text-on-surface truncate">SDXL v1.0 • 1024x1024</p>
+<p class="text-[10px] text-on-surface-variant mt-1">昨天 09:15</p>
+</div>
+</div>
+</div>
+<div class="mt-8 text-center px-margin-screen md:px-0">
+<button class="bg-surface-container border border-surface-stroke text-on-surface-variant px-6 py-2 rounded-full font-body-md text-body-md hover:text-on-surface hover:border-on-surface transition-colors">加载更多</button>
+</div>
+</div>
+<!-- Stats Tab (Hidden by default) -->
+<div class="hidden animate-[fadeIn_0.3s_ease-out] px-margin-screen md:px-0" id="tab-stats">
+<!-- Top Stats -->
+<div class="grid grid-cols-2 gap-4 mb-8">
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke p-4 flex flex-col justify-center">
+<p class="text-on-surface-variant font-body-md text-body-md mb-1">生成总数</p>
+<p class="font-headline-lg text-headline-lg text-primary">1,402</p>
+</div>
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke p-4 flex flex-col justify-center">
+<p class="text-on-surface-variant font-body-md text-body-md mb-1">今日生成</p>
+<p class="font-headline-lg text-headline-lg text-secondary">38</p>
+</div>
+</div>
+<!-- Heatmap Placeholder -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke p-card-padding mb-8">
+<h3 class="font-headline-md text-body-lg text-on-surface mb-4">活跃日期</h3>
+<div class="w-full h-32 rounded bg-surface-container border border-surface-stroke flex items-center justify-center relative overflow-hidden">
+<div class="absolute inset-0 grid grid-cols-[repeat(12,1fr)] grid-rows-5 gap-1 p-2 opacity-50">
+<!-- Simple mockup of a heatmap grid -->
+<div class="bg-primary/10 rounded-sm"></div><div class="bg-primary/40 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/20 rounded-sm"></div><div class="bg-primary/80 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/10 rounded-sm"></div><div class="bg-primary/60 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/30 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/100 rounded-sm"></div>
+<div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/20 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/50 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/30 rounded-sm"></div><div class="bg-primary/10 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/70 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div><div class="bg-primary/20 rounded-sm"></div><div class="bg-surface-container-high rounded-sm"></div>
+</div>
+</div>
+</div>
+<!-- Model Usage -->
+<div class="bg-surface-elevated rounded-xl border border-surface-stroke p-card-padding mb-8">
+<h3 class="font-headline-md text-body-lg text-on-surface mb-4">常用模型</h3>
+<div class="space-y-4">
+<div>
+<div class="flex justify-between font-code-sm text-code-sm text-on-surface mb-1">
+<span class="">SDXL v1.0</span>
+<span class="">65%</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 65%"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between font-code-sm text-code-sm text-on-surface mb-1">
+<span class="">Midjourney v6</span>
+<span class="">25%</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-secondary rounded-full" style="width: 25%"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between font-code-sm text-code-sm text-on-surface mb-1">
+<span class="">DALL-E 3</span>
+<span class="">10%</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-tertiary rounded-full" style="width: 10%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="fixed bottom-0 w-full z-50 pb-safe bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-t border-surface-stroke flex justify-around items-center h-20 px-2 transition-all duration-300">
+<button class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface active:scale-90 transition-all duration-300">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">bolt</span>
+<span class="font-label-xs text-label-xs mt-1">快速生图</span>
+</button>
+<button class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface active:scale-90 transition-all duration-300">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">folder_open</span>
+<span class="font-label-xs text-label-xs mt-1">项目</span>
+</button>
+<button class="flex flex-col items-center justify-center text-primary dark:text-primary bg-primary-container/20 rounded-xl px-3 py-1 active:scale-90 transition-all duration-300"><span class="material-symbols-outlined" style="font-variation-settings: &quot;FILL&quot; 1;">history</span><span class="font-label-xs text-label-xs mt-1">历史</span></button>
+
+<button class="flex flex-col items-center justify-center text-outline dark:text-outline px-3 py-1 hover:text-on-surface active:scale-90 transition-all duration-300">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+<span class="font-label-xs text-label-xs mt-1">设置</span>
+</button>
+</nav>
+<style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<script>
+        function switchTab(tabId) {
+            const tabs = ['history', 'stats'];
+            const buttons = document.querySelectorAll('.border-b-2');
+            
+            tabs.forEach(id => {
+                const el = document.getElementById(`tab-${id}`);
+                if (id === tabId) {
+                    el.classList.remove('hidden');
+                    el.classList.add('block');
+                } else {
+                    el.classList.remove('block');
+                    el.classList.add('hidden');
+                }
+            });
+
+            // Very basic tab button styling update for demo purposes
+            const tabContainer = document.querySelector('.flex.gap-4.border-b');
+            const btns = tabContainer.querySelectorAll('button');
+            btns.forEach(btn => {
+                if(btn.innerText.includes(tabId === 'history' ? '历史' : '统计')) {
+                    btn.className = "pb-2 font-headline-md text-body-lg text-primary border-b-2 border-primary font-medium";
+                } else {
+                    btn.className = "pb-2 font-headline-md text-body-lg text-on-surface-variant hover:text-on-surface font-medium transition-colors";
+                }
+            })
+        }
+    </script>
+
+
+</body></html>

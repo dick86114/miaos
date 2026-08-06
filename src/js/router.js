@@ -60,7 +60,7 @@ export function createRouter({ routes = ROUTES, windowRef = window } = {}) {
     if (path.startsWith('/projects') || path.startsWith('/project')) activeKey = 'projects';
     else if (path.startsWith('/history')) activeKey = 'history';
     else if (path.startsWith('/settings')) activeKey = 'settings';
-    else if (path.startsWith('/detail')) activeKey = 'history';
+    else if (path.startsWith('/detail')) activeKey = query.source === 'project' ? 'projects' : 'history';
     updateNav(activeKey);
 
     for (const route of routes) {

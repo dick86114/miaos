@@ -272,6 +272,97 @@ export function confirmDialog(message, options = {}) {
   });
 }
 
+// 文本输入对话框：不依赖浏览器原生 prompt，适用于 Electron 中的密码等敏感输入。
+export function promptDialog(message, options = {}) {
+  const fallback = typeof options.promptFallback === 'function' ? options.promptFallback : () => null;
+  if (typeof document === 'undefined' || !document.body || !document.createElement) return fallback(message);
+
+  dismissActiveConfirm();
+  const documentRef = document;
+  const previousFocus = documentRef.activeElement;
+  const overlay = documentRef.createElement('div');
+  overlay.className = 'confirm-dialog-overlay';
+  overlay.tabIndex = -1;
+  overlay.setAttribute('role', 'presentation');
+  const dialog = documentRef.createElement('section');
+  dialog.className = 'confirm-dialog';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'prompt-dialog-title');
+  const title = documentRef.createElement('h2');
+  title.id = 'prompt-dialog-title';
+  title.className = 'confirm-dialog-title';
+  title.textContent = options.title || '请输入内容';
+  const content = documentRef.createElement('p');
+  content.className = 'confirm-dialog-message';
+  content.textContent = String(message ?? '');
+  const input = documentRef.createElement('input');
+  input.type = options.inputType || 'text';
+  input.className = 'confirm-dialog-input';
+  input.setAttribute('data-prompt-input', 'true');
+  input.setAttribute('autocomplete', options.autocomplete || (input.type === 'password' ? 'new-password' : 'off'));
+  input.placeholder = options.placeholder || '';
+  input.value = options.initialValue || '';
+  const footer = documentRef.createElement('div');
+  footer.className = 'confirm-dialog-actions';
+  const cancelButton = documentRef.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.className = 'btn btn-ghost';
+  cancelButton.setAttribute('data-prompt-cancel', 'true');
+  cancelButton.textContent = options.cancelLabel || '取消';
+  const acceptButton = documentRef.createElement('button');
+  acceptButton.type = 'button';
+  acceptButton.className = 'btn btn-primary';
+  acceptButton.setAttribute('data-prompt-accept', 'true');
+  acceptButton.textContent = options.confirmLabel || '确认';
+  footer.append(cancelButton, acceptButton);
+  dialog.append(title, content, input, footer);
+  overlay.appendChild(dialog);
+  documentRef.body.appendChild(overlay);
+
+  return new Promise((resolve) => {
+    const record = { settled: false, canceled: false, dismiss: null };
+    const cleanup = () => {
+      overlay.removeEventListener?.('keydown', onKeydown);
+      input.removeEventListener?.('keydown', onKeydown);
+      documentRef.removeEventListener?.('keydown', onKeydown);
+      overlay.remove();
+      previousFocus?.focus?.();
+    };
+    const finish = (value) => {
+      if (record.settled) return;
+      record.settled = true;
+      queueMicrotask(() => {
+        cleanup();
+        if (activeConfirm === record) activeConfirm = null;
+        resolve(record.canceled ? null : value);
+      });
+    };
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault?.();
+        finish(null);
+      } else if (event.key === 'Enter') {
+        event.preventDefault?.();
+        finish(input.value || '');
+      }
+    };
+    record.dismiss = () => {
+      record.canceled = true;
+      finish(null);
+    };
+    activeConfirm = record;
+    cancelButton.addEventListener('click', () => finish(null));
+    acceptButton.addEventListener('click', () => finish(input.value || ''));
+    overlay.addEventListener('click', (event) => { if (event.target === overlay) finish(null); });
+    overlay.addEventListener('keydown', onKeydown);
+    input.addEventListener('keydown', onKeydown);
+    documentRef.addEventListener?.('keydown', onKeydown);
+    input.focus?.();
+    input.select?.();
+  });
+}
+
 // 把 HTML 字符串转为 DOM 元素
 export function htmlToElement(html) {
   const tpl = document.createElement('template');

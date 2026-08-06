@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>妙生 - 图片详情 (Image Detail)</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@500&amp;family=Hanken+Grotesk:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "outline-variant": "#494454",
+                    "background": "#131315",
+                    "on-error-container": "#ffdad6",
+                    "on-primary-fixed-variant": "#5516be",
+                    "primary": "#d0bcff",
+                    "outline": "#958ea0",
+                    "tertiary-fixed": "#ffdcbb",
+                    "on-background": "#e5e1e4",
+                    "surface-container-low": "#1c1b1d",
+                    "primary-fixed-dim": "#d0bcff",
+                    "surface-dim": "#131315",
+                    "status-processing": "#3B82F6",
+                    "on-secondary-fixed-variant": "#004e5c",
+                    "on-surface-variant": "#cbc3d7",
+                    "status-success": "#10B981",
+                    "tertiary-container": "#ca801e",
+                    "surface-tint": "#d0bcff",
+                    "background-deep": "#000000",
+                    "on-surface": "#e5e1e4",
+                    "on-secondary-container": "#00424e",
+                    "secondary-fixed": "#acedff",
+                    "on-secondary": "#003640",
+                    "surface-variant": "#353437",
+                    "error": "#ffb4ab",
+                    "primary-container": "#a078ff",
+                    "surface-stroke": "#27272A",
+                    "inverse-surface": "#e5e1e4",
+                    "tertiary": "#ffb869",
+                    "surface-container": "#201f22",
+                    "primary-fixed": "#e9ddff",
+                    "secondary-fixed-dim": "#4cd7f6",
+                    "surface-container-lowest": "#0e0e10",
+                    "inverse-on-surface": "#313032",
+                    "on-tertiary": "#482900",
+                    "on-primary-fixed": "#23005c",
+                    "on-tertiary-container": "#3f2300",
+                    "on-primary": "#3c0091",
+                    "on-tertiary-fixed": "#2c1700",
+                    "secondary-container": "#03b5d3",
+                    "error-container": "#93000a",
+                    "status-error": "#EF4444",
+                    "surface": "#131315",
+                    "surface-container-highest": "#353437",
+                    "on-error": "#690005",
+                    "secondary": "#4cd7f6",
+                    "surface-bright": "#39393b",
+                    "on-primary-container": "#340080",
+                    "status-warning": "#F59E0B",
+                    "on-secondary-fixed": "#001f26",
+                    "on-tertiary-fixed-variant": "#673d00",
+                    "surface-elevated": "#18181B",
+                    "inverse-primary": "#6d3bd7",
+                    "tertiary-fixed-dim": "#ffb869",
+                    "status-waiting": "#71717A",
+                    "surface-container-high": "#2a2a2c"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "unit": "4px",
+                    "section-gap": "32px",
+                    "margin-screen": "20px",
+                    "card-padding": "16px",
+                    "gutter-grid": "12px"
+            },
+            "fontFamily": {
+                    "code-sm": ["JetBrains Mono", "monospace"],
+                    "label-xs": ["Inter", "sans-serif"],
+                    "body-md": ["Inter", "sans-serif"],
+                    "headline-md": ["Hanken Grotesk", "sans-serif"],
+                    "headline-lg": ["Hanken Grotesk", "sans-serif"],
+                    "body-lg": ["Inter", "sans-serif"]
+            },
+            "fontSize": {
+                    "code-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+                    "label-xs": ["11px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                    "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                    "headline-lg": ["32px", { "lineHeight": "40px", "fontWeight": "700" }],
+                    "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        /* Custom scrollbar for tech-minimalist feel */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #27272A; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #494454; }
+        
+        .textarea-ghost {
+            field-sizing: content;
+            min-height: 80px;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-deep text-on-surface antialiased selection:bg-primary-container selection:text-on-primary-container">
+<!-- Main Immersive Split Layout -->
+<main class="min-h-[884px] flex flex-col md:flex-row overflow-hidden relative">
+<!-- Left/Top Image Panel -->
+<section class="relative w-full md:w-[55%] lg:w-[65%] h-[530px] md:h-screen shrink-0 bg-surface-container-lowest flex flex-col justify-between">
+<!-- Image Background -->
+<div class="absolute inset-0 bg-cover bg-center transition-transform duration-1000 ease-out hover:scale-[1.02]" data-alt="A breathtakingly detailed cyberpunk cityscape viewed from a high-altitude balcony, bathed in the neon glow of rain-slicked skyscrapers. Intense magenta and cyan light sources cut through heavy volumetric fog, illuminating flying vehicles leaving light trails in the distance. The foreground features intricate metallic textures, tangled wires, and glowing holographic interfaces rendered with hyper-realistic clarity. The overall atmosphere is gritty, futuristic, and cinematic, reminiscent of classic sci-fi dystopias." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCjXklUzrl4yU734uNghp_Raxfk6V1vr-n0jpBvHpLH09uzzhA1yhMxlOoSN5rB1qHYB2uGug0LcenDGfuh3hud24GeBanVFvR83Xwr87E3drHm_Dje-PwJAzQ7KqlOb2zLVgWZCzgVEmwk3GVXK1BlzwTIpnSAEMAYOJa731Gj3Lvltdu08BnVPZoOVjCo9K2Nw8xIfa5yuRWfl8--DKFVg1oIF1SJnz3vNeqmO2rGJLYiSS6jsKZsgA')">
+</div>
+<!-- Gradient Overlays for Readability -->
+<div class="absolute top-0 inset-x-0 h-40 bg-gradient-to-b from-black/80 to-transparent pointer-events-none z-0"></div>
+<div class="absolute bottom-0 inset-x-0 h-40 bg-gradient-to-t from-black/80 md:from-black/40 to-transparent pointer-events-none z-0"></div>
+<!-- Contextual Header (Overrides standard TopAppBar for focus) -->
+<header class="relative z-10 w-full flex justify-between items-center px-margin-screen py-4 md:py-6">
+<!-- Back Action -->
+<button aria-label="Go Back" class="w-10 h-10 rounded-full bg-surface/30 backdrop-blur-xl border border-surface-stroke flex items-center justify-center text-on-surface hover:border-primary hover:text-primary transition-colors duration-200 group">
+<span class="material-symbols-outlined text-[20px] group-active:-translate-x-1 transition-transform">arrow_back</span>
+</button>
+<!-- Secondary Actions -->
+<div class="flex items-center gap-3">
+<button aria-label="Save to Gallery" class="w-10 h-10 rounded-full bg-surface/30 backdrop-blur-xl border border-surface-stroke flex items-center justify-center text-on-surface hover:border-secondary hover:text-secondary transition-colors duration-200">
+<span class="material-symbols-outlined text-[20px]">download</span>
+</button>
+<button aria-label="Delete Image" class="w-10 h-10 rounded-full bg-surface/30 backdrop-blur-xl border border-surface-stroke flex items-center justify-center text-status-error hover:bg-error-container/20 hover:border-error transition-colors duration-200">
+<span class="material-symbols-outlined text-[20px]">delete</span>
+</button>
+</div>
+</header>
+<!-- Floating Status Badge -->
+<div class="relative z-10 p-margin-screen flex justify-end">
+<div class="bg-surface/50 backdrop-blur-md border border-surface-stroke rounded-lg px-3 py-1.5 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-secondary" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<span class="font-code-sm text-code-sm text-on-surface tracking-wider">CYBER_RAW_V2</span>
+</div>
+</div>
+</section>
+<!-- Right/Bottom Details Panel -->
+<section class="flex-1 bg-surface md:bg-surface/95 md:backdrop-blur-3xl flex flex-col md:border-l border-surface-stroke overflow-y-auto z-20 -mt-8 md:mt-0 rounded-t-[32px] md:rounded-none relative pb-28 md:pb-0 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] md:shadow-none">
+<div class="p-margin-screen flex flex-col gap-section-gap h-full">
+<!-- Mobile Drag Handle -->
+<div class="w-12 h-1 bg-surface-stroke rounded-full mx-auto md:hidden mb-2"></div>
+<!-- Section: Prompt Editorial -->
+<div class="flex flex-col gap-3">
+<div class="flex justify-between items-end">
+<h2 class="font-label-xs text-label-xs text-outline tracking-widest">生成提示词</h2>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-primary transition-colors group">
+<span class="material-symbols-outlined text-[16px] group-active:scale-90 transition-transform">content_copy</span>
+<span class="font-code-sm text-code-sm">复制</span>
+</button>
+</div>
+<!-- Editable Glassmorphism Textarea -->
+<div class="relative group">
+<div class="absolute inset-0 bg-gradient-to-r from-primary/10 to-secondary/10 rounded-xl blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-500"></div>
+<textarea class="textarea-ghost w-full bg-surface-elevated border border-surface-stroke rounded-xl p-card-padding font-body-md text-body-md text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all resize-none relative z-10" spellcheck="false">A breathtakingly detailed cyberpunk cityscape viewed from a high-altitude balcony, bathed in the neon glow of rain-slicked skyscrapers. Intense magenta and cyan light sources cut through heavy volumetric fog, illuminating flying vehicles leaving light trails in the distance. The foreground features intricate metallic textures, tangled wires, and glowing holographic interfaces rendered with hyper-realistic clarity.</textarea>
+</div>
+<!-- Subtle Negative Prompt Accordion -->
+<details class="group cursor-pointer">
+<summary class="font-label-xs text-label-xs text-outline flex items-center gap-1 select-none hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined text-[16px] group-open:rotate-90 transition-transform duration-200">chevron_right</span>
+                            负面提示词
+                        </summary>
+<div class="mt-3 text-on-surface-variant font-code-sm text-code-sm bg-surface-container-low p-3 rounded-lg border border-surface-stroke leading-relaxed">
+                            --no blurry, low resolution, poorly drawn, daylight, natural landscapes, organic materials, classical architecture
+                        </div>
+</details>
+</div>
+<!-- Section: Bento Grid Metadata -->
+<div class="flex flex-col gap-3">
+<h2 class="font-label-xs text-label-xs text-outline tracking-widest">元数据</h2>
+<div class="grid grid-cols-2 lg:grid-cols-3 gap-gutter-grid">
+<!-- Metric Card: Provider -->
+<div class="bg-surface-elevated border border-surface-stroke rounded-xl p-3 flex flex-col gap-2 hover:border-surface-variant transition-colors">
+<span class="font-label-xs text-label-xs text-outline">供应商</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[18px]">dns</span>
+<span class="font-code-sm text-code-sm text-on-surface truncate">本地 AI 节点</span>
+</div>
+</div>
+<!-- Metric Card: Model -->
+<div class="bg-surface-elevated border border-surface-stroke rounded-xl p-3 flex flex-col gap-2 hover:border-surface-variant transition-colors">
+<span class="font-label-xs text-label-xs text-outline">模型</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[18px]">model_training</span>
+<span class="font-code-sm text-code-sm text-on-surface truncate">SDXL 1.0</span>
+</div>
+</div>
+<!-- Metric Card: Dimension -->
+<div class="bg-surface-elevated border border-surface-stroke rounded-xl p-3 flex flex-col gap-2 hover:border-surface-variant transition-colors col-span-2 lg:col-span-1">
+<span class="font-label-xs text-label-xs text-outline">尺寸</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tertiary text-[18px]">aspect_ratio</span>
+<span class="font-code-sm text-code-sm text-on-surface">1920×1080 (16:9)</span>
+</div>
+</div>
+<!-- Full Width Technical Specs Row -->
+<div class="col-span-2 lg:col-span-3 bg-surface-container-low border border-surface-stroke rounded-xl p-card-padding flex justify-between items-center">
+<div class="flex flex-col gap-1 w-1/3">
+<span class="font-label-xs text-label-xs text-outline">种子值</span>
+<span class="font-code-sm text-code-sm text-on-surface text-primary-fixed-dim truncate">847291045</span>
+</div>
+<div class="w-px h-8 bg-surface-stroke"></div>
+<div class="flex flex-col gap-1 w-1/3 pl-4">
+<span class="font-label-xs text-label-xs text-outline">生成步数</span>
+<span class="font-code-sm text-code-sm text-on-surface">45 高</span>
+</div>
+<div class="w-px h-8 bg-surface-stroke"></div>
+<div class="flex flex-col gap-1 w-1/3 pl-4">
+<span class="font-label-xs text-label-xs text-outline">生成耗时</span>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-status-success text-[14px]">bolt</span>
+<span class="font-code-sm text-code-sm text-status-success">3.2s</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Push button to bottom on desktop if content is short -->
+<div class="mt-auto hidden md:block pb-6"></div>
+</div>
+<!-- Sticky/Fixed Action Button -->
+<div class="fixed md:sticky bottom-0 left-0 w-full p-margin-screen bg-gradient-to-t from-surface via-surface/90 to-transparent pt-12 md:bg-none md:pt-0 mt-auto z-30">
+<button class="w-full relative overflow-hidden group bg-primary hover:bg-primary-container border border-primary-container text-on-primary rounded-xl flex justify-center items-center gap-2 py-4 transition-all duration-300 active:scale-[0.98] shadow-[0_0_20px_rgba(208,188,255,0.15)] hover:shadow-[0_0_30px_rgba(208,188,255,0.3)]">
+<!-- Tech-minimalist hover effect -->
+<div class="absolute inset-0 bg-white/20 translate-y-[100%] group-hover:translate-y-0 transition-transform duration-300 ease-in-out"></div>
+<span class="material-symbols-outlined relative z-10" style="font-variation-settings: 'FILL' 1;">magic_button</span>
+<span class="font-body-lg text-body-lg font-medium relative z-10 tracking-wide">再生成一次</span>
+</button>
+</div>
+</section>
+</main>
+</body></html>

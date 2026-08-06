@@ -146,6 +146,11 @@ export function getProviders() {
   return state.providers.map(cloneProvider);
 }
 
+// 返回用于跨平台迁移的只读状态快照；调用方不得修改内部状态。
+export function getStateSnapshot() {
+  return JSON.parse(JSON.stringify(state));
+}
+
 export function getProvider(id) {
   const p = state.providers.find((p) => p.id === id);
   return p ? cloneProvider(p) : null;

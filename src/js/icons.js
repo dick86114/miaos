@@ -17,6 +17,7 @@ const ICONS = {
   'arrow-up': '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
   'arrow-down': '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+  wifi: '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" x2="12.01" y1="20" y2="20"/>',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',

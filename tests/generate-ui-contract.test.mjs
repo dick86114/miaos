@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const [generatePage, projectPage, icons, pagesCss] = await Promise.all([
+const [generatePage, projectPage, detailPage, historyPage, icons, pagesCss] = await Promise.all([
   readFile(new URL('../src/js/pages/generate.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/js/pages/project.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/js/pages/detail.js', import.meta.url), 'utf8'),
+  readFile(new URL('../src/js/pages/history.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/js/icons.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/css/pages.css', import.meta.url), 'utf8'),
 ]);
@@ -19,6 +21,21 @@ test('生成入口使用向下箭头，明确结果会出现在编辑器下方',
 
 test('没有活跃任务时，队列区的 hidden 属性必须压过默认 flex 布局', () => {
   assert.match(pagesCss, /\.queue-section\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/u);
+});
+
+test('保存本地生成图片必须将原始 file URL 交给主进程，不能在 sandbox 渲染层 fetch', () => {
+  const sharedDownloadPages = [
+    ['快速生图页', generatePage],
+    ['项目页', projectPage],
+    ['历史页', historyPage],
+  ];
+  for (const [pageName, page] of sharedDownloadPages) {
+    const handler = getEnclosedBlock(page, /async function downloadImage\(src, id\) \{/u, `${pageName}必须定义保存图片方法`);
+    assert.match(handler, /window\.api\.saveImage\(src,/u, `${pageName}必须直接把图片来源交给主进程`);
+    assert.doesNotMatch(handler, /imageToDataUrl\(/u, `${pageName}不得在 sandbox 渲染层 fetch 本地 file URL`);
+  }
+  assert.match(detailPage, /window\.api\.saveImage\(item\.image,/u, '详情页必须直接把图片来源交给主进程');
+  assert.doesNotMatch(detailPage, /imageToDataUrl\(/u, '详情页不得在 sandbox 渲染层 fetch 本地 file URL');
 });
 
 function findMatchingBrace(source, openingBraceIndex) {
@@ -259,21 +276,21 @@ test('优化提示词时快速页与项目页会把其他工具栏控件交给�
   assert.equal(hasCssDeclaration(disabledChipRule, 'opacity', '0.5'), true, '禁用选择控件必须呈现置灰效果');
 });
 
-test('项目页详情预览为旧图片回退版本提示词，并携带完整衍生路径', () => {
+test('项目页成功图片详情改由统一详情路由处理，并保留共享父节点提示词链', () => {
   assert.match(
     projectPage,
-    /prompt:\s*image\.prompt\s*\|\|\s*version\.prompt/u,
-    '项目页详情必须回退到版本提示词，避免旧图片提示词缺失',
+    /import \{ buildImageDetailRoute, buildProjectPromptChain \} from '\.\.\/image-detail-data\.js';/u,
+    '项目页必须将详情数据交给共享选择器',
   );
   assert.match(
     projectPage,
-    /promptChain:\s*buildProjectPromptChain\(project,\s*version\)/u,
-    '项目页详情必须携带从根到父的完整衍生路径',
+    /export \{ buildProjectPromptChain \};/u,
+    '项目提示词链必须保留可独立测试的兼容导出',
   );
   assert.match(
     projectPage,
-    /export function buildProjectPromptChain\(project, version\)/u,
-    '必须导出可独立测试的衍生路径构建函数',
+    /source: 'project',[\s\S]*?imageId: image\.id,[\s\S]*?projectId: project\.id,[\s\S]*?versionId: version\.id/u,
+    '项目预览路由必须携带图片、项目和版本定位信息',
   );
 });
 
@@ -332,4 +349,63 @@ test('快速任务复用项目画廊占位卡片、显示批次并提供失败�
   assert.match(generatePage, /getQuickQueueViewState/u, '快速页必须用状态选择器区分生成中和生成失败');
   assert.match(generatePage, /queue\.retry/u, '再次生成必须复用队列重试能力');
   assert.match(generatePage, /openQuickTaskFailurePreview/u, '失败详情操作必须打开共享详情弹窗');
+});
+
+test('快速生图提示词输入框按内容自适应且最多十行，历史不再保留重复详情按钮', () => {
+  assert.match(generatePage, /const PROMPT_INPUT_MAX_LINES = 10;/u, '快速生图页必须声明十行上限');
+  assert.match(generatePage, /function syncPromptInputHeight\(textarea\)/u, '快速生图页必须提供输入框高度同步函数');
+  assert.match(generatePage, /promptInput\.addEventListener\('input', \(\) => syncPromptInputHeight\(promptInput\)\)/u, '输入时必须同步高度');
+  assert.match(generatePage, /syncPromptInputHeight\(promptInput\);/u, '页面初始化与提示词回填后必须同步高度');
+  const optimizationFinalize = getEnclosedBlock(generatePage, /function finalizeState\(state\) \{/u, '优化绑定必须定义完成处理');
+  assert.match(optimizationFinalize, /textarea\.dispatchEvent\?\.\(new Event\('input'/u, '优化结果回填后必须触发输入框高度同步');
+
+  const composerTextareaRule = getExactCssRuleBody(pagesCss, '.composer-textarea');
+  assert.equal(hasCssDeclaration(composerTextareaRule, 'overflow-y', 'auto'), true, '超过十行后输入框必须在内部滚动');
+  assert.equal(hasCssDeclaration(composerTextareaRule, 'resize', 'none'), true, '输入框高度必须由内容控制，不允许手动拖拽破坏上限');
+
+  const quickHistoryCard = getEnclosedBlock(
+    generatePage,
+    /function quickHistoryCardHtml\(item\) \{/u,
+    '快速历史必须定义卡片模板',
+  );
+  assert.match(quickHistoryCard, /data-history-act="preview"/u, '快速历史必须保留预览入口');
+  assert.match(quickHistoryCard, /data-history-act="download"/u, '快速历史必须保留下载入口');
+  assert.doesNotMatch(quickHistoryCard, /data-history-act="detail"/u, '下载按钮右侧的重复详情入口必须移除');
+});
+
+test('所有成功图片预览统一进入详情页，失败任务仍使用失败详情弹层', () => {
+  assert.match(generatePage, /import \{ buildImageDetailRoute \} from '\.\.\/image-detail-data\.js';/u, '快速生图页必须使用统一详情路由');
+  assert.match(historyPage, /import \{ buildImageDetailRoute \} from '\.\.\/image-detail-data\.js';/u, '历史页必须使用统一详情路由');
+  assert.match(projectPage, /import \{ buildImageDetailRoute, buildProjectPromptChain \} from '\.\.\/image-detail-data\.js';/u, '项目页必须使用统一详情路由和提示词链选择器');
+  assert.match(generatePage, /navigate\(buildImageDetailRoute\(record, \{ origin: 'generate' \}\)\)/u, '快速历史预览必须进入详情页');
+  assert.match(historyPage, /navigate\(buildImageDetailRoute\(record, \{ origin: 'history' \}\)\)/u, '全量历史预览必须进入详情页');
+  assert.match(projectPage, /navigate\(buildImageDetailRoute\(\{[\s\S]*?origin: 'project'/u, '项目图片预览必须进入详情页并保留项目来源');
+
+  const quickFailurePreview = getEnclosedBlock(generatePage, /function openQuickTaskFailurePreview\(task\) \{/u, '快速页必须保留失败详情函数');
+  const projectFailurePreview = getEnclosedBlock(projectPage, /const openProjectTaskFailurePreview = \(taskId\) => \{/u, '项目页必须保留失败详情函数');
+  assert.match(quickFailurePreview, /openImagePreview\(/u, '快速失败任务仍需使用失败详情弹层');
+  assert.match(projectFailurePreview, /openImagePreview\(/u, '项目失败任务仍需使用失败详情弹层');
+});
+
+test('统一详情页完整显示当前与父节点提示词，并允许右侧独立滚动', () => {
+  assert.match(detailPage, /resolveImageDetailRecord/u, '详情页必须读取统一图片详情记录');
+  assert.match(detailPage, /data-detail-prompt-chain/u, '项目图片详情必须渲染父节点提示词链');
+  assert.match(detailPage, /class="detail-textarea detail-current-prompt"[^>]*readonly/u, '当前提示词必须完整只读展示');
+  assert.match(detailPage, /class="detail-textarea detail-chain-textarea"[^>]*readonly/u, '父节点提示词必须完整只读展示');
+  assert.doesNotMatch(detailPage, /prompt\.slice\(/u, '详情页提示词不得为了预览而截断');
+
+  const currentPromptRule = getExactCssRuleBody(pagesCss, '.detail-current-prompt');
+  const panelRule = getExactCssRuleBody(pagesCss, '.detail-panel');
+  const chainListRule = getExactCssRuleBody(pagesCss, '.detail-prompt-chain-list');
+  assert.equal(hasCssDeclaration(currentPromptRule, 'overflow-y', 'auto'), true, '当前提示词过长时必须在右侧文本区滚动');
+  assert.equal(hasCssDeclaration(panelRule, 'overflow-y', 'auto'), true, '右侧详情面板必须可独立滚动');
+  assert.equal(hasCssDeclaration(chainListRule, 'overflow-y', 'auto'), true, '父节点提示词链过长时必须独立滚动');
+});
+
+test('统一详情页支持点击全屏、滚轮缩放与拖拽平移', () => {
+  assert.match(detailPage, /function openDetailImageFullscreen\(imageSource, altText\)/u, '详情页必须定义全屏预览控制器');
+  assert.match(detailPage, /detailImage\.addEventListener\('click', \(\) => openDetailImageFullscreen/u, '点击详情大图必须打开全屏预览');
+  assert.match(detailPage, /overlay\.addEventListener\('wheel'/u, '全屏预览必须支持滚轮缩放');
+  assert.match(detailPage, /pointerdown/u, '全屏预览必须支持拖拽平移');
+  assert.match(pagesCss, /\.detail-fullscreen-image/u, '详情页全屏图片必须具有独立样式');
 });

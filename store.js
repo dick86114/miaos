@@ -1,0 +1,905 @@
+// 应用状态管理：供应商→模型层级结构，持久化到 localStorage
+// 版本 v5：统一供应商模型（支持 image/text/video 分类模型），新增默认模型选择
+
+import {
+  createStatePersistence,
+  DEFAULT_ENABLED_IMAGE,
+  GRSAI_IMAGE_MODELS,
+  migrateLegacyProviderSecrets as migrateLegacyProviderSecretsInState,
+} from './state-schema.js';
+
+const RANDOM_PROMPTS = [
+  '清晨的湖边，薄雾缭绕，极简风格，远山倒影在水面上',
+  '未来感女性肖像，霓虹光影，赛博朋克',
+  '白色耳机极简渲染，柔和阴影，电商主图',
+  '抽象几何流体，靛蓝渐变，艺术海报',
+  '雪山脚下宁静湖面，雾气弥漫，极简构图',
+  '玻璃香水瓶特写，纯净背景，高端质感',
+  '液态金属与霓虹线条交织，未来主义背景',
+  '日式枯山水庭院，樱花飘落，禅意极简',
+  '深空星云，紫色调，超现实数字艺术',
+  '复古胶片质感的城市街景，暖色调，雨夜',
+];
+
+function createRuntimeStorage() {
+  if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
+  const map = new Map();
+  return {
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => map.set(key, String(value)),
+    removeItem: (key) => map.delete(key),
+  };
+}
+
+const statePersistence = createStatePersistence(createRuntimeStorage());
+const loadResult = statePersistence.load();
+let state = loadResult.state;
+if (loadResult.warning) console.warn(loadResult.warning);
+
+function save() {
+  try {
+    statePersistence.saveNow(state);
+  } catch (e) {
+    console.warn('状态保存失败', e);
+  }
+}
+
+function scheduleSave() {
+  try {
+    statePersistence.scheduleSave(state);
+  } catch (e) {
+    console.warn('状态保存失败', e);
+  }
+}
+
+
+// 启动时将旧 localStorage 中的明文密钥转交主进程，成功后立即持久化无密钥状态。
+export async function migrateLegacyProviderSecrets() {
+  const previousState = JSON.parse(JSON.stringify(state));
+  try {
+    const result = await migrateLegacyProviderSecretsInState(state, async (entries) => {
+      if (!window.api || !window.api.migrateProviderSecrets) return { ok: false, error: '运行环境异常：无法调用密钥迁移接口' };
+      return window.api.migrateProviderSecrets(entries);
+    });
+    if (!result.ok) {
+      if (result.transactionId) {
+        const rollback = await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId);
+        if (!rollback || !rollback.ok) {
+          return { ok: false, code: 'CONFIGURATION_STATE_UNCERTAIN', error: '配置状态不确定，请重试/检查' };
+        }
+      }
+      return result;
+    }
+    try {
+      statePersistence.saveNow(state);
+    } catch (_) {
+      state = previousState;
+      const rollback = result.transactionId
+        ? await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId)
+        : { ok: true };
+      if (!rollback || !rollback.ok) {
+        return { ok: false, code: 'CONFIGURATION_STATE_UNCERTAIN', error: '配置状态不确定，请重试/检查' };
+      }
+      return { ok: false, error: 'API Key 安全迁移失败，旧配置已保留' };
+    }
+    if (result.transactionId) {
+      const committed = await window.api?.completeProviderSecretTransaction?.('commit', result.transactionId);
+      if (!committed || !committed.ok) {
+        const rollback = await window.api?.completeProviderSecretTransaction?.('rollback', result.transactionId);
+        if (!rollback || !rollback.ok) {
+          return { ok: false, code: 'CONFIGURATION_STATE_UNCERTAIN', error: '配置状态不确定，请重试/检查' };
+        }
+        state = previousState;
+        try { statePersistence.saveNow(state); } catch (_) {}
+        return { ok: false, error: 'API Key 安全迁移失败，旧配置已保留' };
+      }
+    }
+    return result;
+  } catch (error) {
+    state = previousState;
+    return { ok: false, error: error?.message || 'API Key 安全迁移失败' };
+  }
+}
+
+export function uid(prefix = 'id') {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function delay(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// ===== 时间格式化 =====
+export function formatRelativeTime(ts) {
+  const diff = Date.now() - ts;
+  const min = 60 * 1000;
+  const hour = 60 * min;
+  const day = 24 * hour;
+  if (diff < min) return '刚刚';
+  if (diff < hour) return `${Math.floor(diff / min)} 分钟前`;
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
+  if (diff < 2 * day) return '昨天';
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function formatDateTime(ts) {
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ===== 供应商操作 =====
+function cloneProvider(p) {
+  const clone = {
+    ...p,
+    imageModels: p.imageModels.map((m) => ({ ...m })),
+    textModels: p.textModels.map((m) => ({ ...m })),
+    videoModels: p.videoModels.map((m) => ({ ...m })),
+  };
+  delete clone.apiKey;
+  return clone;
+}
+
+export function getProviders() {
+  return state.providers.map(cloneProvider);
+}
+
+export function getProvider(id) {
+  const p = state.providers.find((p) => p.id === id);
+  return p ? cloneProvider(p) : null;
+}
+
+function cloneStateForRollback() {
+  return JSON.parse(JSON.stringify(state));
+}
+
+function persistProviderState(previousState) {
+  try {
+    statePersistence.saveNow(state);
+  } catch (error) {
+    state = previousState;
+    throw error;
+  }
+}
+
+export function saveProvider(data) {
+  const previousState = cloneStateForRollback();
+  const existing = data.id ? state.providers.find((p) => p.id === data.id) : null;
+  if (existing) {
+    existing.name = data.name ?? existing.name;
+    existing.type = data.type ?? existing.type;
+    existing.endpoint = data.endpoint ?? existing.endpoint;
+    existing.hasApiKey = data.hasApiKey ?? existing.hasApiKey ?? false;
+    delete existing.apiKey;
+    if (data.capabilities) existing.capabilities = [...data.capabilities];
+    if (data.imageModels) existing.imageModels = data.imageModels.map((m) => ({ ...m }));
+    if (data.textModels) existing.textModels = data.textModels.map((m) => ({ ...m }));
+    if (data.videoModels) existing.videoModels = data.videoModels.map((m) => ({ ...m }));
+    if (data.lastTestResult !== undefined) existing.lastTestResult = data.lastTestResult;
+    persistProviderState(previousState);
+    return cloneProvider(existing);
+  }
+  const provider = {
+    id: data.id || uid('p'), name: data.name || '新供应商', type: data.type || 'openai', endpoint: data.endpoint || '',
+    hasApiKey: !!data.hasApiKey, capabilities: data.capabilities || ['image'],
+    imageModels: (data.imageModels || []).map((m) => ({ ...m })), textModels: (data.textModels || []).map((m) => ({ ...m })),
+    videoModels: (data.videoModels || []).map((m) => ({ ...m })), lastTestResult: data.lastTestResult || null,
+  };
+  if (provider.type === 'grsai' && provider.imageModels.length === 0) provider.imageModels = GRSAI_IMAGE_MODELS.map((m) => ({ ...m, enabled: DEFAULT_ENABLED_IMAGE.includes(m.id) }));
+  state.providers.push(provider);
+  ensureDefaults();
+  persistProviderState(previousState);
+  return cloneProvider(provider);
+}
+
+export function deleteProvider(id) {
+  const previousState = cloneStateForRollback();
+  state.providers = state.providers.filter((p) => p.id !== id);
+  const d = state.defaults;
+  if (d.defaultImageProvider === id) { d.defaultImageProvider = ''; d.defaultImageModel = ''; }
+  if (d.defaultTextProvider === id) { d.defaultTextProvider = ''; d.defaultTextModel = ''; }
+  if (d.defaultVideoProvider === id) { d.defaultVideoProvider = ''; d.defaultVideoModel = ''; }
+  ensureDefaults();
+  persistProviderState(previousState);
+}
+
+function ensureDefaults() {
+  const d = state.defaults;
+  if (!d.defaultImageProvider || !state.providers.find((p) => p.id === d.defaultImageProvider && p.imageModels.some((m) => m.enabled))) {
+    const first = state.providers.find((p) => p.imageModels.some((m) => m.enabled));
+    d.defaultImageProvider = first ? first.id : '';
+    d.defaultImageModel = first ? first.imageModels.find((m) => m.enabled)?.id || '' : '';
+  }
+  if (!d.defaultTextProvider || !state.providers.find((p) => p.id === d.defaultTextProvider && p.textModels.some((m) => m.enabled))) {
+    const first = state.providers.find((p) => p.textModels.some((m) => m.enabled));
+    d.defaultTextProvider = first ? first.id : '';
+    d.defaultTextModel = first ? first.textModels.find((m) => m.enabled)?.id || '' : '';
+  }
+  if (!d.defaultVideoProvider || !state.providers.find((p) => p.id === d.defaultVideoProvider && p.videoModels.some((m) => m.enabled))) {
+    const first = state.providers.find((p) => p.videoModels.some((m) => m.enabled));
+    d.defaultVideoProvider = first ? first.id : '';
+    d.defaultVideoModel = first ? first.videoModels.find((m) => m.enabled)?.id || '' : '';
+  }
+}
+
+// ===== 模型操作（按分类） =====
+const CAT_KEYS = { image: 'imageModels', text: 'textModels', video: 'videoModels' };
+
+function toggleModelByCat(providerId, category, modelId, enabled) {
+  const p = state.providers.find((p) => p.id === providerId);
+  if (!p) return;
+  const key = CAT_KEYS[category];
+  if (!key) return;
+  const m = p[key].find((m) => m.id === modelId);
+  if (m) { m.enabled = enabled !== undefined ? enabled : !m.enabled; save(); }
+}
+
+export function toggleImageModel(pid, mid, en) { toggleModelByCat(pid, 'image', mid, en); }
+export function toggleTextModel(pid, mid, en) { toggleModelByCat(pid, 'text', mid, en); }
+export function toggleVideoModel(pid, mid, en) { toggleModelByCat(pid, 'video', mid, en); }
+
+export function setProviderModelsByCat(providerId, category, models) {
+  const p = state.providers.find((p) => p.id === providerId);
+  if (!p) return;
+  const key = CAT_KEYS[category];
+  if (!key) return;
+  const existing = new Map(p[key].map((m) => [m.id, m.enabled]));
+  p[key] = models.map((m) => ({
+    id: m.id,
+    name: m.name || m.id,
+    enabled: existing.has(m.id) ? existing.get(m.id) : true,
+  }));
+  save();
+}
+
+export function addCustomModelByCat(providerId, category, modelName) {
+  const p = state.providers.find((p) => p.id === providerId);
+  if (!p) return null;
+  const key = CAT_KEYS[category];
+  if (!key) return null;
+  const name = modelName.trim();
+  if (!name) return null;
+  if (p[key].some((m) => m.id === name)) {
+    const m = p[key].find((m) => m.id === name);
+    m.enabled = true;
+    save();
+    return m;
+  }
+  const m = { id: name, name, enabled: true };
+  p[key].push(m);
+  save();
+  return m;
+}
+
+export function removeModelByCat(providerId, category, modelId) {
+  const p = state.providers.find((p) => p.id === providerId);
+  if (!p) return;
+  const key = CAT_KEYS[category];
+  if (!key) return;
+  p[key] = p[key].filter((m) => m.id !== modelId);
+  save();
+}
+
+// 获取某供应商某分类下已启用的模型
+export function getEnabledModelsByCat(providerId, category) {
+  const p = state.providers.find((p) => p.id === providerId);
+  if (!p) return [];
+  const key = CAT_KEYS[category];
+  return p[key].filter((m) => m.enabled).map((m) => ({ ...m }));
+}
+
+// 兼容旧 API
+export function getEnabledModels(providerId) {
+  return getEnabledModelsByCat(providerId, 'image');
+}
+
+// 获取所有供应商下某分类已启用模型（聚合）
+export function getAllEnabledModels(category = 'image') {
+  const result = [];
+  state.providers.forEach((p) => {
+    const key = CAT_KEYS[category];
+    if (!key) return;
+    p[key].filter((m) => m.enabled).forEach((m) => {
+      result.push({ ...m, providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint });
+    });
+  });
+  return result;
+}
+
+// ===== 测试连接 =====
+export async function testConnection(provider) {
+  if (!window.api || !window.api.testConnection) {
+    await delay(500);
+    if (!/^https?:\/\//i.test(provider.endpoint || '')) throw new Error('API 地址格式不正确');
+    return { ok: true };
+  }
+  const result = await window.api.testConnection(provider);
+  if (result && result.ok) return result;
+  throw new Error((result && result.error) || '连接失败');
+}
+
+// ===== 获取模型列表 =====
+export async function fetchModels(provider, category = 'image') {
+  if (!window.api || !window.api.fetchModels) {
+    if ((provider.type || '').toLowerCase() === 'grsai' && category === 'image') {
+      return GRSAI_IMAGE_MODELS.map((m) => ({ ...m }));
+    }
+    return [];
+  }
+  const result = await window.api.fetchModels(provider, category);
+  if (result && result.ok) return result.models || [];
+  if (result && result.models && result.models.length) return result.models;
+  throw new Error((result && result.error) || '获取模型列表失败');
+}
+
+// ===== 历史操作 =====
+export function getHistory() { return state.history.slice(); }
+export function getHistoryItem(id) { return state.history.find((h) => h.id === id) || null; }
+export function deleteHistory(id) {
+  const nextHistory = state.history.filter((h) => h.id !== id);
+  if (nextHistory.length === state.history.length) return false;
+  state.history = nextHistory;
+  save();
+  return true;
+}
+
+// 统一历史的批量删除入口：快速记录与项目图片根据来源分别复用现有删除操作。
+export function deleteHistoryRecords(selection) {
+  const records = Array.isArray(selection) ? selection : [];
+  const seenKeys = new Set();
+  let deletedCount = 0;
+
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    if (record.source === 'quick') {
+      const historyId = record.historyId || record.id;
+      if (!historyId) continue;
+      const key = record.key || `quick:${historyId}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (deleteHistory(historyId)) deletedCount += 1;
+      continue;
+    }
+
+    if (record.source === 'project') {
+      const { projectId, versionId, imageId } = record;
+      if (!projectId || !versionId || !imageId) continue;
+      const key = record.key || `project:${projectId}:${versionId}:${imageId}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (deleteImage(projectId, versionId, imageId)) deletedCount += 1;
+    }
+  }
+
+  return deletedCount;
+}
+
+export function clearHistory() { state.history = []; save(); }
+
+// ===== 生图 =====
+export async function generateImage({ prompt, providerId, modelId, ratio, quality, sourceImage }) {
+  if (!prompt || !prompt.trim()) throw new Error('请输入提示词');
+  const provider = state.providers.find((p) => p.id === providerId);
+  if (!provider) throw new Error('请选择供应商');
+  if (!provider.endpoint) throw new Error('该供应商尚未配置 API 地址');
+  const model = provider.imageModels.find((m) => m.id === modelId && m.enabled);
+  if (!model) throw new Error('请选择模型');
+  const size = ratioToSize(ratio);
+  if (!window.api || !window.api.generateImage) throw new Error('运行环境异常：无法调用主进程生图接口');
+
+  const result = await window.api.generateImage({
+    prompt: prompt.trim(),
+    providerId: provider.id,
+    modelName: model.id,
+    ratio, quality, size,
+    sourceImage: sourceImage || null,
+  });
+  if (!result || !result.ok) throw new Error((result && result.error) || '生图失败');
+
+  const imageSrc = result.fileUrl || result.imagePath;
+  const record = {
+    id: uid('h'),
+    prompt: prompt.trim(),
+    providerId: provider.id,
+    providerName: provider.name,
+    model: model.id,
+    ratio, quality,
+    image: imageSrc,
+    createdAt: Date.now(),
+  };
+  state.history.unshift(record);
+  if (state.history.length > 200) state.history = state.history.slice(0, 200);
+  save();
+  return record;
+}
+
+export function getRandomPrompt() {
+  return RANDOM_PROMPTS[Math.floor(Math.random() * RANDOM_PROMPTS.length)];
+}
+
+// ===== 默认模型设置 =====
+export function getDefaults() {
+  ensureDefaults();
+  return { ...state.defaults };
+}
+
+export function setDefaults(d) {
+  state.defaults = { ...state.defaults, ...d };
+  ensureDefaults();
+  save();
+}
+
+// 兼容旧 API
+export function getDefaultProvider() {
+  const d = getDefaults();
+  const p = state.providers.find((p) => p.id === d.defaultImageProvider);
+  return p ? cloneProvider(p) : null;
+}
+
+// 获取默认生图模型信息
+export function getDefaultImageModel() {
+  const d = getDefaults();
+  if (!d.defaultImageProvider || !d.defaultImageModel) return null;
+  const p = state.providers.find((x) => x.id === d.defaultImageProvider);
+  if (!p) return null;
+  const m = p.imageModels.find((x) => x.id === d.defaultImageModel && x.enabled);
+  if (!m) return null;
+  return { providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint, modelId: m.id, modelName: m.name };
+}
+
+// 获取默认文本模型信息
+export function getDefaultTextModel() {
+  const d = getDefaults();
+  if (!d.defaultTextProvider || !d.defaultTextModel) return null;
+  const p = state.providers.find((x) => x.id === d.defaultTextProvider);
+  if (!p) return null;
+  const m = p.textModels.find((x) => x.id === d.defaultTextModel && x.enabled);
+  if (!m) return null;
+  return { providerId: p.id, providerName: p.name, providerType: p.type, providerEndpoint: p.endpoint, modelId: m.id, modelName: m.name };
+}
+
+// 兼容旧 getTextProvider API
+export function getTextProvider() {
+  const m = getDefaultTextModel();
+  if (!m) return null;
+  return { providerId: m.providerId, endpoint: m.providerEndpoint, model: m.modelId };
+}
+
+// ===== 优化提示词 =====
+export async function optimizePrompt(prompt, language = 'zh') {
+  const tm = getDefaultTextModel();
+  if (!tm) throw new Error('请先在「设置 → 模型供应商」中配置并启用文本模型');
+  if (!window.api || !window.api.optimizePrompt) throw new Error('运行环境异常：无法调用优化提示词接口');
+  const result = await window.api.optimizePrompt({
+    providerId: tm.providerId,
+    model: tm.modelId,
+    prompt,
+    language,
+  });
+  if (!result || !result.optimized) throw new Error('优化失败：返回为空');
+  return result.optimized;
+}
+
+// ===== 总结提示词为 5-10 字短标题（用于时间轴节点名称） =====
+export async function summarizePrompt({ prompt, ratio, quality, imageModel, isImageToImage }) {
+  const tm = getDefaultTextModel();
+  if (!tm) {
+    console.warn('[AutoSummary] 无默认文本模型，跳过摘要。请在设置中配置文本模型');
+    return null;
+  }
+  if (!window.api || !window.api.summarizePrompt) {
+    console.warn('[AutoSummary] window.api.summarizePrompt 不可用');
+    return null;
+  }
+  if (!prompt || !prompt.trim()) return null;
+  try {
+    console.log('[AutoSummary] 调用文本模型:', tm.providerName, tm.modelId);
+    const result = await window.api.summarizePrompt({
+      providerId: tm.providerId,
+      model: tm.modelId,
+      prompt,
+      ratio,
+      quality,
+      imageModel,
+      isImageToImage: !!isImageToImage,
+    });
+    console.log('[AutoSummary] 原始返回:', JSON.stringify(result));
+    if (result && result.title && typeof result.title === 'string' && result.title.trim().length >= 3) {
+      return result.title.trim();
+    }
+    console.warn('[AutoSummary] 标题为空或过短，使用默认名称');
+    return null;
+  } catch (err) {
+    console.error('[AutoSummary] 摘要请求异常:', err.message);
+    return null;
+  }
+}
+
+export function ratioToSize(ratio) {
+  const map = { '1:1': '1024x1024', '4:3': '1024x768', '16:9': '1024x576', '9:16': '576x1024' };
+  return map[ratio] || '1024x1024';
+}
+
+export function saveLastSettings(settings) { state.lastSettings = settings; scheduleSave(); }
+export function getLastSettings() { return state.lastSettings; }
+
+export async function imageToDataUrl(src) {
+  const res = await fetch(src);
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ===== 项目操作 =====
+// 项目结构：
+//   { id, name, description, createdAt, updatedAt, coverImageId, currentVersionId,
+//     versions: [ { id, parentId, parentImageId, name, prompt, providerId, providerName, modelId, createdAt,
+//                   images: [ { id, image, ratio, quality, createdAt } ] } ] }
+
+function cloneProject(p) { return structuredClone(p); }
+
+export function getProjects() { return state.projects.map(cloneProject); }
+export function getProject(id) {
+  const p = state.projects.find((p) => p.id === id);
+  return p ? cloneProject(p) : null;
+}
+
+export function createProject({ name, description, prompt, providerId, providerName, modelId }) {
+  const now = Date.now();
+  const rootVersion = {
+    id: uid('ver'),
+    parentId: null,
+    parentImageId: null,
+    name: (name || '').trim() ? name : (prompt || '').trim().slice(0, 10) || '主线1',
+    prompt: (prompt || '').trim(),
+    providerId: providerId || '',
+    providerName: providerName || '',
+    modelId: modelId || '',
+    createdAt: now,
+    images: [],
+  };
+  const project = {
+    id: uid('proj'),
+    name: (name || '未命名项目').trim(),
+    description: (description || '').trim(),
+    createdAt: now,
+    updatedAt: now,
+    coverImageId: null,
+    currentVersionId: rootVersion.id,
+    versions: [rootVersion],
+  };
+  state.projects.unshift(project);
+  save();
+  return cloneProject(project);
+}
+
+export function updateProject(id, { name, description }) {
+  const p = state.projects.find((p) => p.id === id);
+  if (!p) return null;
+  if (name !== undefined) p.name = name.trim();
+  if (description !== undefined) p.description = description.trim();
+  p.updatedAt = Date.now();
+  save();
+  return cloneProject(p);
+}
+
+export function deleteProject(id) { state.projects = state.projects.filter((p) => p.id !== id); save(); }
+
+export function setCurrentVersion(projectId, versionId) {
+  const p = state.projects.find((p) => p.id === projectId);
+  if (!p) return;
+  if (p.versions.some((v) => v.id === versionId)) {
+    p.currentVersionId = versionId;
+    p.updatedAt = Date.now();
+    save();
+  }
+}
+
+export function getVersionLabels(project) {
+  const childrenMap = new Map();
+  project.versions.forEach((v) => {
+    const k = v.parentId || 'ROOT';
+    if (!childrenMap.has(k)) childrenMap.set(k, []);
+    childrenMap.get(k).push(v);
+  });
+  childrenMap.forEach((arr) => arr.sort((a, b) => a.createdAt - b.createdAt));
+  const labels = new Map();
+  const roots = (childrenMap.get('ROOT') || []).slice();
+  roots.forEach((root, idx) => {
+    const label = `v${idx + 1}`;
+    labels.set(root.id, label);
+    walk(root.id, label);
+  });
+  function walk(parentId, parentLabel) {
+    const children = childrenMap.get(parentId) || [];
+    children.forEach((child, idx) => {
+      const label = `${parentLabel}.${idx + 1}`;
+      labels.set(child.id, label);
+      walk(child.id, label);
+    });
+  }
+  return labels;
+}
+
+export function createRootVersion(projectId, { name, prompt, providerId, providerName, modelId }) {
+  const p = state.projects.find((p) => p.id === projectId);
+  if (!p) return null;
+  const version = {
+    id: uid('ver'),
+    parentId: null,
+    parentImageId: null,
+    name: (name || '').trim() || (prompt || '').trim().slice(0, 10) || '新主线',
+    prompt: (prompt || '').trim(),
+    providerId: providerId || '',
+    providerName: providerName || '',
+    modelId: modelId || '',
+    createdAt: Date.now(),
+    images: [],
+  };
+  p.versions.push(version);
+  p.currentVersionId = version.id;
+  p.updatedAt = Date.now();
+  save();
+  return cloneProject(p);
+}
+
+export function createVersion(projectId, parentId, parentImageId, { name, prompt, providerId, providerName, modelId }) {
+  const p = state.projects.find((p) => p.id === projectId);
+  if (!p) return null;
+  const parent = p.versions.find((v) => v.id === parentId);
+  if (!parent) return null;
+  const parentImage = parent.images.find((i) => i.id === parentImageId);
+  if (!parentImage) return null;
+  const defaultName = (prompt || parent.prompt || '').trim().slice(0, 10) || '分支';
+  const version = {
+    id: uid('ver'),
+    parentId,
+    parentImageId,
+    name: (name || '').trim() || defaultName,
+    prompt: (prompt || parent.prompt || '').trim(),
+    providerId: providerId || parent.providerId || '',
+    providerName: providerName || parent.providerName || '',
+    modelId: modelId || parent.modelId || '',
+    createdAt: Date.now(),
+    images: [],
+  };
+  p.versions.push(version);
+  p.currentVersionId = version.id;
+  p.updatedAt = Date.now();
+  save();
+  return cloneProject(p);
+}
+
+export function updateVersionFields(versionId, { name, prompt, modelId, providerId, providerName, autoNameDone }) {
+  const p = state.projects.find((proj) => proj.versions.some((v) => v.id === versionId));
+  if (!p) return null;
+  const v = p.versions.find((x) => x.id === versionId);
+  if (!v) return null;
+  if (name !== undefined) v.name = String(name).trim();
+  if (prompt !== undefined) v.prompt = prompt.trim();
+  if (modelId !== undefined) v.modelId = modelId;
+  if (providerId !== undefined) v.providerId = providerId;
+  if (providerName !== undefined) v.providerName = providerName;
+  if (autoNameDone !== undefined) v.autoNameDone = !!autoNameDone;
+  p.updatedAt = Date.now();
+  save();
+  return cloneProject(p);
+}
+
+export function deleteVersion(projectId, versionId) {
+  const p = state.projects.find((p) => p.id === projectId);
+  if (!p) return;
+  if (p.versions.length <= 1) return;
+  const target = p.versions.find((v) => v.id === versionId);
+  if (!target) return;
+  const toDelete = new Set();
+  const stack = [versionId];
+  while (stack.length) {
+    const cur = stack.pop();
+    toDelete.add(cur);
+    p.versions.filter((v) => v.parentId === cur).forEach((v) => stack.push(v.id));
+  }
+  p.versions = p.versions.filter((v) => !toDelete.has(v.id));
+  if (toDelete.has(p.currentVersionId)) {
+    const root = p.versions.find((v) => v.parentId === null) || p.versions[0];
+    p.currentVersionId = root.id;
+  }
+  if (p.coverImageId) {
+    const stillExists = p.versions.some((v) => v.images.some((i) => i.id === p.coverImageId));
+    if (!stillExists) p.coverImageId = null;
+  }
+  p.updatedAt = Date.now();
+  save();
+}
+
+export async function generateSmart(projectId, versionId, { prompt, providerId, modelId, ratio, quality, sourceImage }) {
+  const p = state.projects.find((proj) => proj.id === projectId);
+  if (!p) throw new Error('项目不存在');
+  const v = p.versions.find((x) => x.id === versionId);
+  if (!v) throw new Error('版本不存在');
+  const trimmedPrompt = (prompt || '').trim();
+  if (!trimmedPrompt) throw new Error('请输入提示词');
+  if (!modelId) throw new Error('请选择模型');
+  if (!providerId) throw new Error('请选择供应商');
+
+  // 供应商以用户当前选择为准；禁止按模型 ID 在全部供应商里首匹配，
+  // 否则跨供应商存在同 ID 模型时会静默串到其他供应商（如默认 GPT）。
+  function resolveProviderForModel(providerIdToUse) {
+    const provider = state.providers.find(
+      (pr) => pr.id === providerIdToUse && pr.imageModels.some((m) => m.id === modelId && m.enabled),
+    );
+    if (!provider) throw new Error('所选模型不可用，请重新选择模型');
+    return provider;
+  }
+
+  let targetVersionId = versionId;
+  if (v.parentId === null) {
+    const curSourceImg = v.sourceImage || '';
+    const changed = trimmedPrompt !== v.prompt.trim() || modelId !== v.modelId || (sourceImage || '') !== curSourceImg;
+    // 仅当主线已有图片时，修改提示词/模型/参考图才自动新建主线（保护历史）；
+    // 空白主线（手动新建的）直接在原地更新并生成第一张图
+    if (changed && v.images.length > 0) {
+      const provider = resolveProviderForModel(providerId);
+      const newVer = {
+        id: uid('ver'),
+        parentId: null,
+        parentImageId: null,
+        name: trimmedPrompt.slice(0, 10) || '新主线',
+        prompt: trimmedPrompt,
+        providerId: provider.id,
+        providerName: provider.name,
+        modelId,
+        createdAt: Date.now(),
+        images: [],
+        sourceImage: sourceImage || '',
+      };
+      p.versions.push(newVer);
+      targetVersionId = newVer.id;
+      p.currentVersionId = newVer.id;
+    } else {
+      const provider = resolveProviderForModel(providerId);
+      v.prompt = trimmedPrompt;
+      v.modelId = modelId;
+      v.providerId = provider.id;
+      v.providerName = provider.name;
+    }
+  } else {
+    const provider = resolveProviderForModel(providerId);
+    v.prompt = trimmedPrompt;
+    v.modelId = modelId;
+    v.providerId = provider.id;
+    v.providerName = provider.name;
+  }
+  p.updatedAt = Date.now();
+  save();
+
+  const target = p.versions.find((x) => x.id === targetVersionId);
+  if (!target) throw new Error('目标版本不存在');
+  const provider0 = state.providers.find((pr) => pr.id === target.providerId);
+  if (!provider0) throw new Error('该版本所用供应商已被删除，请重新选择模型');
+  if (!provider0.endpoint) throw new Error('该供应商尚未配置 API 地址');
+  const model0 = provider0.imageModels.find((m) => m.id === target.modelId && m.enabled);
+  if (!model0) throw new Error('该版本所用模型不可用，请重新选择');
+
+  let finalSourceImage = null;
+  if (target.parentId && target.parentImageId) {
+    const parent = p.versions.find((pv) => pv.id === target.parentId);
+    const parentImg = parent && parent.images.find((i) => i.id === target.parentImageId);
+    if (!parentImg) throw new Error('父版本的参考图已被删除，无法进行图生图');
+    finalSourceImage = parentImg.image;
+  } else if (target.sourceImage) {
+    finalSourceImage = target.sourceImage;
+  }
+
+  const size = ratioToSize(ratio);
+  if (!window.api || !window.api.generateImage) throw new Error('运行环境异常：无法调用主进程生图接口');
+  const result = await window.api.generateImage({
+    prompt: target.prompt.trim(),
+    providerId: provider0.id,
+    modelName: model0.id,
+    ratio, quality, size,
+    sourceImage: finalSourceImage,
+  });
+  if (!result || !result.ok) throw new Error((result && result.error) || '生图失败');
+  const img = {
+    id: uid('img'),
+    image: result.fileUrl || result.imagePath,
+    ratio, quality,
+    // 保存生成时的元数据，确保图片详情独立于版本（版本后续可能被修改）
+    prompt: target.prompt.trim(),
+    providerId: target.providerId,
+    providerName: target.providerName,
+    modelId: target.modelId,
+    isImageToImage: !!(target.parentId && target.parentImageId) || !!target.sourceImage,
+    createdAt: Date.now(),
+  };
+  target.images.unshift(img);
+  p.updatedAt = Date.now();
+  save();
+  return { project: cloneProject(p), versionId: targetVersionId, image: img };
+}
+
+export function getImageBranchCount(projectId, imageId) {
+  const p = state.projects.find((proj) => proj.id === projectId);
+  if (!p) return 0;
+  return p.versions.filter((v) => v.parentImageId === imageId).length;
+}
+
+export function deleteImage(projectId, versionId, imageId) {
+  const p = state.projects.find((p) => p.id === projectId);
+  if (!p) return false;
+  const v = p.versions.find((v) => v.id === versionId);
+  if (!v) return false;
+  const nextImages = v.images.filter((img) => img.id !== imageId);
+  if (nextImages.length === v.images.length) return false;
+  v.images = nextImages;
+  if (p.coverImageId === imageId) p.coverImageId = null;
+  p.updatedAt = Date.now();
+  save();
+  return true;
+}
+
+export function setProjectCover(projectId, imageId) {
+  const p = state.projects.find((p) => p.id === projectId);
+  if (!p) return;
+  p.coverImageId = imageId;
+  p.updatedAt = Date.now();
+  save();
+}
+
+export function getProjectCover(project) {
+  if (project.coverImageId) {
+    for (const v of project.versions) {
+      const img = v.images.find((i) => i.id === project.coverImageId);
+      if (img) return img.image;
+    }
+  }
+  let latest = null;
+  for (const v of project.versions) {
+    for (const img of v.images) {
+      if (!latest || img.createdAt > latest.createdAt) latest = img;
+    }
+  }
+  return latest ? latest.image : null;
+}
+
+export function getProjectStats(project) {
+  let imageCount = 0;
+  project.versions.forEach((v) => (imageCount += v.images.length));
+  return { versionCount: project.versions.length, imageCount };
+}
+
+export function getProjectImagesFlat(project) {
+  const all = [];
+  project.versions.forEach((v) => {
+    v.images.forEach((img) => all.push({ ...img, versionId: v.id }));
+  });
+  all.sort((a, b) => b.createdAt - a.createdAt);
+  return all;
+}
+
+// ===== 设置相关 =====
+export function getUpdateRepo() { return state.updateRepo || ''; }
+export function saveUpdateRepo(repo) { state.updateRepo = String(repo || '').trim(); save(); }
+export function getSettings() {
+  return {
+    isPackaged: (window.api && window.api.updateGetCurrentVersion) ? undefined : false,
+    updateRepo: state.updateRepo || '',
+  };
+}
+
+export function getThemeMode() {
+  return state.themeMode || 'system';
+}
+
+export function setThemeMode(mode) {
+  const validModes = ['light', 'dark', 'system'];
+  state.themeMode = validModes.includes(mode) ? mode : 'system';
+  save();
+}
