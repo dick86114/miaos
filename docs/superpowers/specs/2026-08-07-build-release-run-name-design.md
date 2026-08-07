@@ -9,7 +9,7 @@
 - 保留现有 `workflow_dispatch` 的 `version`、`release_notes` 和 `prerelease` 输入字段。
 - 将 workflow 固定显示名调整为 `Build And Release`。
 - 增加动态 `run-name`：手动触发时显示 `Build And Release：v版本号，更新日志`。
-- push 到 `main` 时显示 `Build And Release：CI 构建`，避免引用不存在的手动输入字段。
+- push 到 `main` 时恢复提交信息作为运行名称，与未设置 `run-name` 时的 GitHub 默认行为一致。
 - 不改变版本覆盖、构建产物、GitHub Release 标签或 Release 正文逻辑。
 
 ## 验证

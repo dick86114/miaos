@@ -4,7 +4,7 @@
 
 **Goal:** 让 GitHub Actions 的 Build And Release 运行记录显示手动输入的版本号和更新日志。
 
-**Architecture:** 在现有 `.github/workflows/build-dmg.yml` 顶层增加动态 `run-name`。手动触发使用 `inputs.version` 和 `inputs.release_notes`，push 触发使用固定 CI 文案；其余构建和发布步骤保持不变。
+**Architecture:** 在现有 `.github/workflows/build-dmg.yml` 顶层增加动态 `run-name`。手动触发使用 `inputs.version` 和 `inputs.release_notes`，push 触发使用提交信息恢复原有 CI 显示；其余构建和发布步骤保持不变。
 
 **Tech Stack:** GitHub Actions YAML、GitHub Actions expression syntax。
 
@@ -36,7 +36,7 @@ run-name: >-
       || 'Build And Release：CI 构建' }}
 ```
 
-这样手动触发显示版本号和更新日志，push 触发不引用空的手动输入。
+这样手动触发显示版本号和更新日志，push 触发显示提交信息。
 
 - [ ] **Step 2: 检查差异**
 
