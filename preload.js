@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('api', {
   summarizePrompt: (params) => ipcRenderer.invoke('summarize-prompt', params),
   setProviderSecret: (providerId, value, metadata, options) => ipcRenderer.invoke('provider-secret-set', providerId, value, metadata, options),
   hasProviderSecret: (providerId) => ipcRenderer.invoke('provider-secret-has', providerId),
+  getProviderSecretStorage: () => ipcRenderer.invoke('provider-secret-storage-get'),
+  setProviderSecretStorage: (mode) => ipcRenderer.invoke('provider-secret-storage-set', mode),
   deleteProviderSecret: (providerId, options) => ipcRenderer.invoke('provider-secret-delete', providerId, options),
   completeProviderSecretTransaction: (operation, transactionId) => ipcRenderer.invoke('provider-secret-migrate', { operation, transactionId }),
   migrateProviderSecrets: (entries) => ipcRenderer.invoke('provider-secret-migrate', entries),

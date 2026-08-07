@@ -20,6 +20,7 @@ import { openImagePreview } from '../image-preview.js';
 import { buildImageDetailRoute } from '../image-detail-data.js';
 import { createPromptOptimizationManager, createPromptFragmentOverlay } from '../prompt-optimization.js';
 import { getQuickQueueViewState } from '../queue-view-state.js';
+import { getGenerationErrorHelp } from '../generation-error-help.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -687,7 +688,7 @@ export function renderGenerate(container) {
     const paramsText = [task.ratio, task.quality, batchLabel].filter(Boolean).join(' · ');
     if (isFailed) {
       const errorText = task.error && String(task.error).trim() ? String(task.error).trim() : '未知错误';
-      const shortError = errorText.length > 36 ? `${errorText.slice(0, 36)}…` : errorText;
+      const shortError = getGenerationErrorHelp({ ...task.errorDetails, message: errorText }).title;
       return `
         <article class="gallery-item gallery-placeholder task-failed" data-task-id="${task.id}">
           <div class="placeholder-cover task-error-cover">

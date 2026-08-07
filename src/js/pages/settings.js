@@ -38,7 +38,7 @@ const CATEGORIES = [
   { key: 'video', label: '生视频模型', icon: 'video', color: 'video' },
  ];
 
-// 连接测试和模型获取优先使用输入框里的新密钥；未输入时才读取已保存供应商的钥匙串密钥。
+// 连接测试和模型获取优先使用输入框里的新密钥；未输入时才读取已保存的供应商密钥。
 export function createProviderRequestData(form, typedApiKey = '', isAddingProvider = false) {
   const request = {
     name: form.name || '',
@@ -101,6 +101,7 @@ export function renderSettings(container) {
     // 默认模型
     defaults: getDefaults(),
     pairing: { active: false, qrDataUrl: '', confirmationCode: '', expiresAt: 0 },
+    secretStorageMode: 'local',
   };
 
   const root = htmlToElement(`<div class="settings-wrap"><div class="settings-layout"></div></div>`);
@@ -108,6 +109,7 @@ export function renderSettings(container) {
 
   refresh();
   loadVersion();
+  loadSecretStorageMode();
   const unsubscribeUpdateStatus = bindUpdateEvents();
   const unsubscribeConfigPairingEnded = window.api?.onConfigPairingEnded?.(({ reason } = {}) => {
     if (!pageState.pairing.active) return;
@@ -242,6 +244,20 @@ export function renderSettings(container) {
             <button type="button" class="segmented-item ${getThemeMode() === 'system' ? 'is-active' : ''}" data-theme="system">${icon('monitor', 14)}<span>跟随系统</span></button>
           </div>
           <div class="form-hint">切换后立即生效，无需重启应用</div>
+        </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-section-header">
+          <div class="settings-section-title">${icon('shield', 16)}<span>API Key 保存方式</span></div>
+          <div class="tag ${pageState.secretStorageMode === 'keychain' ? 'tag-primary' : 'tag-soft'}">${pageState.secretStorageMode === 'keychain' ? '系统钥匙串' : '应用本地保存'}</div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div class="settings-row-title">使用系统钥匙串安全保存 API Key</div>
+            <div class="form-hint">关闭时，API Key 保存在妙生的本地目录（仅当前 macOS 用户可读），不会访问系统钥匙串；开启后会迁移已有 Key 到系统钥匙串加密保存。</div>
+          </div>
+          <label class="switch"><input id="secret-storage-toggle" type="checkbox" ${pageState.secretStorageMode === 'keychain' ? 'checked' : ''} /><span class="slider"></span></label>
         </div>
       </div>
 
@@ -1113,6 +1129,37 @@ export function renderSettings(container) {
         await window.api.openReleasePage();
       });
     }
+    const secretStorageToggle = inner.querySelector('#secret-storage-toggle');
+    if (secretStorageToggle) {
+      secretStorageToggle.addEventListener('change', async () => {
+        const nextMode = secretStorageToggle.checked ? 'keychain' : 'local';
+        const message = nextMode === 'keychain'
+          ? '启用系统钥匙串保存？妙生将把已保存的供应商 API Key 迁移到 macOS 系统钥匙串。妙生只保存自己的 API Key，不读取浏览器或其他应用的密码。'
+          : '改为应用本地保存？妙生将把已保存的 API Key 移出系统钥匙串，改为保存在 ~/.miaos/ 的仅当前用户可读文件中。该模式不会访问系统钥匙串，但安全性低于系统钥匙串。';
+        const confirmed = await confirmDialog(message);
+        if (!confirmed) { refresh(); return; }
+        if (!window.api?.setProviderSecretStorage) { toast('运行环境异常', 'error'); refresh(); return; }
+        try {
+          const result = await window.api.setProviderSecretStorage(nextMode);
+          if (!result?.ok) throw new Error(result?.error || '切换失败');
+          pageState.secretStorageMode = result.mode;
+          toast(nextMode === 'keychain' ? '已启用系统钥匙串保存' : '已改为应用本地保存', 'success');
+        } catch (error) {
+          toast('切换保存方式失败：' + (error.message || '未知错误'), 'error');
+        }
+        refresh();
+      });
+    }
+  }
+
+  function loadSecretStorageMode() {
+    if (!window.api?.getProviderSecretStorage) return;
+    window.api.getProviderSecretStorage().then((result) => {
+      if (result?.ok && ['local', 'keychain'].includes(result.mode)) {
+        pageState.secretStorageMode = result.mode;
+        if (pageState.tab === 'about') refresh();
+      }
+    }).catch(() => {});
   }
 
   // ========== 更新相关 ==========

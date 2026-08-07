@@ -383,6 +383,16 @@ export function deleteHistoryRecords(selection) {
 
 export function clearHistory() { state.history = []; save(); }
 
+function createGenerationFailure(result) {
+  const error = new Error((result && result.error) || '生图失败');
+  error.code = result?.code || '';
+  error.retryable = result?.retryable === true;
+  error.diagnosticId = result?.diagnosticId || '';
+  error.stage = result?.stage || '';
+  error.reasonCode = result?.reasonCode || '';
+  return error;
+}
+
 // ===== 生图 =====
 export async function generateImage({ prompt, providerId, modelId, ratio, quality, sourceImage }) {
   if (!prompt || !prompt.trim()) throw new Error('请输入提示词');
@@ -401,7 +411,7 @@ export async function generateImage({ prompt, providerId, modelId, ratio, qualit
     ratio, quality, size,
     sourceImage: sourceImage || null,
   });
-  if (!result || !result.ok) throw new Error((result && result.error) || '生图失败');
+  if (!result || !result.ok) throw createGenerationFailure(result);
 
   const imageSrc = result.fileUrl || result.imagePath;
   const record = {
@@ -811,7 +821,7 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
     ratio, quality, size,
     sourceImage: finalSourceImage,
   });
-  if (!result || !result.ok) throw new Error((result && result.error) || '生图失败');
+  if (!result || !result.ok) throw createGenerationFailure(result);
   const img = {
     id: uid('img'),
     image: result.fileUrl || result.imagePath,

@@ -89,6 +89,13 @@ export function createQueue(dependencies = {}) {
     } catch (error) {
       task.status = 'failed';
       task.error = (error && error.message) || '生成失败';
+      task.errorDetails = {
+        code: error?.code || '',
+        retryable: error?.retryable === true,
+        diagnosticId: error?.diagnosticId || '',
+        stage: error?.stage || '',
+        reasonCode: error?.reasonCode || '',
+      };
       task.finishedAt = Date.now();
     } finally {
       running = false;

@@ -51,7 +51,7 @@ test('删除密钥后不再存在且文件不保留对应记录', () => {
   assert.equal(vault.delete('p_test'), true);
   assert.equal(vault.has('p_test'), false);
   assert.equal(vault.get('p_test'), null);
-  assert.deepEqual(JSON.parse(readFileSync(filePath, 'utf8')), { version: 1, secrets: {}, providers: {} });
+  assert.deepEqual(JSON.parse(readFileSync(filePath, 'utf8')), { version: 1, storageMode: 'keychain', secrets: {}, providers: {} });
 });
 
 test('写入严格经过临时文件、fsync 和 rename', () => {
@@ -511,4 +511,38 @@ test('释放验证后锁目录被替换时，新 owner lock 必须存活', () =>
   for (const entry of fs.readdirSync(dir)) {
     if (entry.includes('.lock.quarantine-')) fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
   }
+});
+
+test('应用本地保存模式默认不调用系统钥匙串，切换时会迁移已有 API Key', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-vault-local-'));
+  const filePath = path.join(dir, 'secrets.json');
+  let encrypted = 0;
+  const safeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => { encrypted += 1; return Buffer.from(`encrypted:${value}`); },
+    decryptString: (value) => value.toString().slice('encrypted:'.length),
+  };
+  const vault = createSecretsVault({ filePath, safeStorage, fsImpl: fs, defaultStorageMode: 'local' });
+  vault.set('provider_a', 'sk-local');
+  assert.equal(encrypted, 0);
+  assert.equal(vault.get('provider_a'), 'sk-local');
+  assert.equal(vault.getStorageMode(), 'local');
+  assert.match(fs.readFileSync(filePath, 'utf8'), /local:/);
+
+  vault.setStorageMode('keychain');
+  assert.equal(vault.getStorageMode(), 'keychain');
+  assert.equal(vault.get('provider_a'), 'sk-local');
+  assert.equal(encrypted, 1);
+});
+
+test('旧版系统钥匙串密文会如实显示为钥匙串模式，等待用户主动迁移', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-vault-legacy-mode-'));
+  const filePath = path.join(dir, 'secrets.json');
+  fs.writeFileSync(filePath, JSON.stringify({
+    version: 1,
+    secrets: { provider_a: Buffer.from('encrypted:sk-old').toString('base64') },
+    providers: {},
+  }));
+  const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs, defaultStorageMode: 'local' });
+  assert.equal(vault.getStorageMode(), 'keychain');
 });

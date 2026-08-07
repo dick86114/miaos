@@ -31,12 +31,9 @@ function waitForLockRetry() {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS);
 }
 
-function createSecretsVault({ filePath, safeStorage, fsImpl }) {
+function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode = 'keychain' }) {
   if (typeof filePath !== 'string' || !filePath) throw new TypeError('密钥文件路径不能为空');
-  if (!safeStorage || typeof safeStorage.isEncryptionAvailable !== 'function'
-    || typeof safeStorage.encryptString !== 'function' || typeof safeStorage.decryptString !== 'function') {
-    throw new TypeError('系统加密服务不可用');
-  }
+  if (!['local', 'keychain'].includes(defaultStorageMode)) throw new TypeError('默认密钥存储方式不正确');
   if (!fsImpl || typeof fsImpl.existsSync !== 'function' || typeof fsImpl.readFileSync !== 'function'
     || typeof fsImpl.writeFileSync !== 'function' || typeof fsImpl.openSync !== 'function'
     || typeof fsImpl.fsyncSync !== 'function' || typeof fsImpl.closeSync !== 'function'
@@ -47,13 +44,22 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
   }
 
   function assertEncryptionAvailable() {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!safeStorage || typeof safeStorage.isEncryptionAvailable !== 'function'
+      || typeof safeStorage.encryptString !== 'function' || typeof safeStorage.decryptString !== 'function'
+      || !safeStorage.isEncryptionAvailable()) {
       throw createVaultError('SECRET_ENCRYPTION_UNAVAILABLE', '系统密钥加密不可用，请检查系统钥匙串');
     }
   }
 
   function createEmptyDocument() {
-    return { version: 1, secrets: createDictionary(), providers: createDictionary() };
+    return { version: 1, storageMode: defaultStorageMode, secrets: createDictionary(), providers: createDictionary() };
+  }
+
+  function inferStorageMode(storedMode, secrets) {
+    if (['local', 'keychain'].includes(storedMode)) return storedMode;
+    // 旧版文件没有 storageMode，且其中保存的是系统钥匙串密文；必须如实标记，交由用户明确迁移。
+    if (Object.values(secrets || {}).some((value) => typeof value === 'string' && !value.startsWith('local:'))) return 'keychain';
+    return defaultStorageMode;
   }
 
   function readDocument() {
@@ -71,6 +77,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
       && Object.values(parsed.secrets).every((value) => typeof value === 'string')) {
       return {
         version: 1,
+        storageMode: inferStorageMode(parsed.storageMode, parsed.secrets),
         secrets: cloneDictionary(parsed.secrets),
         providers: cloneDictionary(parsed.providers),
       };
@@ -79,7 +86,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     // 兼容本任务前一轮已经落盘的纯密文映射，读取后在下一次写入转换为 v1 文档。
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       && Object.values(parsed).every((value) => typeof value === 'string')) {
-      return { version: 1, secrets: cloneDictionary(parsed), providers: createDictionary() };
+      return { version: 1, storageMode: inferStorageMode(null, parsed), secrets: cloneDictionary(parsed), providers: createDictionary() };
     }
 
     throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库已损坏，请重新保存密钥');
@@ -473,6 +480,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     if (!Array.isArray(entries) || entries.length === 0 || entries.length > 100) {
       throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥更新数据格式不正确');
     }
+    const storageMode = readDocument().storageMode;
     const ids = new Set();
     const prepared = [];
     for (const entry of entries) {
@@ -484,21 +492,26 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
       ids.add(providerId);
       const next = { providerId };
       if (Object.prototype.hasOwnProperty.call(entry, 'value')) {
-        assertEncryptionAvailable();
         if (typeof entry.value !== 'string' || entry.value.length === 0) {
           throw createVaultError('SECRET_VAULT_CORRUPTED', 'API Key 格式不正确');
         }
-        try {
-          next.encryptedValue = safeStorage.encryptString(entry.value).toString('base64');
-        } catch (_) {
-          throw createVaultError('SECRET_ENCRYPTION_UNAVAILABLE', '系统密钥加密不可用，请检查系统钥匙串');
+        if (storageMode === 'local') {
+          // 本地保存模式不调用系统钥匙串；base64 仅用于稳定的文件编码，不能视为加密。
+          next.localValue = Buffer.from(entry.value, 'utf8').toString('base64');
+        } else {
+          assertEncryptionAvailable();
+          try {
+            next.encryptedValue = safeStorage.encryptString(entry.value).toString('base64');
+          } catch (_) {
+            throw createVaultError('SECRET_ENCRYPTION_UNAVAILABLE', '系统密钥加密不可用，请检查系统钥匙串');
+          }
         }
       }
       if (entry.deleteSecret === true) next.deleteSecret = true;
       if (Object.prototype.hasOwnProperty.call(entry, 'metadata')) {
         next.metadata = entry.metadata === null ? null : validateMetadata(entry.metadata);
       }
-      if (!next.encryptedValue && !next.deleteSecret && !Object.prototype.hasOwnProperty.call(next, 'metadata')) {
+      if (!next.encryptedValue && !next.localValue && !next.deleteSecret && !Object.prototype.hasOwnProperty.call(next, 'metadata')) {
         throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥更新数据格式不正确');
       }
       prepared.push(next);
@@ -510,11 +523,13 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
       const document = readDocument();
       const draft = {
         version: 1,
+        storageMode: document.storageMode,
         secrets: cloneDictionary(document.secrets),
         providers: cloneDictionary(document.providers),
       };
       for (const entry of prepared) {
         if (entry.encryptedValue) draft.secrets[entry.providerId] = entry.encryptedValue;
+        if (entry.localValue) draft.secrets[entry.providerId] = `local:${entry.localValue}`;
         if (entry.deleteSecret) delete draft.secrets[entry.providerId];
         if (Object.prototype.hasOwnProperty.call(entry, 'metadata')) {
           if (entry.metadata === null) delete draft.providers[entry.providerId];
@@ -547,6 +562,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     }
     const document = {
       version: 1,
+      storageMode: ['local', 'keychain'].includes(snapshot.storageMode) ? snapshot.storageMode : defaultStorageMode,
       secrets: cloneDictionary(snapshot.secrets),
       providers: cloneDictionary(snapshot.providers),
     };
@@ -575,11 +591,18 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
 
   function get(providerId) {
     assertProviderId(providerId);
-    const encrypted = readDocument().secrets[providerId];
-    if (!encrypted) return null;
+    const stored = readDocument().secrets[providerId];
+    if (!stored) return null;
+    if (stored.startsWith('local:')) {
+      try {
+        return Buffer.from(stored.slice('local:'.length), 'base64').toString('utf8');
+      } catch (_) {
+        throw createVaultError('SECRET_VAULT_CORRUPTED', '本地保存的 API Key 已损坏，请重新保存密钥');
+      }
+    }
     assertEncryptionAvailable();
     try {
-      return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+      return safeStorage.decryptString(Buffer.from(stored, 'base64'));
     } catch (_) {
       throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库已损坏，请重新保存密钥');
     }
@@ -603,6 +626,38 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     return metadata ? validateMetadata(metadata) : null;
   }
 
+  function getStorageMode() {
+    return readDocument().storageMode;
+  }
+
+  function setStorageMode(mode, { ownerToken = crypto.randomUUID() } = {}) {
+    if (!['local', 'keychain'].includes(mode)) throw createVaultError('SECRET_STORAGE_MODE_INVALID', '密钥存储方式不正确');
+    const lock = acquireLock(ownerToken);
+    let operationError = null;
+    try {
+      const document = readDocument();
+      if (document.storageMode !== mode) {
+        const draft = { version: 1, storageMode: mode, secrets: createDictionary(), providers: cloneDictionary(document.providers) };
+        for (const [providerId, stored] of Object.entries(document.secrets)) {
+          const value = stored.startsWith('local:')
+            ? Buffer.from(stored.slice('local:'.length), 'base64').toString('utf8')
+            : (() => { assertEncryptionAvailable(); return safeStorage.decryptString(Buffer.from(stored, 'base64')); })();
+          if (mode === 'local') draft.secrets[providerId] = `local:${Buffer.from(value, 'utf8').toString('base64')}`;
+          else {
+            assertEncryptionAvailable();
+            draft.secrets[providerId] = safeStorage.encryptString(value).toString('base64');
+          }
+        }
+        writeDocument(draft);
+      }
+    } catch (error) {
+      operationError = error;
+    }
+    try { releaseLock(lock); } catch (error) { if (!operationError) operationError = error; }
+    if (operationError) throw operationError;
+    return mode;
+  }
+
   return {
     set,
     setMany,
@@ -611,6 +666,8 @@ function createSecretsVault({ filePath, safeStorage, fsImpl }) {
     has,
     delete: remove,
     getProviderMetadata,
+    getStorageMode,
+    setStorageMode,
   };
 }
 

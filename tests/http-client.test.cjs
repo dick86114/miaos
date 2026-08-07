@@ -259,3 +259,20 @@ test('302 源响应持续输出时会关闭源连接后再完成下一跳', asyn
     }
   });
 });
+
+test('公开错误会附带安全的失败阶段与底层错误码，供界面展示排查帮助', () => {
+  const error = new AppError('GENERATION_FAILED', '生图失败，请查看诊断日志', {
+    retryable: true,
+    diagnosticId: 'diag-safe',
+    stage: 'image_download',
+    reasonCode: 'ECONNRESET',
+  });
+  assert.deepEqual(toPublicError(error), {
+    code: 'GENERATION_FAILED',
+    error: '生图失败，请查看诊断日志',
+    retryable: true,
+    diagnosticId: 'diag-safe',
+    stage: 'image_download',
+    reasonCode: 'ECONNRESET',
+  });
+});

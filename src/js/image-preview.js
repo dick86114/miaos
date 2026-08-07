@@ -1,4 +1,6 @@
 // 统一图片预览：供历史、快速生图和项目工作台复用。
+import { formatDiagnosticText, getGenerationErrorHelp } from './generation-error-help.js';
+
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.2;
@@ -41,6 +43,7 @@ export function openImagePreview(record, options = {}) {
     onDownload,
     onCopyPrompt,
     onNavigateToProject,
+    copyText = (text) => navigator.clipboard.writeText(text),
   } = options;
   const imageSource = record?.image;
   const isFailureDetail = !imageSource && record?.status === 'failed';
@@ -71,11 +74,30 @@ export function openImagePreview(record, options = {}) {
 
   const info = createElement(documentRef, 'div', 'image-preview-info');
   if (isFailureDetail) {
+    const errorDetails = record.errorDetails || {};
+    const help = getGenerationErrorHelp({
+      ...errorDetails,
+      message: record.error,
+    });
     const failureSummary = createElement(documentRef, 'div', 'image-preview-failure');
     failureSummary.setAttribute('data-image-preview-failure', '');
-    failureSummary.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-title', '生成失败'));
+    failureSummary.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-title', help.title));
+    failureSummary.appendChild(createElement(documentRef, 'p', 'image-preview-failure-summary', help.summary));
+    const reasons = createElement(documentRef, 'div', 'image-preview-failure-section');
+    reasons.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-heading', '可能原因'));
+    const reasonList = createElement(documentRef, 'ul', 'image-preview-failure-list');
+    help.reasons.forEach((reason) => reasonList.appendChild(createElement(documentRef, 'li', '', reason)));
+    reasons.appendChild(reasonList);
+    failureSummary.appendChild(reasons);
+    const steps = createElement(documentRef, 'div', 'image-preview-failure-section');
+    steps.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-heading', '可尝试的解决步骤'));
+    const stepList = createElement(documentRef, 'ol', 'image-preview-failure-list');
+    help.steps.forEach((step) => stepList.appendChild(createElement(documentRef, 'li', '', step)));
+    steps.appendChild(stepList);
+    failureSummary.appendChild(steps);
     info.appendChild(failureSummary);
     appendInfoRow(documentRef, info, '错误', String(record.error || '未知错误'));
+    if (errorDetails.diagnosticId) appendInfoRow(documentRef, info, '诊断编号', errorDetails.diagnosticId);
   }
   appendInfoRow(documentRef, info, '模型', [record.providerName, record.modelId].filter(Boolean).join(' / '));
   appendInfoRow(documentRef, info, '版本', record.versionName || record.contextLabel || '');
@@ -117,6 +139,21 @@ export function openImagePreview(record, options = {}) {
     copyButton.type = 'button';
     copyButton.addEventListener('click', () => onCopyPrompt(record.prompt, record));
     actions.appendChild(copyButton);
+  }
+  if (isFailureDetail && record.errorDetails?.diagnosticId) {
+    const help = getGenerationErrorHelp({ ...record.errorDetails, message: record.error });
+    const copyDiagnosticButton = createElement(documentRef, 'button', 'btn btn-ghost btn-sm', '复制诊断信息');
+    copyDiagnosticButton.type = 'button';
+    copyDiagnosticButton.setAttribute('data-image-preview-copy-diagnostic', '');
+    copyDiagnosticButton.addEventListener('click', async () => {
+      try {
+        await copyText(formatDiagnosticText(record, help));
+        copyDiagnosticButton.textContent = '已复制';
+      } catch (_) {
+        copyDiagnosticButton.textContent = '复制失败';
+      }
+    });
+    actions.appendChild(copyDiagnosticButton);
   }
 
   const content = createElement(documentRef, 'div', 'image-preview-content');

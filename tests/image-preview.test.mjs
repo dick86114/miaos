@@ -120,6 +120,15 @@ function findByAttribute(root, name) {
   return null;
 }
 
+function findByText(root, pattern) {
+  if (pattern.test?.(root.textContent || '')) return root;
+  for (const child of root.children || []) {
+    const found = findByText(child, pattern);
+    if (found) return found;
+  }
+  return null;
+}
+
 async function loadPreview() {
   return import(`../src/js/image-preview.js?image-preview=${Date.now()}-${Math.random()}`);
 }
@@ -325,4 +334,28 @@ test('无图失败任务也会打开失败详情，并完整展示错误与生�
   assert.equal(closeCount, 1, '重复关闭不得重复触发 onClose');
   assert.equal(findByAttribute(documentRef.body, 'data-image-preview'), null);
   assert.equal(documentRef.activeElement, trigger, '关闭语义必须与图片预览一致并恢复触发焦点');
+});
+
+test('失败详情展示通俗原因、解决步骤和可复制的诊断信息', async () => {
+  const { openImagePreview } = await loadPreview();
+  const documentRef = createDocument();
+  let copied = '';
+  openImagePreview({
+    status: 'failed',
+    error: '生图失败，请查看诊断日志',
+    errorDetails: { stage: 'image_download', reasonCode: 'ECONNRESET', diagnosticId: 'diag-example' },
+    providerName: 'agnes',
+    modelId: 'agnes-image-2.1-flash',
+  }, {
+    documentRef,
+    copyText: async (value) => { copied = value; },
+  });
+
+  const failure = findByAttribute(documentRef.body, 'data-image-preview-failure');
+  assert.ok(findByText(failure, /图片已生成，但下载结果时连接中断/));
+  assert.ok(findByText(failure, /切换手机热点/));
+  const copyButton = findByAttribute(documentRef.body, 'data-image-preview-copy-diagnostic');
+  copyButton.dispatch('click');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.match(copied, /diag-example/);
 });

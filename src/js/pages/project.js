@@ -31,6 +31,7 @@ import { buildImageDetailRoute, buildProjectPromptChain } from '../image-detail-
 import * as queue from '../queue.js';
 import { createPromptOptimizationManager } from '../prompt-optimization.js';
 import { createPromptOptimizationPageBinding } from './generate.js';
+import { getGenerationErrorHelp } from '../generation-error-help.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -331,7 +332,7 @@ export function renderProject(container, params, routeOptions = {}) {
       }
       if (t.status === 'failed') {
         const errMsg = t.error && String(t.error).trim() ? String(t.error).trim() : '未知错误';
-        const shortMsg = errMsg.length > 36 ? errMsg.slice(0, 36) + '…' : errMsg;
+        const shortMsg = getGenerationErrorHelp({ ...t.errorDetails, message: errMsg }).title;
         return `
           <div class="gallery-item gallery-placeholder task-failed" data-task-id="${t.id}">
             <div class="placeholder-cover task-error-cover">

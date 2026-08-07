@@ -23,6 +23,8 @@ const EXPECTED_CHANNELS = [
   'update-configure',
   'provider-secret-set',
   'provider-secret-has',
+  'provider-secret-storage-get',
+  'provider-secret-storage-set',
   'provider-secret-delete',
   'provider-secret-migrate',
   'export-config',
@@ -503,7 +505,7 @@ test('app.setPath 非预期异常会传播且不显示数据目录错误', async
   }
 });
 
-test('正常启动精确注册 21 个真实安全 handler（含配置导出与局域网配对），未知 sender 全部被拒绝', async () => {
+test('正常启动精确注册 23 个真实安全 handler（含密钥保存方式、配置导出与局域网配对），未知 sender 全部被拒绝', async () => {
   const homePath = createTempHome('miaos-ipc-registrations-');
   try {
     const { calls } = await runMainWithMock({ homePath });

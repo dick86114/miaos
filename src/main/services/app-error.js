@@ -7,6 +7,8 @@ class AppError extends Error {
     this.status = options.status ?? null;
     this.retryable = options.retryable ?? false;
     this.diagnosticId = typeof options.diagnosticId === 'string' ? options.diagnosticId : null;
+    this.stage = typeof options.stage === 'string' ? options.stage : null;
+    this.reasonCode = typeof options.reasonCode === 'string' ? options.reasonCode : null;
   }
 }
 
@@ -18,6 +20,8 @@ function toPublicError(error) {
       retryable: error.retryable,
     };
     if (error.diagnosticId) result.diagnosticId = error.diagnosticId;
+    if (error.stage) result.stage = error.stage;
+    if (error.reasonCode) result.reasonCode = error.reasonCode;
     return result;
   }
 

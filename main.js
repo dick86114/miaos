@@ -204,6 +204,7 @@ secretsVault = createSecretsVault({
   filePath: path.join(userDataPath, 'secrets.json'),
   safeStorage,
   fsImpl: fs,
+  defaultStorageMode: 'local',
 });
 diagnosticLogger = createDiagnosticLogger({
   directoryPath: path.join(userDataPath, 'logs'),
@@ -563,6 +564,24 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: (providerId) => { validateProviderId(providerId); },
   handle: async (_event, providerId) => ({ ok: true, has: secretsVault.has(providerId) }),
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'provider-secret-storage-get',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => ({ ok: true, mode: secretsVault.getStorageMode() }),
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'provider-secret-storage-set',
+  getMainWindow: () => mainWindow,
+  validate: (mode) => {
+    if (!['local', 'keychain'].includes(mode)) throw new Error('密钥存储方式不正确');
+  },
+  handle: async (_event, mode) => ({ ok: true, mode: secretsVault.setStorageMode(mode) }),
 });
 
 registerSecureHandler({
@@ -1355,6 +1374,8 @@ registerSecureHandler({
         error,
       });
       if (error instanceof AppError) {
+        if (!error.stage) error.stage = error?.diagnosticStage || stage;
+        if (!error.reasonCode && error.code !== 'GENERATION_FAILED') error.reasonCode = error.code;
         if (diagnostic?.id) {
           error.diagnosticId = diagnostic.id;
           error.userMessage = `${error.userMessage}（诊断编号：${diagnostic.id}）`;
@@ -1368,6 +1389,8 @@ registerSecureHandler({
           cause: error,
           retryable: true,
           diagnosticId: diagnostic?.id,
+          stage: error?.diagnosticStage || stage,
+          reasonCode: error?.code || null,
         });
       }
       throw error;
