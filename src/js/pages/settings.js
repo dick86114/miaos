@@ -391,23 +391,23 @@ export function renderSettings(container) {
             <span class="form-step-num">1</span>
             <span class="form-step-label">填写基础信息</span>
           </div>
-          <div class="form-row">
-            <div class="form-group">
+          <div class="form-row provider-basic-grid">
+            <div class="form-group provider-field">
               <label class="form-label" for="pf-name">供应商名称</label>
               <input class="form-input" id="pf-name" type="text" placeholder="例：Grsai、DeepSeek" value="${escapeAttr(f.name || '')}" />
             </div>
-            <div class="form-group">
+            <div class="form-group provider-field">
               <label class="form-label" for="pf-type">API 类型</label>
               <select class="form-select" id="pf-type">
                 ${PROVIDER_TYPES.map((t) => `<option value="${t.value}" ${f.type === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
               </select>
             </div>
           </div>
-          <div class="form-group">
+          <div class="form-group provider-field provider-field-wide">
             <label class="form-label" for="pf-endpoint">API 地址</label>
             <input class="form-input" id="pf-endpoint" type="text" placeholder="https://api.example.com/v1" value="${escapeAttr(f.endpoint || '')}" />
           </div>
-          <div class="form-group">
+          <div class="form-group provider-field provider-field-wide">
             <label class="form-label" for="pf-key">API Key</label>
             <div class="input-with-action">
               <input class="form-input" id="pf-key" type="${pageState.keyVisible ? 'text' : 'password'}" placeholder="${f.hasApiKey ? '已安全保存，留空表示不修改' : 'sk-...（可选，公开接口可留空）'}" value="" />
@@ -415,11 +415,11 @@ export function renderSettings(container) {
                 ${icon(pageState.keyVisible ? 'eye-off' : 'eye', 16)}
               </button>
             </div>
-            <div class="form-hint">密钥通过系统钥匙串加密保存在本机，不会写入应用状态</div>
+            <div class="form-hint">密钥按当前保存方式保存在本机，不会写入应用状态。</div>
           </div>
 
           <!-- 能力选择 -->
-          <div class="form-group">
+          <div class="form-group provider-field provider-field-wide provider-capability-field">
             <label class="form-label">支持的功能</label>
             <div class="capability-toggles">
               ${CATEGORIES.map((c) => `
@@ -759,7 +759,9 @@ export function renderSettings(container) {
             }
             f.capabilities = [...pt.defaultCaps];
           }
+          const typedApiKey = inner.querySelector('#pf-key')?.value || '';
           refresh();
+          restoreTypedApiKey(getInner(), typedApiKey);
         }
       });
     };
@@ -788,16 +790,16 @@ export function renderSettings(container) {
 
     // 能力勾选
     inner.querySelectorAll('.cap-toggle').forEach((tog) => {
-      tog.addEventListener('click', (e) => {
-        e.preventDefault();
+      const capabilityInput = tog.querySelector('input[type="checkbox"]');
+      if (!capabilityInput) return;
+      capabilityInput.addEventListener('change', () => {
+        const typedApiKey = inner.querySelector('#pf-key')?.value || '';
         const cat = tog.getAttribute('data-cat');
         const idx = f.capabilities.indexOf(cat);
-        if (idx >= 0) {
-          f.capabilities.splice(idx, 1);
-        } else {
-          f.capabilities.push(cat);
-        }
+        if (capabilityInput.checked && idx < 0) f.capabilities.push(cat);
+        if (!capabilityInput.checked && idx >= 0) f.capabilities.splice(idx, 1);
         refresh();
+        restoreTypedApiKey(getInner(), typedApiKey);
       });
     });
 
