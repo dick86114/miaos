@@ -573,6 +573,14 @@ registerSecureHandler({
 
 registerSecureHandler({
   ipcMain,
+  channel: 'provider-secret-local-get',
+  getMainWindow: () => mainWindow,
+  validate: (providerId) => { validateProviderId(providerId); },
+  handle: async (_event, providerId) => ({ ok: true, value: secretsVault.getLocal(providerId) || '' }),
+});
+
+registerSecureHandler({
+  ipcMain,
   channel: 'provider-secret-storage-get',
   getMainWindow: () => mainWindow,
   validate: () => {},

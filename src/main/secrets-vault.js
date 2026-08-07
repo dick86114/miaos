@@ -669,6 +669,20 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
     }
   }
 
+  // 只返回当前启用本地保存时的 API Key；钥匙串模式和旧版隔离密文都不会从这里读取。
+  function getLocal(providerId) {
+    assertProviderId(providerId);
+    const document = readDocument();
+    if (document.storageMode !== 'local') return null;
+    const stored = document.secrets[providerId];
+    if (!stored || !stored.startsWith('local:')) return null;
+    try {
+      return Buffer.from(stored.slice('local:'.length), 'base64').toString('utf8');
+    } catch (_) {
+      throw createVaultError('SECRET_VAULT_CORRUPTED', '本地保存的 API Key 已损坏，请重新保存密钥');
+    }
+  }
+
   function has(providerId) {
     assertProviderId(providerId);
     const document = readDocument();
@@ -751,6 +765,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
     setMany,
     restoreSnapshot,
     get,
+    getLocal,
     has,
     delete: remove,
     getProviderMetadata,

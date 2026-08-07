@@ -627,3 +627,27 @@ test('存储策略第 2 版拒绝损坏的旧密钥隔离区', () => {
 
   assert.throws(() => vault.getStorageMode(), (error) => error.code === 'SECRET_VAULT_CORRUPTED');
 });
+
+test('本地保存模式可读取本地 Key，钥匙串模式不会通过本地读取接口解密', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-vault-local-read-'));
+  const filePath = path.join(dir, 'secrets.json');
+  let decryptCalls = 0;
+  const safeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => Buffer.from(`encrypted:${value}`),
+    decryptString: () => { decryptCalls += 1; return 'should-not-read'; },
+  };
+  const vault = createSecretsVault({
+    filePath,
+    safeStorage,
+    fsImpl: fs,
+    defaultStorageMode: 'local',
+    storagePolicyVersion: 2,
+  });
+  vault.set('provider_a', 'sk-local');
+  assert.equal(vault.getLocal('provider_a'), 'sk-local');
+
+  vault.setStorageMode('keychain');
+  assert.equal(vault.getLocal('provider_a'), null);
+  assert.equal(decryptCalls, 0);
+});

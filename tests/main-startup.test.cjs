@@ -23,6 +23,7 @@ const EXPECTED_CHANNELS = [
   'update-configure',
   'provider-secret-set',
   'provider-secret-has',
+  'provider-secret-local-get',
   'provider-secret-storage-get',
   'provider-secret-storage-set',
   'provider-secret-delete',

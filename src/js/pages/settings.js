@@ -155,6 +155,11 @@ export function renderSettings(container) {
           type: 'grsai',
           endpoint: 'https://grsaiapi.com/v1/api/generate',
           hasApiKey: false,
+          localApiKey: '',
+          localApiKeyLoaded: true,
+          localApiKeyTouched: false,
+          secretPresenceLoaded: true,
+          keychainEditing: false,
           capabilities: ['image'],
           imageModels: [],
           textModels: [],
@@ -168,6 +173,11 @@ export function renderSettings(container) {
           type: selectedProvider.type,
           endpoint: selectedProvider.endpoint,
           hasApiKey: !!selectedProvider.hasApiKey,
+          localApiKey: '',
+          localApiKeyLoaded: false,
+          localApiKeyTouched: false,
+          secretPresenceLoaded: false,
+          keychainEditing: false,
           capabilities: [...(selectedProvider.capabilities || [])],
           imageModels: (selectedProvider.imageModels || []).map((m) => ({ ...m })),
           textModels: (selectedProvider.textModels || []).map((m) => ({ ...m })),
@@ -187,6 +197,7 @@ export function renderSettings(container) {
     newScrollContainer.scrollTop = savedScrollTop;
     newScrollContainer.scrollLeft = savedScrollLeft;
     bindEvents();
+    loadProviderSecretStateForForm();
   }
 
   function renderLayout(providers) {
@@ -388,6 +399,21 @@ export function renderSettings(container) {
     const isNew = !existing;
     const testStatus = pageState.testStatus;
     const testLoading = pageState.testLoading;
+    const isLocalStorage = pageState.secretStorageMode === 'local';
+    const keychainSaved = !isLocalStorage && f.hasApiKey && !f.keychainEditing;
+    const keyInput = keychainSaved ? `
+              <div class="provider-keychain-status">
+                <span>${icon('key-round', 15)}<span>API Key 已保存到系统钥匙串</span></span>
+                <button class="btn btn-ghost btn-sm" type="button" id="btn-edit-keychain-key">重新设置</button>
+              </div>
+            ` : `
+              <div class="input-with-action">
+                <input class="form-input" id="pf-key" type="${pageState.keyVisible ? 'text' : 'password'}" placeholder="${f.hasApiKey ? '已安全保存，留空表示不修改' : 'sk-...（可选，公开接口可留空）'}" value="${escapeAttr(f.localApiKey || '')}" />
+                ${isLocalStorage ? `<button class="input-action-btn" type="button" id="btn-toggle-key" title="${pageState.keyVisible ? '隐藏密钥' : '显示密钥'}">
+                  ${icon(pageState.keyVisible ? 'eye-off' : 'eye', 16)}
+                </button>` : ''}
+              </div>
+            `;
 
     return `
       <div class="provider-form-scroll">
@@ -425,13 +451,10 @@ export function renderSettings(container) {
           </div>
           <div class="form-group provider-field provider-field-wide">
             <label class="form-label" for="pf-key">API Key</label>
-            <div class="input-with-action">
-              <input class="form-input" id="pf-key" type="${pageState.keyVisible ? 'text' : 'password'}" placeholder="${f.hasApiKey ? '已安全保存，留空表示不修改' : 'sk-...（可选，公开接口可留空）'}" value="" />
-              <button class="input-action-btn" type="button" id="btn-toggle-key" title="${pageState.keyVisible ? '隐藏密钥' : '显示密钥'}">
-                ${icon(pageState.keyVisible ? 'eye-off' : 'eye', 16)}
-              </button>
-            </div>
-            <div class="form-hint">密钥按当前保存方式保存在本机，不会写入应用状态。</div>
+            ${keyInput}
+            <div class="form-hint">${isLocalStorage
+              ? '密钥保存在妙生应用本地，不会写入应用状态；可通过眼睛按钮查看。'
+              : '密钥保存到 macOS 系统钥匙串，应用不会在页面中显示密钥内容。'}</div>
           </div>
 
           <!-- 能力选择 -->
@@ -824,6 +847,14 @@ export function renderSettings(container) {
     syncInput('pf-endpoint', 'endpoint');
     syncSelect('pf-type', 'type');
 
+    const secretInput = inner.querySelector('#pf-key');
+    if (secretInput) {
+      secretInput.addEventListener('input', () => {
+        f.localApiKey = secretInput.value;
+        f.localApiKeyTouched = true;
+      });
+    }
+
     // API Key 显示/隐藏切换（不刷新页面，直接操作DOM）
     const toggleKeyBtn = inner.querySelector('#btn-toggle-key');
     const keyInput = inner.querySelector('#pf-key');
@@ -839,6 +870,16 @@ export function renderSettings(container) {
         // 将光标移到末尾
         const len = keyInput.value.length;
         keyInput.setSelectionRange(len, len);
+      });
+    }
+
+    const editKeychainKeyBtn = inner.querySelector('#btn-edit-keychain-key');
+    if (editKeychainKeyBtn) {
+      editKeychainKeyBtn.addEventListener('click', () => {
+        f.keychainEditing = true;
+        f.localApiKey = '';
+        f.localApiKeyTouched = false;
+        refresh();
       });
     }
 
@@ -1206,9 +1247,42 @@ export function renderSettings(container) {
         pageState.savedSecretStorageMode = result.mode;
         if (!generalWasDirty) pageState.secretStorageMode = result.mode;
         pageState.legacySecretCount = Number(result.legacySecretCount) || 0;
-        if (pageState.tab === 'general') refresh();
+        if (pageState.tab === 'general' || pageState.tab === 'providers') refresh();
       }
     }).catch(() => {});
+  }
+
+  function loadProviderSecretStateForForm() {
+    const form = pageState.form;
+    if (pageState.tab !== 'providers' || pageState.isAddingProvider || !form?.id) return;
+    const providerId = form.id;
+    if (pageState.secretStorageMode === 'local') {
+      if (form.localApiKeyLoaded || !window.api?.getProviderSecretLocal) return;
+      form.localApiKeyLoaded = true;
+      window.api.getProviderSecretLocal(providerId).then((result) => {
+        if (pageState.form?.id !== providerId || pageState.secretStorageMode !== 'local') return;
+        if (result?.ok && !pageState.form.localApiKeyTouched) {
+          pageState.form.localApiKey = result.value || '';
+          pageState.form.hasApiKey = !!pageState.form.localApiKey;
+          refresh();
+        }
+      }).catch(() => {
+        if (pageState.form?.id === providerId) pageState.form.localApiKeyLoaded = false;
+      });
+      return;
+    }
+
+    if (form.secretPresenceLoaded || !window.api?.hasProviderSecret) return;
+    form.secretPresenceLoaded = true;
+    window.api.hasProviderSecret(providerId).then((result) => {
+      if (pageState.form?.id !== providerId || pageState.secretStorageMode !== 'keychain') return;
+      if (result?.ok) {
+        pageState.form.hasApiKey = result.has === true;
+        refresh();
+      }
+    }).catch(() => {
+      if (pageState.form?.id === providerId) pageState.form.secretPresenceLoaded = false;
+    });
   }
 
   // ========== 更新相关 ==========

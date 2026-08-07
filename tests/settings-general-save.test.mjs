@@ -17,7 +17,7 @@ test('通用设置将主题、默认模型与钥匙串开关暂存到草稿，�
   assert.match(settings, /await window\.api\.setProviderSecretStorage\(pageState\.secretStorageMode\)/u);
   assert.match(settings, /pageState\.secretStorageMode = result\.mode/u);
   assert.match(settings, /pageState\.savedSecretStorageMode = result\.mode/u);
-  assert.match(settings, /if \(pageState\.tab === 'general'\) refresh\(\);/u);
+  assert.match(settings, /if \(pageState\.tab === 'general' \|\| pageState\.tab === 'providers'\) refresh\(\);/u);
   assert.match(settings, /toast\('通用设置已保存', 'success'\)/u);
   assert.doesNotMatch(settings, /toast\('主题已切换', 'success'\)/u);
 });

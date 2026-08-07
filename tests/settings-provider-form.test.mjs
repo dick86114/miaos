@@ -19,6 +19,10 @@ test('切换供应商能力时保留正在输入的 API Key，并使用语义化
   assert.match(settings, /const typedApiKey = inner\.querySelector\('#pf-key'\)\?\.value \|\| '';/u);
   assert.match(settings, /restoreTypedApiKey\(getInner\(\), typedApiKey\);/u);
   assert.match(settings, /capabilityInput\.addEventListener\('change'/u);
+  assert.match(settings, /getProviderSecretLocal/u);
+  assert.match(settings, /pageState\.secretStorageMode === 'local'/u);
+  assert.match(settings, /已保存到系统钥匙串/u);
+  assert.match(settings, /密钥保存在妙生应用本地/u);
   assert.match(css, /\.provider-basic-grid/u);
   assert.match(css, /\.provider-field/u);
 });
