@@ -292,6 +292,20 @@ export async function migrateLegacyProviderSecrets(state, migrateSecrets) {
   return { ok: true, migrated: false };
 }
 
+// 存储策略升级时清除旧 localStorage 中的明文密钥，避免在用户未授权的情况下继续使用或迁移。
+export function discardLegacyProviderSecrets(state) {
+  const providers = Array.isArray(state?.providers) ? state.providers : [];
+  let clearedCount = 0;
+  for (const provider of providers) {
+    if (typeof provider?.apiKey === 'string' && provider.apiKey.length > 0) clearedCount += 1;
+    if (provider && typeof provider === 'object' && Object.prototype.hasOwnProperty.call(provider, 'apiKey')) {
+      delete provider.apiKey;
+      provider.hasApiKey = false;
+    }
+  }
+  return { clearedCount };
+}
+
 export function validateState(value) {
   const errors = [];
   if (!value || typeof value !== 'object') errors.push('状态必须是对象');

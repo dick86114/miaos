@@ -31,9 +31,10 @@ function waitForLockRetry() {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCK_RETRY_MS);
 }
 
-function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode = 'keychain' }) {
+function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode = 'keychain', storagePolicyVersion = 1 }) {
   if (typeof filePath !== 'string' || !filePath) throw new TypeError('密钥文件路径不能为空');
   if (!['local', 'keychain'].includes(defaultStorageMode)) throw new TypeError('默认密钥存储方式不正确');
+  if (![1, 2].includes(storagePolicyVersion)) throw new TypeError('密钥存储策略版本不正确');
   if (!fsImpl || typeof fsImpl.existsSync !== 'function' || typeof fsImpl.readFileSync !== 'function'
     || typeof fsImpl.writeFileSync !== 'function' || typeof fsImpl.openSync !== 'function'
     || typeof fsImpl.fsyncSync !== 'function' || typeof fsImpl.closeSync !== 'function'
@@ -52,13 +53,54 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
   }
 
   function createEmptyDocument() {
-    return { version: 1, storageMode: defaultStorageMode, secrets: createDictionary(), providers: createDictionary() };
+    return {
+      version: 1,
+      ...(storagePolicyVersion >= 2 ? { storagePolicyVersion: 2 } : {}),
+      storageMode: defaultStorageMode,
+      secrets: createDictionary(),
+      ...(storagePolicyVersion >= 2 ? { legacySecrets: createDictionary() } : {}),
+      providers: createDictionary(),
+    };
   }
 
   function inferStorageMode(storedMode, secrets) {
     if (['local', 'keychain'].includes(storedMode)) return storedMode;
     // 旧版文件没有显式模式时，遵循当前默认模式；默认本地保存时绝不因旧密文访问系统钥匙串。
     return defaultStorageMode;
+  }
+
+  function isSecretDictionary(value) {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      && Object.values(value).every((entry) => typeof entry === 'string');
+  }
+
+  // 策略第 2 版隔离升级前保存的钥匙串密文：默认本地模式下绝不读取它们。
+  function isolateLegacySecrets(document) {
+    const secrets = createDictionary();
+    const legacySecrets = cloneDictionary(document.legacySecrets);
+    for (const [providerId, stored] of Object.entries(document.secrets)) {
+      if (stored.startsWith('local:')) secrets[providerId] = stored;
+      else legacySecrets[providerId] = stored;
+    }
+    return {
+      version: 1,
+      storagePolicyVersion: 2,
+      storageMode: 'local',
+      secrets,
+      legacySecrets,
+      providers: cloneDictionary(document.providers),
+    };
+  }
+
+  function createWritableDocument(document) {
+    return {
+      version: 1,
+      ...(document.storagePolicyVersion >= 2 ? { storagePolicyVersion: 2 } : {}),
+      storageMode: document.storageMode,
+      secrets: cloneDictionary(document.secrets),
+      ...(document.storagePolicyVersion >= 2 ? { legacySecrets: cloneDictionary(document.legacySecrets) } : {}),
+      providers: cloneDictionary(document.providers),
+    };
   }
 
   function readDocument() {
@@ -70,22 +112,31 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
       throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库已损坏，请重新保存密钥');
     }
 
-    if (parsed && parsed.version === 1 && parsed.secrets && parsed.providers
-      && typeof parsed.secrets === 'object' && typeof parsed.providers === 'object'
-      && !Array.isArray(parsed.secrets) && !Array.isArray(parsed.providers)
-      && Object.values(parsed.secrets).every((value) => typeof value === 'string')) {
-      return {
+    if (parsed && parsed.version === 1 && isSecretDictionary(parsed.secrets)
+      && parsed.providers && typeof parsed.providers === 'object' && !Array.isArray(parsed.providers)) {
+      if (parsed.storagePolicyVersion === 2 && !isSecretDictionary(parsed.legacySecrets)) {
+        throw createVaultError('SECRET_VAULT_CORRUPTED', '旧版密钥隔离区已损坏，请重新保存密钥');
+      }
+      const document = {
         version: 1,
         storageMode: inferStorageMode(parsed.storageMode, parsed.secrets),
         secrets: cloneDictionary(parsed.secrets),
         providers: cloneDictionary(parsed.providers),
       };
+      if (parsed.storagePolicyVersion === 2 && isSecretDictionary(parsed.legacySecrets)) {
+        document.storagePolicyVersion = 2;
+        document.legacySecrets = cloneDictionary(parsed.legacySecrets);
+      }
+      return storagePolicyVersion >= 2 && document.storagePolicyVersion !== 2
+        ? isolateLegacySecrets(document)
+        : document;
     }
 
     // 兼容本任务前一轮已经落盘的纯密文映射，读取后在下一次写入转换为 v1 文档。
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       && Object.values(parsed).every((value) => typeof value === 'string')) {
-      return { version: 1, storageMode: inferStorageMode(null, parsed), secrets: cloneDictionary(parsed), providers: createDictionary() };
+      const document = { version: 1, storageMode: inferStorageMode(null, parsed), secrets: cloneDictionary(parsed), providers: createDictionary() };
+      return storagePolicyVersion >= 2 ? isolateLegacySecrets(document) : document;
     }
 
     throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库已损坏，请重新保存密钥');
@@ -520,16 +571,15 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
     let operationError = null;
     try {
       const document = readDocument();
-      const draft = {
-        version: 1,
-        storageMode: document.storageMode,
-        secrets: cloneDictionary(document.secrets),
-        providers: cloneDictionary(document.providers),
-      };
+      const draft = createWritableDocument(document);
       for (const entry of prepared) {
         if (entry.encryptedValue) draft.secrets[entry.providerId] = entry.encryptedValue;
         if (entry.localValue) draft.secrets[entry.providerId] = `local:${entry.localValue}`;
-        if (entry.deleteSecret) delete draft.secrets[entry.providerId];
+        if (entry.encryptedValue || entry.localValue) delete draft.legacySecrets?.[entry.providerId];
+        if (entry.deleteSecret) {
+          delete draft.secrets[entry.providerId];
+          delete draft.legacySecrets?.[entry.providerId];
+        }
         if (Object.prototype.hasOwnProperty.call(entry, 'metadata')) {
           if (entry.metadata === null) delete draft.providers[entry.providerId];
           else draft.providers[entry.providerId] = entry.metadata;
@@ -559,12 +609,21 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
       || typeof snapshot.secrets !== 'object' || typeof snapshot.providers !== 'object') {
       throw createVaultError('SECRET_VAULT_CORRUPTED', '密钥仓库快照格式不正确');
     }
-    const document = {
-      version: 1,
-      storageMode: ['local', 'keychain'].includes(snapshot.storageMode) ? snapshot.storageMode : defaultStorageMode,
-      secrets: cloneDictionary(snapshot.secrets),
-      providers: cloneDictionary(snapshot.providers),
-    };
+    const document = storagePolicyVersion >= 2 && snapshot.storagePolicyVersion !== 2
+      ? isolateLegacySecrets({
+        version: 1,
+        storageMode: ['local', 'keychain'].includes(snapshot.storageMode) ? snapshot.storageMode : defaultStorageMode,
+        secrets: cloneDictionary(snapshot.secrets),
+        providers: cloneDictionary(snapshot.providers),
+      })
+      : {
+        version: 1,
+        ...(snapshot.storagePolicyVersion === 2 ? { storagePolicyVersion: 2 } : {}),
+        storageMode: ['local', 'keychain'].includes(snapshot.storageMode) ? snapshot.storageMode : defaultStorageMode,
+        secrets: cloneDictionary(snapshot.secrets),
+        ...(snapshot.storagePolicyVersion === 2 && isSecretDictionary(snapshot.legacySecrets) ? { legacySecrets: cloneDictionary(snapshot.legacySecrets) } : {}),
+        providers: cloneDictionary(snapshot.providers),
+      };
     const lock = acquireLock(ownerToken);
     let operationError = null;
     try {
@@ -636,6 +695,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
 
   function getLegacySecretCount() {
     const document = readDocument();
+    if (document.storagePolicyVersion === 2) return Object.keys(document.legacySecrets).length;
     if (document.storageMode === 'keychain') return 0;
     return Object.values(document.secrets).filter((value) => typeof value === 'string' && !value.startsWith('local:')).length;
   }
@@ -643,6 +703,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
   function hasLegacySecret(providerId) {
     assertProviderId(providerId);
     const document = readDocument();
+    if (document.storagePolicyVersion === 2) return typeof document.legacySecrets[providerId] === 'string';
     const stored = document.secrets[providerId];
     return document.storageMode !== 'keychain' && typeof stored === 'string' && !stored.startsWith('local:');
   }
@@ -654,7 +715,9 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
     try {
       const document = readDocument();
       if (document.storageMode !== mode) {
-        const draft = { version: 1, storageMode: mode, secrets: createDictionary(), providers: cloneDictionary(document.providers) };
+        const draft = createWritableDocument(document);
+        draft.storageMode = mode;
+        draft.secrets = createDictionary();
         for (const [providerId, stored] of Object.entries(document.secrets)) {
           const value = stored.startsWith('local:')
             ? Buffer.from(stored.slice('local:'.length), 'base64').toString('utf8')
@@ -664,6 +727,14 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
             assertEncryptionAvailable();
             draft.secrets[providerId] = safeStorage.encryptString(value).toString('base64');
           }
+        }
+        // 旧钥匙串密文只在用户显式开启钥匙串后才恢复为可读取密钥；
+        // 与新保存的本地 Key 同名时，以用户新输入的 Key 为准。
+        if (document.storagePolicyVersion === 2 && mode === 'keychain') {
+          for (const [providerId, stored] of Object.entries(document.legacySecrets)) {
+            if (!draft.secrets[providerId]) draft.secrets[providerId] = stored;
+          }
+          draft.legacySecrets = createDictionary();
         }
         writeDocument(draft);
       }

@@ -9,6 +9,7 @@ import {
   createStatePersistence,
   validateState,
   migrateLegacyProviderSecrets,
+  discardLegacyProviderSecrets,
 } from '../src/js/state-schema.js';
 
 function createMemoryStorage(seed = {}) {
@@ -198,6 +199,18 @@ test('旧密钥迁移失败时状态保持原样', async () => {
 
   assert.deepEqual(result, { ok: false, error: '系统钥匙串不可用' });
   assert.equal(state.providers[0].apiKey, 'sk-keep');
+  assert.equal(state.providers[0].hasApiKey, false);
+});
+
+test('升级时清除旧 localStorage 明文 API Key，并要求用户重新配置', () => {
+  const state = createDefaultState();
+  state.providers[0].apiKey = 'sk-clear-me';
+  state.providers[0].hasApiKey = true;
+
+  const result = discardLegacyProviderSecrets(state);
+
+  assert.deepEqual(result, { clearedCount: 1 });
+  assert.equal('apiKey' in state.providers[0], false);
   assert.equal(state.providers[0].hasApiKey, false);
 });
 

@@ -6,6 +6,7 @@ import {
   DEFAULT_ENABLED_IMAGE,
   GRSAI_IMAGE_MODELS,
   migrateLegacyProviderSecrets as migrateLegacyProviderSecretsInState,
+  discardLegacyProviderSecrets as discardLegacyProviderSecretsInState,
 } from './state-schema.js';
 
 const RANDOM_PROMPTS = [
@@ -99,6 +100,13 @@ export async function migrateLegacyProviderSecrets() {
     state = previousState;
     return { ok: false, error: error?.message || 'API Key 安全迁移失败' };
   }
+}
+
+// 存储策略第 2 版不再自动导入旧 localStorage 明文密钥，升级后必须由用户重新保存。
+export function discardLegacyProviderSecrets() {
+  const result = discardLegacyProviderSecretsInState(state);
+  if (result.clearedCount > 0) statePersistence.saveNow(state);
+  return result;
 }
 
 export function uid(prefix = 'id') {

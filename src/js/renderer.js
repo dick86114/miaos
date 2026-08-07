@@ -2,16 +2,12 @@
 import { renderIcons, icon } from './icons.js';
 import { initRouter, navigate } from './router.js';
 import { toast } from './ui.js';
-import { migrateLegacyProviderSecrets, getThemeMode } from './store.js';
+import { discardLegacyProviderSecrets, getThemeMode } from './store.js';
 
 async function init() {
-  const migration = await migrateLegacyProviderSecrets();
-  if (!migration.ok) {
-    const message = migration.code === 'CONFIGURATION_STATE_UNCERTAIN'
-      || String(migration.code || '').startsWith('SECRET_VAULT_APPLIED_')
-      ? '配置状态不确定，请重试/检查'
-      : 'API Key 安全迁移失败，旧配置已保留，请检查系统钥匙串';
-    toast(message, 'error', 8000);
+  const legacyLocalKeys = discardLegacyProviderSecrets();
+  if (legacyLocalKeys.clearedCount > 0) {
+    toast(`已清除 ${legacyLocalKeys.clearedCount} 个旧版本地 API Key，请前往“系统设置”重新保存`, 'info', 8000);
   }
 
   // 默认本地保存模式不会读取旧版钥匙串密文；仅提示用户主动重新配置或选择迁移。

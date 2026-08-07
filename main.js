@@ -205,6 +205,7 @@ secretsVault = createSecretsVault({
   safeStorage,
   fsImpl: fs,
   defaultStorageMode: 'local',
+  storagePolicyVersion: 2,
 });
 diagnosticLogger = createDiagnosticLogger({
   directoryPath: path.join(userDataPath, 'logs'),
@@ -585,7 +586,10 @@ registerSecureHandler({
   validate: (mode) => {
     if (!['local', 'keychain'].includes(mode)) throw new Error('密钥存储方式不正确');
   },
-  handle: async (_event, mode) => ({ ok: true, mode: secretsVault.setStorageMode(mode) }),
+  handle: async (_event, mode) => {
+    const nextMode = secretsVault.setStorageMode(mode);
+    return { ok: true, mode: nextMode, legacySecretCount: secretsVault.getLegacySecretCount() };
+  },
 });
 
 registerSecureHandler({

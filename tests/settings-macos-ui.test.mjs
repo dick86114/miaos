@@ -17,8 +17,6 @@ test('设置页主题与密钥保存使用 macOS 风格控件，并移除设置�
   assert.match(settings, /theme-mode-control/u);
   assert.match(settings, /macos-switch/u);
   assert.match(settings, /settings-security-row/u);
-  assert.match(settings, /正在迁移 API Key/u);
-  assert.match(settings, /已取消更改 API Key 保存方式/u);
   assert.match(settings, /旧版钥匙串密钥，当前未读取/u);
   assert.match(css, /\.theme-mode-control/u);
   assert.match(css, /\.macos-switch/u);

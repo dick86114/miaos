@@ -100,8 +100,12 @@ export function renderSettings(container) {
     },
     // 默认模型
     defaults: getDefaults(),
+    savedDefaults: getDefaults(),
+    themeMode: getThemeMode(),
+    savedThemeMode: getThemeMode(),
     pairing: { active: false, qrDataUrl: '', confirmationCode: '', expiresAt: 0 },
     secretStorageMode: 'local',
+    savedSecretStorageMode: 'local',
     legacySecretCount: 0,
   };
 
@@ -127,6 +131,12 @@ export function renderSettings(container) {
   };
 
   function getInner() { return root.querySelector('.settings-layout'); }
+
+  function isGeneralDirty() {
+    return pageState.themeMode !== pageState.savedThemeMode
+      || pageState.secretStorageMode !== pageState.savedSecretStorageMode
+      || JSON.stringify(pageState.defaults) !== JSON.stringify(pageState.savedDefaults);
+  }
 
   function refresh() {
     const providers = getProviders();
@@ -204,6 +214,7 @@ export function renderSettings(container) {
   // ========== 通用设置 ==========
   function renderGeneral(providers) {
     const d = pageState.defaults;
+    const generalDirty = isGeneralDirty();
 
     function modelOptions(cat) {
       const key = cat === 'image' ? 'defaultImage' : cat === 'text' ? 'defaultText' : 'defaultVideo';
@@ -240,11 +251,11 @@ export function renderSettings(container) {
         <div class="form-group">
           <label class="form-label">主题模式</label>
           <div class="segmented-control theme-mode-control" id="theme-mode" role="group" aria-label="主题模式">
-            <button type="button" class="segmented-item ${getThemeMode() === 'light' ? 'is-active' : ''}" data-theme="light" aria-pressed="${getThemeMode() === 'light'}">${icon('sun', 14)}<span>浅色</span></button>
-            <button type="button" class="segmented-item ${getThemeMode() === 'dark' ? 'is-active' : ''}" data-theme="dark" aria-pressed="${getThemeMode() === 'dark'}">${icon('moon', 14)}<span>深色</span></button>
-            <button type="button" class="segmented-item ${getThemeMode() === 'system' ? 'is-active' : ''}" data-theme="system" aria-pressed="${getThemeMode() === 'system'}">${icon('monitor', 14)}<span>跟随系统</span></button>
+            <button type="button" class="segmented-item ${pageState.themeMode === 'light' ? 'is-active' : ''}" data-theme="light" aria-pressed="${pageState.themeMode === 'light'}">${icon('sun', 14)}<span>浅色</span></button>
+            <button type="button" class="segmented-item ${pageState.themeMode === 'dark' ? 'is-active' : ''}" data-theme="dark" aria-pressed="${pageState.themeMode === 'dark'}">${icon('moon', 14)}<span>深色</span></button>
+            <button type="button" class="segmented-item ${pageState.themeMode === 'system' ? 'is-active' : ''}" data-theme="system" aria-pressed="${pageState.themeMode === 'system'}">${icon('monitor', 14)}<span>跟随系统</span></button>
           </div>
-          <div class="form-hint">切换后立即生效，无需重启应用</div>
+          <div class="form-hint">选择后点击页面底部的“保存通用设置”生效。</div>
         </div>
       </div>
 
@@ -289,6 +300,11 @@ export function renderSettings(container) {
           </select>
           <div class="form-hint">视频生成功能开发中</div>
         </div>
+      </div>
+
+      <div class="general-save-bar ${generalDirty ? 'is-dirty' : ''}">
+        <span class="general-save-hint">${generalDirty ? '有未保存的通用设置' : '通用设置已保存'}</span>
+        <button class="btn btn-primary" id="btn-save-general" type="button" ${generalDirty ? '' : 'disabled'}>${icon('save', 14)}<span>保存通用设置</span></button>
       </div>
 
       <div class="settings-card">
@@ -653,7 +669,7 @@ export function renderSettings(container) {
       });
     }
 
-    // 主题模式切换
+    // 通用设置只修改页面草稿；保存按钮统一落盘，避免开关视觉状态与实际配置不同步。
     const themeGroup = inner.querySelector('#theme-mode');
     if (themeGroup) {
       themeGroup.addEventListener('click', (e) => {
@@ -661,18 +677,12 @@ export function renderSettings(container) {
         if (!btn) return;
         const mode = btn.getAttribute('data-theme');
         if (!mode) return;
-        setThemeMode(mode);
-        document.documentElement.setAttribute('data-theme', mode);
-        themeGroup.querySelectorAll('.segmented-item').forEach((b) => {
-          const active = b === btn;
-          b.classList.toggle('is-active', active);
-          b.setAttribute('aria-pressed', String(active));
-        });
-        toast('主题已切换', 'success');
+        pageState.themeMode = mode;
+        refresh();
       });
     }
 
-    const saveDef = (cat) => {
+    const updateDefaultDraft = (cat) => {
       const sel = inner.querySelector('#def-' + cat);
       if (!sel) return;
       const val = sel.value;
@@ -680,16 +690,60 @@ export function renderSettings(container) {
       const [pid, mid] = val.split('::');
       const patch = {};
       const cap = cat === 'image' ? 'Image' : cat === 'text' ? 'Text' : 'Video';
-      patch['default' + cap + 'Provider'] = pid;
-      patch['default' + cap + 'Model'] = mid;
-      setDefaults(patch);
-      pageState.defaults = getDefaults();
-      toast('默认模型已保存', 'success');
+      pageState.defaults = { ...pageState.defaults, ['default' + cap + 'Provider']: pid, ['default' + cap + 'Model']: mid };
+      refresh();
     };
     const imgSel = inner.querySelector('#def-image');
     const txtSel = inner.querySelector('#def-text');
-    if (imgSel) imgSel.addEventListener('change', () => saveDef('image'));
-    if (txtSel) txtSel.addEventListener('change', () => saveDef('text'));
+    if (imgSel) imgSel.addEventListener('change', () => updateDefaultDraft('image'));
+    if (txtSel) txtSel.addEventListener('change', () => updateDefaultDraft('text'));
+
+    const secretStorageToggle = inner.querySelector('#secret-storage-toggle');
+    if (secretStorageToggle) {
+      secretStorageToggle.addEventListener('change', () => {
+        pageState.secretStorageMode = secretStorageToggle.checked ? 'keychain' : 'local';
+        refresh();
+      });
+    }
+
+    const saveGeneralButton = inner.querySelector('#btn-save-general');
+    if (saveGeneralButton) {
+      saveGeneralButton.addEventListener('click', async () => {
+        if (!isGeneralDirty()) return;
+        const storageChanged = pageState.secretStorageMode !== pageState.savedSecretStorageMode;
+        if (storageChanged) {
+          const message = pageState.secretStorageMode === 'keychain'
+            ? '保存通用设置并启用系统钥匙串？已保存的 API Key 将迁移到 macOS 系统钥匙串。'
+            : '保存通用设置并改为应用本地保存？已保存的 API Key 将移出系统钥匙串。';
+          const confirmed = await confirmDialog(message);
+          if (!confirmed) return;
+        }
+
+        await withButtonLoading(saveGeneralButton, '保存中…', async () => {
+          try {
+            if (storageChanged) {
+              if (!window.api?.setProviderSecretStorage) throw new Error('运行环境异常：无法保存 API Key 方式');
+              const result = await window.api.setProviderSecretStorage(pageState.secretStorageMode);
+              if (!result?.ok) throw new Error(result?.error || '保存 API Key 方式失败');
+              if (!['local', 'keychain'].includes(result.mode)) throw new Error('保存 API Key 方式失败：返回的存储方式无效');
+              pageState.secretStorageMode = result.mode;
+              pageState.legacySecretCount = Number(result.legacySecretCount) || 0;
+            }
+            setDefaults(pageState.defaults);
+            setThemeMode(pageState.themeMode);
+            document.documentElement.setAttribute('data-theme', pageState.themeMode);
+            pageState.savedDefaults = { ...pageState.defaults };
+            pageState.savedThemeMode = pageState.themeMode;
+            pageState.savedSecretStorageMode = pageState.secretStorageMode;
+            toast('通用设置已保存', 'success');
+          } catch (error) {
+            toast('保存通用设置失败：' + (error.message || '未知错误'), 'error');
+          } finally {
+            refresh();
+          }
+        });
+      });
+    }
   }
 
   function bindProviderEvents() {
@@ -1142,48 +1196,17 @@ export function renderSettings(container) {
         await window.api.openReleasePage();
       });
     }
-    const secretStorageToggle = inner.querySelector('#secret-storage-toggle');
-    if (secretStorageToggle) {
-      secretStorageToggle.addEventListener('change', async () => {
-        const nextMode = secretStorageToggle.checked ? 'keychain' : 'local';
-        const message = nextMode === 'keychain'
-          ? '启用系统钥匙串保存？妙生将把已保存的供应商 API Key 迁移到 macOS 系统钥匙串。妙生只保存自己的 API Key，不读取浏览器或其他应用的密码。'
-          : '改为应用本地保存？妙生将把已保存的 API Key 移出系统钥匙串，改为保存在 ~/.miaos/ 的仅当前用户可读文件中。该模式不会访问系统钥匙串，但安全性低于系统钥匙串。';
-        const confirmed = await confirmDialog(message);
-        if (!confirmed) {
-          toast('已取消更改 API Key 保存方式', 'info', { key: 'secret-storage-mode' });
-          refresh();
-          return;
-        }
-        if (!window.api?.setProviderSecretStorage) {
-          toast('运行环境异常', 'error', { key: 'secret-storage-mode' });
-          refresh();
-          return;
-        }
-        toast(nextMode === 'keychain' ? '正在迁移 API Key 到系统钥匙串…' : '正在迁移 API Key 到应用本地保存…', 'info', {
-          key: 'secret-storage-mode',
-          duration: 0,
-        });
-        try {
-          const result = await window.api.setProviderSecretStorage(nextMode);
-          if (!result?.ok) throw new Error(result?.error || '切换失败');
-          pageState.secretStorageMode = result.mode;
-          toast(nextMode === 'keychain' ? '已启用系统钥匙串保存 API Key' : '已改为应用本地保存 API Key', 'success', { key: 'secret-storage-mode' });
-        } catch (error) {
-          toast('切换保存方式失败：' + (error.message || '未知错误'), 'error', { key: 'secret-storage-mode' });
-        }
-        refresh();
-      });
-    }
   }
 
   function loadSecretStorageMode() {
     if (!window.api?.getProviderSecretStorage) return;
     window.api.getProviderSecretStorage().then((result) => {
       if (result?.ok && ['local', 'keychain'].includes(result.mode)) {
-        pageState.secretStorageMode = result.mode;
+        const generalWasDirty = isGeneralDirty();
+        pageState.savedSecretStorageMode = result.mode;
+        if (!generalWasDirty) pageState.secretStorageMode = result.mode;
         pageState.legacySecretCount = Number(result.legacySecretCount) || 0;
-        if (pageState.tab === 'about') refresh();
+        if (pageState.tab === 'general') refresh();
       }
     }).catch(() => {});
   }

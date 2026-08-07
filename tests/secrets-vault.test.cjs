@@ -568,3 +568,62 @@ test('旧版钥匙串密文在默认本地模式下绝不触发解密，并提�
   assert.equal(vault.getLegacySecretCount(), 1);
   assert.equal(decryptCalls, 0);
 });
+
+test('存储策略升级后隔离旧钥匙串密文，用户显式开启后才恢复读取', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-vault-policy-v2-'));
+  const filePath = path.join(dir, 'secrets.json');
+  fs.writeFileSync(filePath, JSON.stringify({
+    version: 1,
+    storageMode: 'keychain',
+    secrets: { provider_a: Buffer.from('encrypted:sk-old').toString('base64') },
+    providers: {},
+  }));
+  let decryptCalls = 0;
+  const safeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => Buffer.from(`encrypted:${value}`),
+    decryptString: (value) => { decryptCalls += 1; return value.toString().slice('encrypted:'.length); },
+  };
+  const vault = createSecretsVault({
+    filePath,
+    safeStorage,
+    fsImpl: fs,
+    defaultStorageMode: 'local',
+    storagePolicyVersion: 2,
+  });
+
+  assert.equal(vault.getStorageMode(), 'local');
+  assert.equal(vault.get('provider_a'), null);
+  assert.equal(vault.has('provider_a'), false);
+  assert.equal(vault.getLegacySecretCount(), 1);
+  assert.equal(decryptCalls, 0);
+
+  vault.setStorageMode('keychain');
+  assert.equal(vault.getStorageMode(), 'keychain');
+  assert.equal(vault.getLegacySecretCount(), 0);
+  assert.equal(decryptCalls, 0);
+  assert.equal(vault.get('provider_a'), 'sk-old');
+  assert.equal(decryptCalls, 1);
+});
+
+test('存储策略第 2 版拒绝损坏的旧密钥隔离区', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-vault-policy-v2-corrupt-'));
+  const filePath = path.join(dir, 'secrets.json');
+  fs.writeFileSync(filePath, JSON.stringify({
+    version: 1,
+    storagePolicyVersion: 2,
+    storageMode: 'local',
+    secrets: {},
+    legacySecrets: [],
+    providers: {},
+  }));
+  const vault = createSecretsVault({
+    filePath,
+    safeStorage: createSafeStorage(),
+    fsImpl: fs,
+    defaultStorageMode: 'local',
+    storagePolicyVersion: 2,
+  });
+
+  assert.throws(() => vault.getStorageMode(), (error) => error.code === 'SECRET_VAULT_CORRUPTED');
+});

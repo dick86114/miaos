@@ -3559,6 +3559,25 @@ i[data-lucide="loader"] {
   min-width: 100px;
 }
 .settings-security-status { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+.general-save-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(14px);
+}
+.general-save-bar.is-dirty { border-color: color-mix(in srgb, var(--brand) 34%, var(--line)); }
+.general-save-hint { color: var(--ink-3); font-size: 12px; }
+.general-save-bar.is-dirty .general-save-hint { color: var(--brand); font-weight: 600; }
 .macos-switch { position: relative; display: inline-flex; width: 44px; height: 26px; cursor: pointer; flex: 0 0 auto; }
 .macos-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .macos-switch-track {
