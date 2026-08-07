@@ -1,4 +1,5 @@
-name: Build & Release
+name: Build And Release
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Build And Release：v{0}，{1}', inputs.version, inputs.release_notes) || 'Build And Release：CI 构建' }}
 
 # 触发方式：
 # 1. push 到 main 分支 → 仅构建验证，上传 artifact（不发布 Release）
