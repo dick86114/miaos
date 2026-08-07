@@ -369,7 +369,11 @@ function getTrustedProvider(providerId, supplied = {}, { category, modelName } =
       throw new Error('所选模型未在已保存供应商中启用');
     }
   }
-  return { ...metadata, apiKey: secretsVault.get(providerId) || '' };
+  const apiKey = secretsVault.get(providerId);
+  if (!apiKey && secretsVault.hasLegacySecret(providerId)) {
+    throw new Error('检测到旧版系统钥匙串密钥。当前未读取该密钥，请在“系统设置 → 模型供应商”中重新保存 API Key，或主动开启系统钥匙串保存后迁移。');
+  }
+  return { ...metadata, apiKey: apiKey || '' };
 }
 
 function validateProvider(provider, { allowApiKeyOverride = false } = {}) {
@@ -571,7 +575,7 @@ registerSecureHandler({
   channel: 'provider-secret-storage-get',
   getMainWindow: () => mainWindow,
   validate: () => {},
-  handle: async () => ({ ok: true, mode: secretsVault.getStorageMode() }),
+  handle: async () => ({ ok: true, mode: secretsVault.getStorageMode(), legacySecretCount: secretsVault.getLegacySecretCount() }),
 });
 
 registerSecureHandler({

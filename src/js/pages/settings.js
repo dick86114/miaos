@@ -102,6 +102,7 @@ export function renderSettings(container) {
     defaults: getDefaults(),
     pairing: { active: false, qrDataUrl: '', confirmationCode: '', expiresAt: 0 },
     secretStorageMode: 'local',
+    legacySecretCount: 0,
   };
 
   const root = htmlToElement(`<div class="settings-wrap"><div class="settings-layout"></div></div>`);
@@ -238,10 +239,10 @@ export function renderSettings(container) {
         </div>
         <div class="form-group">
           <label class="form-label">主题模式</label>
-          <div class="segmented-control" id="theme-mode">
-            <button type="button" class="segmented-item ${getThemeMode() === 'light' ? 'is-active' : ''}" data-theme="light">${icon('sun', 14)}<span>浅色</span></button>
-            <button type="button" class="segmented-item ${getThemeMode() === 'dark' ? 'is-active' : ''}" data-theme="dark">${icon('moon', 14)}<span>深色</span></button>
-            <button type="button" class="segmented-item ${getThemeMode() === 'system' ? 'is-active' : ''}" data-theme="system">${icon('monitor', 14)}<span>跟随系统</span></button>
+          <div class="segmented-control theme-mode-control" id="theme-mode" role="group" aria-label="主题模式">
+            <button type="button" class="segmented-item ${getThemeMode() === 'light' ? 'is-active' : ''}" data-theme="light" aria-pressed="${getThemeMode() === 'light'}">${icon('sun', 14)}<span>浅色</span></button>
+            <button type="button" class="segmented-item ${getThemeMode() === 'dark' ? 'is-active' : ''}" data-theme="dark" aria-pressed="${getThemeMode() === 'dark'}">${icon('moon', 14)}<span>深色</span></button>
+            <button type="button" class="segmented-item ${getThemeMode() === 'system' ? 'is-active' : ''}" data-theme="system" aria-pressed="${getThemeMode() === 'system'}">${icon('monitor', 14)}<span>跟随系统</span></button>
           </div>
           <div class="form-hint">切换后立即生效，无需重启应用</div>
         </div>
@@ -250,14 +251,20 @@ export function renderSettings(container) {
       <div class="settings-card">
         <div class="settings-section-header">
           <div class="settings-section-title">${icon('shield', 16)}<span>API Key 保存方式</span></div>
-          <div class="tag ${pageState.secretStorageMode === 'keychain' ? 'tag-primary' : 'tag-soft'}">${pageState.secretStorageMode === 'keychain' ? '系统钥匙串' : '应用本地保存'}</div>
         </div>
-        <div class="settings-row">
-          <div>
+        <div class="settings-security-row">
+          <div class="settings-security-copy">
             <div class="settings-row-title">使用系统钥匙串安全保存 API Key</div>
             <div class="form-hint">关闭时，API Key 保存在妙生的本地目录（仅当前 macOS 用户可读），不会访问系统钥匙串；开启后会迁移已有 Key 到系统钥匙串加密保存。</div>
+            ${pageState.legacySecretCount > 0 ? `<div class="settings-legacy-key-notice">检测到 ${pageState.legacySecretCount} 个旧版钥匙串密钥，当前未读取。请在“模型供应商”中重新保存 API Key，或主动打开此开关后迁移。</div>` : ''}
           </div>
-          <label class="switch"><input id="secret-storage-toggle" type="checkbox" ${pageState.secretStorageMode === 'keychain' ? 'checked' : ''} /><span class="slider"></span></label>
+          <div class="settings-security-control">
+            <span class="settings-security-status">${pageState.secretStorageMode === 'keychain' ? '已启用' : '已关闭'}</span>
+            <label class="macos-switch" title="使用系统钥匙串安全保存 API Key">
+              <input id="secret-storage-toggle" type="checkbox" ${pageState.secretStorageMode === 'keychain' ? 'checked' : ''} aria-label="使用系统钥匙串安全保存 API Key" />
+              <span class="macos-switch-track" aria-hidden="true"></span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -656,7 +663,11 @@ export function renderSettings(container) {
         if (!mode) return;
         setThemeMode(mode);
         document.documentElement.setAttribute('data-theme', mode);
-        themeGroup.querySelectorAll('.segmented-item').forEach((b) => b.classList.toggle('is-active', b === btn));
+        themeGroup.querySelectorAll('.segmented-item').forEach((b) => {
+          const active = b === btn;
+          b.classList.toggle('is-active', active);
+          b.setAttribute('aria-pressed', String(active));
+        });
         toast('主题已切换', 'success');
       });
     }
@@ -1137,15 +1148,27 @@ export function renderSettings(container) {
           ? '启用系统钥匙串保存？妙生将把已保存的供应商 API Key 迁移到 macOS 系统钥匙串。妙生只保存自己的 API Key，不读取浏览器或其他应用的密码。'
           : '改为应用本地保存？妙生将把已保存的 API Key 移出系统钥匙串，改为保存在 ~/.miaos/ 的仅当前用户可读文件中。该模式不会访问系统钥匙串，但安全性低于系统钥匙串。';
         const confirmed = await confirmDialog(message);
-        if (!confirmed) { refresh(); return; }
-        if (!window.api?.setProviderSecretStorage) { toast('运行环境异常', 'error'); refresh(); return; }
+        if (!confirmed) {
+          toast('已取消更改 API Key 保存方式', 'info', { key: 'secret-storage-mode' });
+          refresh();
+          return;
+        }
+        if (!window.api?.setProviderSecretStorage) {
+          toast('运行环境异常', 'error', { key: 'secret-storage-mode' });
+          refresh();
+          return;
+        }
+        toast(nextMode === 'keychain' ? '正在迁移 API Key 到系统钥匙串…' : '正在迁移 API Key 到应用本地保存…', 'info', {
+          key: 'secret-storage-mode',
+          duration: 0,
+        });
         try {
           const result = await window.api.setProviderSecretStorage(nextMode);
           if (!result?.ok) throw new Error(result?.error || '切换失败');
           pageState.secretStorageMode = result.mode;
-          toast(nextMode === 'keychain' ? '已启用系统钥匙串保存' : '已改为应用本地保存', 'success');
+          toast(nextMode === 'keychain' ? '已启用系统钥匙串保存 API Key' : '已改为应用本地保存 API Key', 'success', { key: 'secret-storage-mode' });
         } catch (error) {
-          toast('切换保存方式失败：' + (error.message || '未知错误'), 'error');
+          toast('切换保存方式失败：' + (error.message || '未知错误'), 'error', { key: 'secret-storage-mode' });
         }
         refresh();
       });
@@ -1157,6 +1180,7 @@ export function renderSettings(container) {
     window.api.getProviderSecretStorage().then((result) => {
       if (result?.ok && ['local', 'keychain'].includes(result.mode)) {
         pageState.secretStorageMode = result.mode;
+        pageState.legacySecretCount = Number(result.legacySecretCount) || 0;
         if (pageState.tab === 'about') refresh();
       }
     }).catch(() => {});

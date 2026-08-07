@@ -57,8 +57,7 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
 
   function inferStorageMode(storedMode, secrets) {
     if (['local', 'keychain'].includes(storedMode)) return storedMode;
-    // 旧版文件没有 storageMode，且其中保存的是系统钥匙串密文；必须如实标记，交由用户明确迁移。
-    if (Object.values(secrets || {}).some((value) => typeof value === 'string' && !value.startsWith('local:'))) return 'keychain';
+    // 旧版文件没有显式模式时，遵循当前默认模式；默认本地保存时绝不因旧密文访问系统钥匙串。
     return defaultStorageMode;
   }
 
@@ -591,7 +590,8 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
 
   function get(providerId) {
     assertProviderId(providerId);
-    const stored = readDocument().secrets[providerId];
+    const document = readDocument();
+    const stored = document.secrets[providerId];
     if (!stored) return null;
     if (stored.startsWith('local:')) {
       try {
@@ -600,6 +600,8 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
         throw createVaultError('SECRET_VAULT_CORRUPTED', '本地保存的 API Key 已损坏，请重新保存密钥');
       }
     }
+    // 旧版钥匙串密文只在用户主动开启“系统钥匙串”后才允许解密读取。
+    if (document.storageMode !== 'keychain') return null;
     assertEncryptionAvailable();
     try {
       return safeStorage.decryptString(Buffer.from(stored, 'base64'));
@@ -610,7 +612,9 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
 
   function has(providerId) {
     assertProviderId(providerId);
-    return Object.prototype.hasOwnProperty.call(readDocument().secrets, providerId);
+    const document = readDocument();
+    const stored = document.secrets[providerId];
+    return typeof stored === 'string' && (stored.startsWith('local:') || document.storageMode === 'keychain');
   }
 
   function remove(providerId) {
@@ -628,6 +632,19 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
 
   function getStorageMode() {
     return readDocument().storageMode;
+  }
+
+  function getLegacySecretCount() {
+    const document = readDocument();
+    if (document.storageMode === 'keychain') return 0;
+    return Object.values(document.secrets).filter((value) => typeof value === 'string' && !value.startsWith('local:')).length;
+  }
+
+  function hasLegacySecret(providerId) {
+    assertProviderId(providerId);
+    const document = readDocument();
+    const stored = document.secrets[providerId];
+    return document.storageMode !== 'keychain' && typeof stored === 'string' && !stored.startsWith('local:');
   }
 
   function setStorageMode(mode, { ownerToken = crypto.randomUUID() } = {}) {
@@ -667,6 +684,8 @@ function createSecretsVault({ filePath, safeStorage, fsImpl, defaultStorageMode 
     delete: remove,
     getProviderMetadata,
     getStorageMode,
+    getLegacySecretCount,
+    hasLegacySecret,
     setStorageMode,
   };
 }

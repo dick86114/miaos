@@ -535,7 +535,7 @@ test('应用本地保存模式默认不调用系统钥匙串，切换时会迁�
   assert.equal(encrypted, 1);
 });
 
-test('旧版系统钥匙串密文会如实显示为钥匙串模式，等待用户主动迁移', () => {
+test('旧版系统钥匙串密文默认显示为本地模式，等待用户主动开启后迁移', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-vault-legacy-mode-'));
   const filePath = path.join(dir, 'secrets.json');
   fs.writeFileSync(filePath, JSON.stringify({
@@ -544,5 +544,27 @@ test('旧版系统钥匙串密文会如实显示为钥匙串模式，等待用�
     providers: {},
   }));
   const vault = createSecretsVault({ filePath, safeStorage: createSafeStorage(), fsImpl: fs, defaultStorageMode: 'local' });
-  assert.equal(vault.getStorageMode(), 'keychain');
+  assert.equal(vault.getStorageMode(), 'local');
+});
+
+test('旧版钥匙串密文在默认本地模式下绝不触发解密，并提示需要重新配置', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-vault-legacy-local-'));
+  const filePath = path.join(dir, 'secrets.json');
+  fs.writeFileSync(filePath, JSON.stringify({
+    version: 1,
+    secrets: { provider_a: Buffer.from('encrypted:sk-old').toString('base64') },
+    providers: {},
+  }));
+  let decryptCalls = 0;
+  const safeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (value) => Buffer.from(`encrypted:${value}`),
+    decryptString: () => { decryptCalls += 1; return 'sk-old'; },
+  };
+  const vault = createSecretsVault({ filePath, safeStorage, fsImpl: fs, defaultStorageMode: 'local' });
+  assert.equal(vault.getStorageMode(), 'local');
+  assert.equal(vault.get('provider_a'), null);
+  assert.equal(vault.has('provider_a'), false);
+  assert.equal(vault.getLegacySecretCount(), 1);
+  assert.equal(decryptCalls, 0);
 });

@@ -14,6 +14,14 @@ async function init() {
     toast(message, 'error', 8000);
   }
 
+  // 默认本地保存模式不会读取旧版钥匙串密文；仅提示用户主动重新配置或选择迁移。
+  window.api?.getProviderSecretStorage?.().then((result) => {
+    const legacyCount = Number(result?.legacySecretCount) || 0;
+    if (result?.ok && legacyCount > 0) {
+      toast(`检测到 ${legacyCount} 个旧版 API Key 未读取，请前往“系统设置”重新保存或主动开启钥匙串迁移`, 'info', 8000);
+    }
+  }).catch(() => {});
+
   // 应用主题
   applyTheme(getThemeMode());
 
