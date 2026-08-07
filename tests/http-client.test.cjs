@@ -146,6 +146,20 @@ test('公开错误模型不暴露非受信任异常消息', () => {
   });
 });
 
+test('公开错误会附带安全的诊断编号', () => {
+  const error = new AppError('NETWORK_ERROR', '网络请求失败，请检查网络或 API 地址', {
+    retryable: true,
+    diagnosticId: 'diag-test-001',
+  });
+
+  assert.deepEqual(toPublicError(error), {
+    code: 'NETWORK_ERROR',
+    error: '网络请求失败，请检查网络或 API 地址',
+    retryable: true,
+    diagnosticId: 'diag-test-001',
+  });
+});
+
 test('持续缓慢输出仍受整个请求生命周期 timeoutMs 限制', async () => {
   await withServer((_req, res) => {
     res.setHeader('content-type', 'application/json');

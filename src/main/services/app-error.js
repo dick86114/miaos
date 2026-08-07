@@ -6,16 +6,19 @@ class AppError extends Error {
     this.userMessage = userMessage;
     this.status = options.status ?? null;
     this.retryable = options.retryable ?? false;
+    this.diagnosticId = typeof options.diagnosticId === 'string' ? options.diagnosticId : null;
   }
 }
 
 function toPublicError(error) {
   if (error instanceof AppError) {
-    return {
+    const result = {
       code: error.code,
       error: error.userMessage,
       retryable: error.retryable,
     };
+    if (error.diagnosticId) result.diagnosticId = error.diagnosticId;
+    return result;
   }
 
   return {

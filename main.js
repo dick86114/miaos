@@ -18,6 +18,8 @@ const {
 const { registerSecureHandler } = require('./src/main/security/ipc');
 const { isAllowedExternalUrl } = require('./src/main/security/external-links');
 const { requestJson } = require('./src/main/services/http-client');
+const { AppError } = require('./src/main/services/app-error');
+const { createDiagnosticLogger } = require('./src/main/services/diagnostic-log');
 const { createImageFileAccess } = require('./src/main/security/image-files');
 const { createImageDecoder } = require('./src/main/security/image-decoder');
 const { createSecretsVault } = require('./src/main/secrets-vault');
@@ -31,6 +33,7 @@ let mainWindow = null;
 let updateInfoCache = null;
 let secretsVault = null;
 let activeConfigPairing = null;
+let diagnosticLogger = null;
 const providerTransactions = new Map();
 const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
 const imageFileAccess = createImageFileAccess({
@@ -201,6 +204,11 @@ secretsVault = createSecretsVault({
   filePath: path.join(userDataPath, 'secrets.json'),
   safeStorage,
   fsImpl: fs,
+});
+diagnosticLogger = createDiagnosticLogger({
+  directoryPath: path.join(userDataPath, 'logs'),
+  fsImpl: fs,
+  pathImpl: path,
 });
 
 // 默认面向 macOS 12+ Apple Silicon 启用 sandbox 和硬件加速。
@@ -854,6 +862,7 @@ function saveGeneratedImage(input, id) {
         }
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
+        res.on('error', reject);
         res.on('end', () => {
           fs.writeFileSync(filePath, Buffer.concat(chunks));
           resolve(filePath);
@@ -862,6 +871,10 @@ function saveGeneratedImage(input, id) {
       req.on('error', reject);
       req.on('timeout', () => { req.destroy(); reject(new Error('下载图片超时')); });
       req.setTimeout(30000);
+    }).catch((error) => {
+      error.diagnosticStage = 'image_download';
+      error.diagnosticImageUrl = input;
+      throw error;
     });
   }
 
@@ -1290,59 +1303,75 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: async (params) => { await validateGenerateParams(params); },
   handle: async (_event, params) => {
-  const { prompt, modelName, ratio, quality, size, sourceImage } = params;
-  const trustedProvider = getTrustedProvider(params.providerId, params, { category: 'image', modelName });
-  const { endpoint, type: provider, apiKey } = trustedProvider;
-  if (!prompt) throw new Error('提示词不能为空');
-  if (!endpoint) throw new Error('请先配置供应商 API 地址');
-  if (!modelName) throw new Error('请选择模型');
+    const { prompt, modelName, ratio, quality, size, sourceImage } = params;
+    let endpoint = '';
+    let provider = '';
+    let stage = 'provider_configuration';
+    try {
+      const trustedProvider = getTrustedProvider(params.providerId, params, { category: 'image', modelName });
+      ({ endpoint, type: provider } = trustedProvider);
+      const { apiKey } = trustedProvider;
+      if (!prompt) throw new Error('提示词不能为空');
+      if (!endpoint) throw new Error('请先配置供应商 API 地址');
+      if (!modelName) throw new Error('请选择模型');
 
-  const ptype = String(provider || '').toLowerCase();
+      const ptype = String(provider || '').toLowerCase();
+      stage = 'source_image_read';
+      let sourceImageDataUrl = null;
+      if (sourceImage) sourceImageDataUrl = await readLocalImageAsDataUrl(sourceImage);
 
-  // 读取参考图为 base64 dataURL（图生图）
-  let sourceImageDataUrl = null;
-  if (sourceImage) {
-    sourceImageDataUrl = await readLocalImageAsDataUrl(sourceImage);
-  }
-
-  if (ptype === 'grsai') {
-    const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
-    return await generateWithGrsai({ prompt, model, ratio, sourceImage: sourceImageDataUrl });
-  }
-
-  // Aiping / Agnes AI / OpenAI 兼容：构造 images/generations 端点。
-  let imageEndpoint = endpoint;
-  if (ptype === 'agnes-ai' || ptype === 'aiping') {
-    // 内置平台使用 base URL，统一补充 /images/generations。
-    imageEndpoint = endpoint.replace(/\/+$/, '');
-    if (!/\/images\/generations$/i.test(imageEndpoint)) {
-      imageEndpoint = imageEndpoint + '/images/generations';
-    }
-  } else if (ptype === 'openai' || ptype === 'openai 兼容' || ptype === 'custom') {
-    // OpenAI 兼容：如果 endpoint 不含 /images/generations，自动追加
-    imageEndpoint = endpoint.replace(/\/+$/, '');
-    if (!/\/images\/generations$/i.test(imageEndpoint)) {
-      // 如果已包含 /v1，只追加 /images/generations
-      if (/\/v\d+$/i.test(imageEndpoint)) {
-        imageEndpoint = imageEndpoint + '/images/generations';
-      } else {
-        imageEndpoint = imageEndpoint + '/v1/images/generations';
+      stage = 'image_generation';
+      if (ptype === 'grsai') {
+        const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
+        return await generateWithGrsai({ prompt, model, ratio, sourceImage: sourceImageDataUrl });
       }
+
+      let imageEndpoint = endpoint;
+      if (ptype === 'agnes-ai' || ptype === 'aiping') {
+        imageEndpoint = endpoint.replace(/\/+$/, '');
+        if (!/\/images\/generations$/i.test(imageEndpoint)) imageEndpoint = imageEndpoint + '/images/generations';
+      } else if (ptype === 'openai' || ptype === 'openai 兼容' || ptype === 'custom') {
+        imageEndpoint = endpoint.replace(/\/+$/, '');
+        if (!/\/images\/generations$/i.test(imageEndpoint)) {
+          imageEndpoint = /\/v\d+$/i.test(imageEndpoint)
+            ? imageEndpoint + '/images/generations'
+            : imageEndpoint + '/v1/images/generations';
+        }
+      }
+
+      const model = { endpoint: imageEndpoint, apiKey, model: modelName, provider: provider || '' };
+      if (ptype === 'aiping') return await generateWithAiping({ prompt, model, size, ratio, quality, sourceImage: sourceImageDataUrl });
+      if (sourceImageDataUrl && ptype !== 'grsai') return await generateWithAgnesImage({ prompt, model, size, sourceImage: sourceImageDataUrl });
+      return await generateWithOpenAI({ prompt, model, size, providerType: ptype });
+    } catch (error) {
+      const diagnostic = diagnosticLogger?.recordFailure({
+        stage: error?.diagnosticStage || stage,
+        providerId: params.providerId,
+        providerType: provider,
+        modelName,
+        endpoint,
+        imageUrl: error?.diagnosticImageUrl,
+        sourceImage: !!sourceImage,
+        error,
+      });
+      if (error instanceof AppError) {
+        if (diagnostic?.id) {
+          error.diagnosticId = diagnostic.id;
+          error.userMessage = `${error.userMessage}（诊断编号：${diagnostic.id}）`;
+        }
+        throw error;
+      }
+      const networkCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT', 'ENOTFOUND']);
+      if (error?.diagnosticStage === 'image_download' || networkCodes.has(error?.code)) {
+        const diagnosticSuffix = diagnostic?.id ? `（诊断编号：${diagnostic.id}）` : '';
+        throw new AppError('GENERATION_FAILED', `生图失败，请查看诊断日志${diagnosticSuffix}`, {
+          cause: error,
+          retryable: true,
+          diagnosticId: diagnostic?.id,
+        });
+      }
+      throw error;
     }
-  }
-
-  const model = { endpoint: imageEndpoint, apiKey, model: modelName, provider: provider || '' };
-
-  if (ptype === 'aiping') {
-    return await generateWithAiping({ prompt, model, size, ratio, quality, sourceImage: sourceImageDataUrl });
-  }
-
-  if (sourceImageDataUrl && ptype !== 'grsai') {
-    // agnes-ai 支持图生图，通过 extra_body.image 传入
-    return await generateWithAgnesImage({ prompt, model, size, sourceImage: sourceImageDataUrl });
-  }
-
-  return await generateWithOpenAI({ prompt, model, size, providerType: ptype });
   },
 });
 
