@@ -45,6 +45,26 @@ const QUANTITIES = [1, 2, 3, 4];
 const PROJECT_PROMPT_MAX_LINES = 10;
 const TIMELINE_DRAG_THRESHOLD = 12;
 
+export function createProjectPromptDraftStore() {
+  const drafts = new Map();
+  const getKey = (projectId, versionId) => `${projectId}\u0000${versionId}`;
+
+  return {
+    read(projectId, versionId, persistedPrompt = '') {
+      const key = getKey(projectId, versionId);
+      return drafts.has(key) ? drafts.get(key) : String(persistedPrompt || '');
+    },
+    write(projectId, versionId, prompt) {
+      drafts.set(getKey(projectId, versionId), String(prompt ?? ''));
+    },
+    clear(projectId, versionId) {
+      drafts.delete(getKey(projectId, versionId));
+    },
+  };
+}
+
+const projectPromptDrafts = createProjectPromptDraftStore();
+
 // 管理工作台存续期间的弹窗，避免离页后旧弹窗继续操作已销毁的页面。
 export function createProjectPageLifecycle() {
   let active = true;
@@ -381,6 +401,7 @@ export function renderProject(container, params, routeOptions = {}) {
         ? `<div class="pwb-source-image-bar">${icon('git-branch', 14)}<span>父图：<strong>${formatRelativeTime(pImg.createdAt)}</strong> 生成 · <em>点击查看</em></span><div class="pwb-source-image-thumb-wrap"><img src="${pImg.image}" class="pwb-source-image-thumb" alt="参考图" />${icon('maximize-2', 11)}</div></div>`
         : `<div class="pwb-source-image-bar"><span class="pwb-source-image-missing">⚠ 父参考图已被删除，无法继续图生图，请重新派生</span></div>`;
     })();
+    const promptDraft = projectPromptDrafts.read(project.id, curVer.id, curVer.prompt);
 
     const root = htmlToElement(`
       <div>
@@ -442,7 +463,7 @@ export function renderProject(container, params, routeOptions = {}) {
                   </div>
                   <button class="icon-btn" type="button" id="btn-remove-source" title="移除参考图">${icon('x', 14)}</button>
                 </div>
-                <textarea class="composer-textarea composer-textarea--project" id="version-prompt" spellcheck="false" placeholder="描述你想生成的画面…">${escapeHtml(curVer.prompt)}</textarea>
+                <textarea class="composer-textarea composer-textarea--project" id="version-prompt" spellcheck="false" placeholder="描述你想生成的画面…">${escapeHtml(promptDraft)}</textarea>
               </div>
               <div class="composer-toolbar">
                 <button class="composer-tool-btn" type="button" id="btn-upload-image" ${isChild ? 'disabled title="分支使用父图作为参考，无需上传"' : 'title="上传图片（图生图）"'}>${icon('plus', 16)}</button>
@@ -543,6 +564,7 @@ export function renderProject(container, params, routeOptions = {}) {
         imageId: image.id,
         projectId: project.id,
         versionId: version.id,
+        returnVersionId: version.id === curVer.id ? undefined : curVer.id,
       }, { origin: 'project' }));
     };
     const openProjectTaskFailurePreview = (taskId) => {
@@ -576,7 +598,10 @@ export function renderProject(container, params, routeOptions = {}) {
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
     }
     syncProjectPromptHeight(promptInput);
-    promptInput.addEventListener('input', () => syncProjectPromptHeight(promptInput));
+    promptInput.addEventListener('input', () => {
+      projectPromptDrafts.write(project.id, curVer.id, promptInput.value);
+      syncProjectPromptHeight(promptInput);
+    });
     const btnGenerate = root.querySelector('#btn-generate');
     const btnNewRoot = root.querySelector('#btn-new-root');
 
@@ -1203,6 +1228,7 @@ export function renderProject(container, params, routeOptions = {}) {
 
 
     const cleanup = () => {
+      projectPromptDrafts.write(project.id, curVer.id, promptInput.value);
       closeDropdown();
       closeImagePreview?.();
       promptOptimizationBinding?.destroy();

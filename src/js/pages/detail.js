@@ -29,7 +29,7 @@ function getFallbackBackTarget(routeOptions = {}) {
   if (routeOptions.source === 'project' && routeOptions.project) {
     return {
       label: '返回项目',
-      path: `/project/${encodeURIComponent(routeOptions.project)}?version=${encodeURIComponent(routeOptions.version || '')}`,
+      path: `/project/${encodeURIComponent(routeOptions.project)}?version=${encodeURIComponent(routeOptions.returnVersion || routeOptions.version || '')}`,
     };
   }
   return { label: '返回历史', path: '/history' };
@@ -57,6 +57,7 @@ export function renderDetail(container, params, routeOptions = {}) {
     origin: routeOptions.origin,
     projectId: routeOptions.project,
     versionId: routeOptions.version,
+    returnVersionId: routeOptions.returnVersion,
     historyPage: routeOptions.historyPage,
     historyQuery: routeOptions.historyQuery,
     historySource: routeOptions.historySource,

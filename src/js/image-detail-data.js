@@ -29,12 +29,15 @@ function buildHistoryBackPath(historyState = {}) {
   return queryString ? `/history?${queryString}` : '/history';
 }
 
-function getBackTarget({ source, origin, projectId, versionId, imageId, historyState }) {
+function getBackTarget({ source, origin, projectId, versionId, returnVersionId, imageId, historyState }) {
   if (origin === 'generate') return { label: '返回快速生图', path: '/generate' };
   if (source === 'project' && origin === 'project' && projectId) {
+    const targetVersionId = returnVersionId || versionId || '';
+    const params = new URLSearchParams({ version: targetVersionId });
+    if (!returnVersionId || returnVersionId === versionId) params.set('image', imageId || '');
     return {
       label: '返回项目',
-      path: `/project/${encodeURIComponent(projectId)}?version=${encodeURIComponent(versionId || '')}&image=${encodeURIComponent(imageId || '')}`,
+      path: `/project/${encodeURIComponent(projectId)}?${params.toString()}`,
     };
   }
   return { label: '返回历史', path: buildHistoryBackPath(historyState) };
@@ -73,6 +76,9 @@ export function buildImageDetailRoute(record, { origin = 'history', historyState
   if (source === 'project') {
     if (record.projectId) params.set('project', record.projectId);
     if (record.versionId) params.set('version', record.versionId);
+    if (record.returnVersionId && record.returnVersionId !== record.versionId) {
+      params.set('returnVersion', record.returnVersionId);
+    }
   }
   if (normalizedOrigin === 'history' && historyState) {
     const page = Number.parseInt(historyState.page, 10);
@@ -127,6 +133,7 @@ export function resolveImageDetailRecord(route = {}, { history = [], projects = 
         origin,
         projectId: project.id,
         versionId: version.id,
+        returnVersionId: route.returnVersionId,
         imageId: image.id,
         historyState: {
           page: route.historyPage,

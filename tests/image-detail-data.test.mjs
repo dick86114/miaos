@@ -67,6 +67,36 @@ test('项目图片详情完整展示当前提示词，并按根到父顺序返�
   assert.deepEqual(buildProjectPromptChain(project, project.versions[2]), detail.promptChain);
 });
 
+test('从子节点查看父参考图时，详情返回正在编辑的子节点而不是父节点', () => {
+  const project = createProject();
+  const route = buildImageDetailRoute({
+    source: 'project',
+    imageId: 'parent-image',
+    projectId: project.id,
+    versionId: 'parent',
+    returnVersionId: 'child',
+  }, { origin: 'project' });
+
+  assert.equal(
+    route,
+    '/detail/parent-image?source=project&origin=project&project=project-1&version=parent&returnVersion=child',
+  );
+
+  const detail = resolveImageDetailRecord({
+    imageId: 'parent-image',
+    source: 'project',
+    projectId: project.id,
+    versionId: 'parent',
+    returnVersionId: 'child',
+    origin: 'project',
+  }, { history: [], projects: [project] });
+
+  assert.deepEqual(detail.backTarget, {
+    label: '返回项目',
+    path: '/project/project-1?version=child',
+  });
+});
+
 test('项目父节点缺失时详情仍可打开且不虚构提示词链', () => {
   const project = {
     id: 'project-orphan',
