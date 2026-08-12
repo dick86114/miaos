@@ -650,7 +650,7 @@ export function getVersionLabels(project) {
   return labels;
 }
 
-export function createRootVersion(projectId, { name, prompt, providerId, providerName, modelId }) {
+export function createRootVersion(projectId, { name, prompt, providerId, providerName, modelId, sourceImage }) {
   const p = state.projects.find((p) => p.id === projectId);
   if (!p) return null;
   const version = {
@@ -662,6 +662,7 @@ export function createRootVersion(projectId, { name, prompt, providerId, provide
     providerId: providerId || '',
     providerName: providerName || '',
     modelId: modelId || '',
+    sourceImage: sourceImage || '',
     createdAt: Date.now(),
     images: [],
   };
@@ -699,7 +700,7 @@ export function createVersion(projectId, parentId, parentImageId, { name, prompt
   return cloneProject(p);
 }
 
-export function updateVersionFields(versionId, { name, prompt, modelId, providerId, providerName, autoNameDone }) {
+export function updateVersionFields(versionId, { name, prompt, modelId, providerId, providerName, sourceImage, autoNameDone }) {
   const p = state.projects.find((proj) => proj.versions.some((v) => v.id === versionId));
   if (!p) return null;
   const v = p.versions.find((x) => x.id === versionId);
@@ -709,6 +710,7 @@ export function updateVersionFields(versionId, { name, prompt, modelId, provider
   if (modelId !== undefined) v.modelId = modelId;
   if (providerId !== undefined) v.providerId = providerId;
   if (providerName !== undefined) v.providerName = providerName;
+  if (sourceImage !== undefined) v.sourceImage = sourceImage || '';
   if (autoNameDone !== undefined) v.autoNameDone = !!autoNameDone;
   p.updatedAt = Date.now();
   save();
@@ -721,6 +723,10 @@ export function deleteVersion(projectId, versionId) {
   if (p.versions.length <= 1) return;
   const target = p.versions.find((v) => v.id === versionId);
   if (!target) return;
+  const rootVersions = p.versions
+    .filter((v) => v.parentId === null)
+    .sort((a, b) => a.createdAt - b.createdAt);
+  const targetRootIndex = target.parentId === null ? rootVersions.findIndex((v) => v.id === target.id) : -1;
   const toDelete = new Set();
   const stack = [versionId];
   while (stack.length) {
@@ -730,8 +736,16 @@ export function deleteVersion(projectId, versionId) {
   }
   p.versions = p.versions.filter((v) => !toDelete.has(v.id));
   if (toDelete.has(p.currentVersionId)) {
-    const root = p.versions.find((v) => v.parentId === null) || p.versions[0];
-    p.currentVersionId = root.id;
+    if (target.parentId && !toDelete.has(target.parentId)) {
+      // 直接删除当前分支时，回到仍然存在的父节点。
+      p.currentVersionId = target.parentId;
+    } else if (targetRootIndex > 0) {
+      // 删除主线时优先回到时间轴中左侧最近的主线。
+      p.currentVersionId = rootVersions[targetRootIndex - 1].id;
+    } else {
+      const fallback = p.versions.find((v) => v.parentId === null) || p.versions[0];
+      p.currentVersionId = fallback.id;
+    }
   }
   if (p.coverImageId) {
     const stillExists = p.versions.some((v) => v.images.some((i) => i.id === p.coverImageId));
@@ -791,6 +805,7 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
       v.modelId = modelId;
       v.providerId = provider.id;
       v.providerName = provider.name;
+      v.sourceImage = sourceImage || '';
     }
   } else {
     const provider = resolveProviderForModel(providerId);

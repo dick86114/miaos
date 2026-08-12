@@ -696,7 +696,7 @@ export function renderGenerate(container) {
             <span class="task-error-title">生成失败</span>
             <span class="task-error-detail" title="${escapeHtml(errorText)}">${escapeHtml(shortError)}</span>
           </div>
-          <div class="gallery-item-meta">
+          <div class="gallery-item-meta task-failure-meta">
             <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
             <div class="task-failure-actions">
               <button type="button" class="btn btn-ghost btn-sm task-retry" data-task-id="${task.id}" title="再次生成">${icon('refresh-cw', 13)}<span>再次生成</span></button>

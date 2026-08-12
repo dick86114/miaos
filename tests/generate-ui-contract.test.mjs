@@ -450,6 +450,33 @@ test('项目时间线在溢出时才滚动，节点使用信息长方块并支�
   assert.match(pagesCss, /\.pwb-tree-children > \.pwb-tree-node-col::before[\s\S]*?border-left: 2px solid var\(--brand\);/u, '连接线必须接到子卡片头部');
 });
 
+test('新建或删除节点后时间线保持在合理位置，而不是重置到最左侧', () => {
+  const newRootHandler = getEnclosedBlock(projectPage, /btnNewRoot\.addEventListener\('click', \(\) => \{/u, '项目页必须绑定新主线操作');
+  const timelineClickHandler = getEnclosedBlock(projectPage, /timelineOuter\.addEventListener\('click', async \(e\) => \{/u, '项目页必须绑定时间线点击操作');
+  assert.match(projectPage, /function scrollTimelineToVersion\(timelineOuter, versionId\)/u, '项目页必须提供时间线节点定位函数');
+  const scrollHelper = getEnclosedBlock(projectPage, /function scrollTimelineToVersion\(timelineOuter, versionId\) \{/u, '时间线节点定位函数必须正确闭合');
+  assert.match(scrollHelper, /getBoundingClientRect\(\)/u, '时间线定位必须按目标卡片相对滚动容器的实际坐标计算');
+  assert.match(newRootHandler, /const newVersionId = newProj\.currentVersionId;/u, '新建主线后必须读取新版本 ID');
+  assert.match(newRootHandler, /requestAnimationFrame\(\(\) => scrollTimelineToVersion\(container\.querySelector\('\.pwb-timeline-outer'\), newVersionId\)\)/u, '重渲染后必须滚动到新主线节点');
+  assert.match(timelineClickHandler, /const previousScrollLeft = timelineOuter\.scrollLeft;/u, '删除节点前必须保存时间线横向位置');
+  assert.match(timelineClickHandler, /const deletedCurrentVersion = rid === curVer\.id \|\| descendants\.includes\(curVer\.id\);/u, '必须识别当前选中节点是否被一并删除');
+  assert.match(timelineClickHandler, /deletedCurrentVersion[\s\S]*?scrollTimelineToVersion[\s\S]*?restoreTimelineScroll/u, '删除当前节点时定位替代节点，删除其他节点时恢复原横向位置');
+});
+
+test('失败任务卡片将元信息与操作分区，按钮不得被压缩成逐字换行', () => {
+  const quickTaskCard = getEnclosedBlock(generatePage, /function activeTaskCardHtml\(task\) \{/u, '快速生图页必须定义活跃任务卡片渲染函数');
+  const projectTaskCard = getEnclosedBlock(projectPage, /function taskPlaceholderHtml\(t\) \{/u, '项目页必须定义活跃任务卡片渲染函数');
+  const projectFailedTaskCard = getEnclosedBlock(projectTaskCard, /if \(t\.status === 'failed'\) \{/u, '项目页必须定义失败任务卡片渲染分支');
+  assert.match(quickTaskCard, /class="gallery-item-meta task-failure-meta"/u, '快速失败任务必须使用专用底部布局');
+  assert.match(projectFailedTaskCard, /class="gallery-item-meta task-failure-meta"/u, '项目失败任务必须使用专用底部布局');
+  const failureMetaRule = getExactCssRuleBody(pagesCss, '.gallery-placeholder .task-failure-meta');
+  const actionsRule = getExactCssRuleBody(pagesCss, '.task-failure-actions');
+  const actionButtonRule = getExactCssRuleBody(pagesCss, '.task-failure-actions .btn');
+  assert.equal(hasCssDeclaration(failureMetaRule, 'flex-direction', 'column'), true, '失败卡片底部必须纵向排列信息与操作');
+  assert.equal(hasCssDeclaration(actionsRule, 'width', '100%'), true, '失败卡片操作区必须独占一行');
+  assert.equal(hasCssDeclaration(actionButtonRule, 'white-space', 'nowrap'), true, '失败操作按钮文字不得逐字换行');
+});
+
 test('统一详情页支持点击全屏、滚轮缩放与拖拽平移', () => {
   assert.match(detailPage, /function openDetailImageFullscreen\(imageSource, altText\)/u, '详情页必须定义全屏预览控制器');
   assert.match(detailPage, /detailImage\.addEventListener\('click', \(\) => openDetailImageFullscreen/u, '点击详情大图必须打开全屏预览');

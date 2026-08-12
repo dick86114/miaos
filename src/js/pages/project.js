@@ -45,6 +45,65 @@ const QUANTITIES = [1, 2, 3, 4];
 const PROJECT_PROMPT_MAX_LINES = 10;
 const TIMELINE_DRAG_THRESHOLD = 12;
 
+function scrollTimelineToVersion(timelineOuter, versionId) {
+  if (!timelineOuter || !versionId) return;
+  const card = timelineOuter.querySelector(`[data-timeline-card="${versionId}"]`);
+  if (!card) return;
+  const outerRect = timelineOuter.getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  const targetLeft = timelineOuter.scrollLeft + cardRect.left - outerRect.left
+    - ((timelineOuter.clientWidth - cardRect.width) / 2);
+  const maxScrollLeft = Math.max(0, timelineOuter.scrollWidth - timelineOuter.clientWidth);
+  timelineOuter.scrollTo({ left: Math.min(maxScrollLeft, Math.max(0, targetLeft)), behavior: 'smooth' });
+}
+
+function restoreTimelineScroll(timelineOuter, scrollLeft) {
+  if (!timelineOuter) return;
+  const maxScrollLeft = Math.max(0, timelineOuter.scrollWidth - timelineOuter.clientWidth);
+  timelineOuter.scrollLeft = Math.min(maxScrollLeft, Math.max(0, scrollLeft));
+}
+
+// 在任务入队前确定最终归属版本，避免异步 worker 建新主线前占位卡片短暂显示在旧主线。
+export function prepareProjectGenerationTarget({
+  projectId,
+  currentVersion,
+  prompt,
+  modelId,
+  provider,
+  sourceImage,
+  createRootVersion: createRootVersionFn,
+  updateVersionFields: updateVersionFieldsFn,
+}) {
+  const normalizedSourceImage = sourceImage || '';
+  const willCreateRoot = currentVersion.parentId === null && currentVersion.images.length > 0 && (
+    prompt !== currentVersion.prompt.trim()
+    || modelId !== currentVersion.modelId
+    || normalizedSourceImage !== (currentVersion.sourceImage || '')
+  );
+
+  if (willCreateRoot) {
+    const updatedProject = createRootVersionFn(projectId, {
+      name: prompt.slice(0, 10) || '新主线',
+      prompt,
+      providerId: provider.id,
+      providerName: provider.name,
+      modelId,
+      sourceImage: normalizedSourceImage,
+    });
+    if (!updatedProject?.currentVersionId) throw new Error('创建新主线失败');
+    return { versionId: updatedProject.currentVersionId, willCreateRoot: true };
+  }
+
+  updateVersionFieldsFn(currentVersion.id, {
+    prompt,
+    modelId,
+    providerId: provider.id,
+    providerName: provider.name,
+    ...(currentVersion.parentId === null ? { sourceImage: normalizedSourceImage } : {}),
+  });
+  return { versionId: currentVersion.id, willCreateRoot: false };
+}
+
 export function createProjectPromptDraftStore() {
   const drafts = new Map();
   const getKey = (projectId, versionId) => `${projectId}\u0000${versionId}`;
@@ -360,7 +419,7 @@ export function renderProject(container, params, routeOptions = {}) {
               <span class="task-error-title">生成失败</span>
               <span class="task-error-detail" title="${escapeHtml(errMsg)}">${escapeHtml(shortMsg)}</span>
             </div>
-            <div class="gallery-item-meta">
+            <div class="gallery-item-meta task-failure-meta">
               <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
               <div class="task-failure-actions">
                 <button type="button" class="btn btn-ghost btn-sm task-retry" data-task-id="${t.id}" title="再次生成">${icon('refresh-cw', 13)}<span>再次生成</span></button>
@@ -931,20 +990,21 @@ export function renderProject(container, params, routeOptions = {}) {
         return;
       }
 
-      const willCreateRoot = curVer.parentId === null && curVer.images.length > 0 &&
-        (editedPrompt !== curVer.prompt.trim() || editedModelId !== curVer.modelId || sourceImagePath !== (curVer.sourceImage || ''));
-
-      updateVersionFields(curVer.id, {
+      const generationTarget = prepareProjectGenerationTarget({
+        projectId: project.id,
+        currentVersion: curVer,
         prompt: editedPrompt,
         modelId: editedModelId,
-        providerId: provider.id,
-        providerName: provider.name,
+        provider,
+        sourceImage: sourceImagePath,
+        createRootVersion,
+        updateVersionFields,
       });
 
       queue.enqueueBatch({
         source: 'project',
         projectId: project.id,
-        versionId: curVer.id,
+        versionId: generationTarget.versionId,
         prompt: editedPrompt,
         providerId: provider.id,
         providerName: provider.name,
@@ -956,7 +1016,7 @@ export function renderProject(container, params, routeOptions = {}) {
       }, currentQuantity);
 
       const batchLabel = currentQuantity > 1 ? `（${currentQuantity} 张）` : '';
-      toast(willCreateRoot ? `已创建新主线并加入生成队列${batchLabel}` : `已加入生成队列${batchLabel}`, 'info', { key: `project-generate-enqueue:${project.id}` });
+      toast(generationTarget.willCreateRoot ? `已创建新主线并加入生成队列${batchLabel}` : `已加入生成队列${batchLabel}`, 'info', { key: `project-generate-enqueue:${project.id}` });
     }
     btnGenerate.addEventListener('click', () => runGenerateOnce(doGenerate));
 
@@ -974,8 +1034,10 @@ export function renderProject(container, params, routeOptions = {}) {
         providerName: provider ? provider.name : '',
         modelId: editedModelId,
       });
+      const newVersionId = newProj.currentVersionId;
       toast('已新建主线', 'success');
       renderWorkbench(container, newProj);
+      requestAnimationFrame(() => scrollTimelineToVersion(container.querySelector('.pwb-timeline-outer'), newVersionId));
     });
 
     // ========== 时间轴：鼠标/触摸横向拖动、切换节点与删除节点 ==========
@@ -1057,7 +1119,9 @@ export function renderProject(container, params, routeOptions = {}) {
         const rid = nodeDel.getAttribute('data-root-delete');
         const ver = project.versions.find((x) => x.id === rid);
         if (!ver) return;
+        const previousScrollLeft = timelineOuter.scrollLeft;
         const descendants = collectDescendants(project, rid);
+        const deletedCurrentVersion = rid === curVer.id || descendants.includes(curVer.id);
         const imgCount = ver.images.length + descendants.reduce((s, id) => {
           const v = project.versions.find(x => x.id === id);
           return s + (v ? v.images.length : 0);
@@ -1065,11 +1129,17 @@ export function renderProject(container, params, routeOptions = {}) {
         const label = ver.parentId ? '分支' : '主线';
         const message = `确定删除${label}「${ver.name}」吗？\n\n该${label}及其下 ${descendants.length} 个衍生节点、共 ${imgCount} 张生成图都将一并删除，且无法恢复。`;
         if (!await confirmDialog(message)) return;
-        // 先删子节点，再删自身
-        descendants.forEach((id) => deleteVersion(project.id, id));
+        // 数据层会原子删除节点及全部后代，避免中间状态影响当前节点回退规则。
         deleteVersion(project.id, rid);
+        const updatedProject = getProject(project.id);
+        const currentVersionId = updatedProject?.currentVersionId;
         toast('已删除', 'success');
-        renderWorkbench(container, getProject(project.id));
+        renderWorkbench(container, updatedProject);
+        requestAnimationFrame(() => {
+          const nextTimelineOuter = container.querySelector('.pwb-timeline-outer');
+          if (deletedCurrentVersion) scrollTimelineToVersion(nextTimelineOuter, currentVersionId);
+          else restoreTimelineScroll(nextTimelineOuter, previousScrollLeft);
+        });
         return;
       }
       // 点击信息方块定位到对应版本；删除按钮已在前面优先处理。

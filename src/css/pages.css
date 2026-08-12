@@ -2329,6 +2329,11 @@ i[data-lucide="loader"] {
   min-height: 0;
 }
 .gallery-placeholder .gallery-item-time { font-size: 11px; color: var(--ink-3); }
+.gallery-placeholder .task-failure-meta {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+}
 .task-failure-detail {
   min-height: 28px;
   padding: 3px 7px;
@@ -2339,10 +2344,11 @@ i[data-lucide="loader"] {
 .task-failure-actions {
   display: flex;
   align-items: center;
+  width: 100%;
   gap: 6px;
-  margin-left: auto;
   margin-right: 28px;
 }
+.task-failure-actions .btn { flex: 0 0 auto; white-space: nowrap; }
 .task-retry {
   min-height: 28px;
   padding: 3px 7px;
