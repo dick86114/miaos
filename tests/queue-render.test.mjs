@@ -239,6 +239,7 @@ async function createControlledQueue(options = {}) {
   const queueModule = await import('../src/js/queue.js');
   assert.equal(typeof queueModule.createQueue, 'function', '队列应提供可注入 worker 的工厂');
   return queueModule.createQueue({
+    getFailedGenerationTasks: () => [],
     uid: (() => {
       let count = 0;
       return (prefix) => `${prefix}_${++count}`;
@@ -329,6 +330,28 @@ test('项目任务将 providerId 原样交给 generateSmart，避免按模型 ID
   assert.equal(workerArgs[0].options.providerId, 'provider-custom', '队列必须把下拉选中的供应商传给 generateSmart');
   assert.equal(workerArgs[0].options.modelId, 'shared-model');
   controlledQueue.clearFinished(0);
+});
+
+test('任务完成后按实际执行区间保存生图耗时', async () => {
+  const durationCalls = [];
+  const times = [0, 1_000, 3_650];
+  const controlledQueue = await createControlledQueue({
+    now: () => times.shift(),
+    generateImage: async () => ({ id: 'image-1' }),
+    recordGenerationDuration: (payload) => durationCalls.push(payload),
+  });
+
+  controlledQueue.enqueue({ source: 'quick', prompt: '计时测试' });
+  await flushQueueMicrotasks();
+
+  assert.deepEqual(durationCalls, [{
+    source: 'quick',
+    projectId: null,
+    versionId: null,
+    imageId: 'image-1',
+    generationDurationMs: 2_650,
+  }]);
+  assert.equal(controlledQueue.getTasks()[0].generationDurationMs, 2_650);
 });
 
 test('受控 worker 维持 running→done/failed 串行执行，并合并首任务完成与次任务运行快照', async () => {

@@ -97,6 +97,7 @@ export function createDefaultState() {
     schemaVersion: STATE_SCHEMA_VERSION,
     providers: clone(DEFAULT_PROVIDERS),
     history: [],
+    failedGenerationTasks: [],
     lastSettings: null,
     projects: [],
     defaults: {
@@ -149,6 +150,7 @@ export function migrateState(parsed) {
       schemaVersion: STATE_SCHEMA_VERSION,
       providers,
       history: Array.isArray(source.history) ? source.history : [],
+      failedGenerationTasks: Array.isArray(source.failedGenerationTasks) ? source.failedGenerationTasks : [],
       projects: Array.isArray(source.projects) ? source.projects : [],
       defaults: {
         defaultImageProvider: defaults.defaultImageProvider || '',
@@ -229,6 +231,7 @@ export function migrateState(parsed) {
     schemaVersion: STATE_SCHEMA_VERSION,
     providers: appendAipingIfMissing(providers),
     history: source.history || [],
+    failedGenerationTasks: Array.isArray(source.failedGenerationTasks) ? source.failedGenerationTasks : [],
     lastSettings: source.lastSettings || null,
     projects: Array.isArray(source.projects) ? source.projects : [],
     defaults: {
@@ -311,6 +314,7 @@ export function validateState(value) {
   if (!value || typeof value !== 'object') errors.push('状态必须是对象');
   if (!Array.isArray(value?.providers)) errors.push('providers 必须是数组');
   if (!Array.isArray(value?.history)) errors.push('history 必须是数组');
+  if (!Array.isArray(value?.failedGenerationTasks)) errors.push('failedGenerationTasks 必须是数组');
   if (!Array.isArray(value?.projects)) errors.push('projects 必须是数组');
   if (!value?.defaults || typeof value.defaults !== 'object') errors.push('defaults 必须是对象');
   return { ok: errors.length === 0, errors };

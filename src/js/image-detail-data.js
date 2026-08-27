@@ -13,6 +13,11 @@ function findImage(version, imageId) {
   return (Array.isArray(version?.images) ? version.images : []).find((image) => image.id === imageId) || null;
 }
 
+export function formatImageDimensions(width, height) {
+  if (!Number.isInteger(width) || width < 1 || !Number.isInteger(height) || height < 1) return '';
+  return `${width}×${height}`;
+}
+
 function buildHistoryBackPath(historyState = {}) {
   const params = new URLSearchParams();
   const page = Number.parseInt(historyState.page, 10);

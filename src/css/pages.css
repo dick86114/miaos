@@ -3300,8 +3300,8 @@ i[data-lucide="loader"] {
   color: rgba(255, 255, 255, 0.9);
   background: rgba(255, 255, 255, 0.06);
 }
-.image-preview-info-row { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.5; }
-.image-preview-info-label { flex: 0 0 52px; color: rgba(255, 255, 255, 0.55); }
+.image-preview-info-row { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.5; }
+.image-preview-info-label { color: rgba(255, 255, 255, 0.55); }
 .image-preview-info-value { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .image-preview-chain {
   display: flex;
@@ -3317,17 +3317,28 @@ i[data-lucide="loader"] {
 .image-preview-chain-label { flex: 0 0 92px; color: rgba(255, 255, 255, 0.7); font-weight: 500; }
 .image-preview-chain-prompt { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: rgba(255, 255, 255, 0.9); }
 .image-preview-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.image-preview-panel-failure { width: min(640px, 100%); }
-.image-preview-panel-failure .image-preview-content { min-height: 0; }
-.image-preview-panel-failure .image-preview-info { flex: 1 1 auto; }
+.image-preview-panel-failure { width: min(920px, 100%); overflow: hidden; }
+.image-preview-panel-failure .image-preview-content { flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
+.image-preview-panel-failure .image-preview-info { flex: 1 1 auto; min-width: 0; max-width: none; overflow: auto; }
 .image-preview-failure {
   display: flex;
-  align-items: center;
-  min-height: 32px;
-  padding-bottom: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  padding-bottom: 14px;
   border-bottom: 1px solid rgba(239, 68, 68, 0.28);
 }
-.image-preview-failure-title { color: #fecaca; font-size: 14px; }
+.image-preview-failure-header { display: flex; flex-direction: column; gap: 4px; }
+.image-preview-failure-title { color: #fecaca; font-size: 15px; }
+.image-preview-failure-summary { margin: 0; color: rgba(255, 255, 255, 0.76); font-size: 13px; line-height: 1.55; }
+.image-preview-failure-guidance { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.image-preview-failure-section { min-width: 0; padding: 10px 12px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.035); }
+.image-preview-failure-heading { display: block; margin-bottom: 6px; color: rgba(255, 255, 255, 0.72); font-size: 12px; }
+.image-preview-failure-list { margin: 0; padding-left: 18px; color: rgba(255, 255, 255, 0.86); font-size: 12.5px; line-height: 1.55; }
+.image-preview-failure-list li + li { margin-top: 3px; }
+.image-preview-prompt { display: flex; flex-direction: column; gap: 7px; padding: 10px 12px; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--r-sm); background: rgba(0, 0, 0, 0.13); }
+.image-preview-prompt-heading { color: rgba(255, 255, 255, 0.62); font-size: 12px; }
+.image-preview-prompt-content { max-height: min(30vh, 240px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: rgba(255, 255, 255, 0.9); font-size: 12.5px; line-height: 1.6; }
 .image-preview-fullscreen { z-index: 1310; overflow: hidden; padding: 0; cursor: zoom-out; }
 .image-preview-fullscreen-image {
   max-width: none;
@@ -3345,9 +3356,12 @@ i[data-lucide="loader"] {
   .image-preview-content { flex: 1; flex-direction: row; align-items: stretch; min-height: min(68vh, 760px); }
   .image-preview-image { flex: 1 1 auto; min-width: 0; max-height: none; }
   .image-preview-info { flex: 0 0 min(320px, 34%); overflow: auto; }
+  .image-preview-panel-failure .image-preview-content { flex-direction: column; min-height: 0; }
+  .image-preview-panel-failure .image-preview-info { flex: 1 1 auto; max-width: none; }
 }
 @media (max-width: 600px), (max-aspect-ratio: 5/4) {
   .image-preview-panel { overflow: auto; }
+  .image-preview-failure-guidance { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .image-preview-overlay { padding: 12px; }

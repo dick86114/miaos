@@ -2,7 +2,15 @@
 // 任务常驻内存：未完成/已完成任务都保留在内存中，已完成任务的图片通过 store 持久化
 // 切换页面不丢失进度：队列与页面解耦，页面通过 subscribe 订阅状态变化
 
-import { generateImage, generateSmart, uid } from './store.js';
+import {
+  generateImage,
+  generateSmart,
+  getFailedGenerationTasks,
+  recordGenerationDuration,
+  removeFailedGenerationTask,
+  saveFailedGenerationTask,
+  uid,
+} from './store.js';
 
 // 创建独立队列实例。生产环境使用默认 worker；测试可注入受控 worker 验证真实 pump 与通知时序。
 export function createQueue(dependencies = {}) {
@@ -10,7 +18,14 @@ export function createQueue(dependencies = {}) {
   const generateSmartWorker = dependencies.generateSmart ?? generateSmart;
   const createTaskId = dependencies.uid ?? uid;
   const schedulePump = dependencies.schedulePump ?? ((run) => setTimeout(run, 0));
-  let tasks = [];
+  const now = dependencies.now ?? Date.now;
+  const recordDuration = dependencies.recordGenerationDuration ?? recordGenerationDuration;
+  const getFailedTasks = dependencies.getFailedGenerationTasks ?? getFailedGenerationTasks;
+  const saveFailedTask = dependencies.saveFailedGenerationTask ?? saveFailedGenerationTask;
+  const removeFailedTask = dependencies.removeFailedGenerationTask ?? removeFailedGenerationTask;
+  let tasks = (getFailedTasks() || [])
+    .filter((task) => task?.id && task.status === 'failed')
+    .map((task) => ({ ...task, status: 'failed', errorDetails: { ...(task.errorDetails || {}) } }));
   let running = false;
   let notifyScheduled = false;
   const listeners = new Set();
@@ -52,7 +67,7 @@ export function createQueue(dependencies = {}) {
     if (!task) return;
     running = true;
     task.status = 'running';
-    task.startedAt = Date.now();
+    task.startedAt = now();
     notify();
 
     try {
@@ -85,7 +100,21 @@ export function createQueue(dependencies = {}) {
       }
       task.status = 'done';
       task.result = result;
-      task.finishedAt = Date.now();
+      task.finishedAt = now();
+      task.generationDurationMs = Math.max(0, task.finishedAt - task.startedAt);
+      if (result?.id) {
+        try {
+          recordDuration({
+            source: task.source,
+            projectId: task.projectId,
+            versionId: task.versionId,
+            imageId: result.id,
+            generationDurationMs: task.generationDurationMs,
+          });
+        } catch (error) {
+          console.warn('保存生图耗时失败', error);
+        }
+      }
     } catch (error) {
       task.status = 'failed';
       task.error = (error && error.message) || '生成失败';
@@ -96,7 +125,12 @@ export function createQueue(dependencies = {}) {
         stage: error?.stage || '',
         reasonCode: error?.reasonCode || '',
       };
-      task.finishedAt = Date.now();
+      task.finishedAt = now();
+      try {
+        saveFailedTask(task);
+      } catch (persistError) {
+        console.warn('保存失败任务失败', persistError);
+      }
     } finally {
       running = false;
       notify();
@@ -136,7 +170,7 @@ export function createQueue(dependencies = {}) {
       batchIndex,
       batchTotal,
       status: 'queued',
-      createdAt: Date.now(),
+      createdAt: now(),
     };
     tasks.unshift(task);
     notify();
@@ -160,7 +194,7 @@ export function createQueue(dependencies = {}) {
     const task = tasks.find((item) => item.id === taskId);
     if (!task || task.status !== 'queued') return false;
     task.status = 'canceled';
-    task.finishedAt = Date.now();
+    task.finishedAt = now();
     notify();
     return true;
   }
@@ -171,7 +205,7 @@ export function createQueue(dependencies = {}) {
     tasks.forEach((task) => {
       if (task.status === 'queued' && (!predicate || predicate(task))) {
         task.status = 'canceled';
-        task.finishedAt = Date.now();
+        task.finishedAt = now();
         count += 1;
       }
     });
@@ -189,6 +223,12 @@ export function createQueue(dependencies = {}) {
     delete task.result;
     delete task.startedAt;
     delete task.finishedAt;
+    delete task.generationDurationMs;
+    try {
+      removeFailedTask(task.id);
+    } catch (persistError) {
+      console.warn('移除失败任务失败', persistError);
+    }
     notify();
     schedulePump(pump);
     return true;
@@ -200,6 +240,14 @@ export function createQueue(dependencies = {}) {
     const finished = tasks.filter((task) => ['done', 'failed', 'canceled'].includes(task.status));
     const active = tasks.filter((task) => ['queued', 'running'].includes(task.status));
     tasks = [...active, ...finished.slice(0, Math.max(0, keep))];
+    const retainedFailedIds = new Set(tasks.filter((task) => task.status === 'failed').map((task) => task.id));
+    finished.filter((task) => task.status === 'failed' && !retainedFailedIds.has(task.id)).forEach((task) => {
+      try {
+        removeFailedTask(task.id);
+      } catch (persistError) {
+        console.warn('移除失败任务失败', persistError);
+      }
+    });
     if (tasks.length !== before) notify();
   }
 
@@ -210,6 +258,13 @@ export function createQueue(dependencies = {}) {
     const task = tasks[index];
     if (task.status === 'queued' || task.status === 'running') return false;
     tasks.splice(index, 1);
+    if (task.status === 'failed') {
+      try {
+        removeFailedTask(task.id);
+      } catch (persistError) {
+        console.warn('移除失败任务失败', persistError);
+      }
+    }
     notify();
     return true;
   }

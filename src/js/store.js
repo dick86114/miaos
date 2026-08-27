@@ -21,6 +21,7 @@ const RANDOM_PROMPTS = [
   '深空星云，紫色调，超现实数字艺术',
   '复古胶片质感的城市街景，暖色调，雨夜',
 ];
+const MAX_FAILED_GENERATION_TASKS = 100;
 
 function createRuntimeStorage() {
   if (typeof window !== 'undefined' && window.localStorage) return window.localStorage;
@@ -391,6 +392,57 @@ export function deleteHistoryRecords(selection) {
 
 export function clearHistory() { state.history = []; save(); }
 
+function cloneFailedGenerationTask(task) {
+  return JSON.parse(JSON.stringify(task));
+}
+
+export function getFailedGenerationTasks() {
+  return (Array.isArray(state.failedGenerationTasks) ? state.failedGenerationTasks : []).map(cloneFailedGenerationTask);
+}
+
+export function saveFailedGenerationTask(task) {
+  if (!task?.id) return false;
+  const record = {
+    id: String(task.id),
+    source: task.source === 'project' ? 'project' : 'quick',
+    projectId: task.projectId || null,
+    versionId: task.versionId || null,
+    prompt: String(task.prompt || ''),
+    providerId: String(task.providerId || ''),
+    providerName: String(task.providerName || ''),
+    modelId: String(task.modelId || ''),
+    ratio: String(task.ratio || '1:1'),
+    quality: String(task.quality || '高清'),
+    isImageToImage: !!task.isImageToImage,
+    sourceImage: String(task.sourceImage || ''),
+    batchIndex: Number(task.batchIndex) || 1,
+    batchTotal: Number(task.batchTotal) || 1,
+    status: 'failed',
+    createdAt: Number(task.createdAt) || Date.now(),
+    startedAt: Number(task.startedAt) || null,
+    finishedAt: Number(task.finishedAt) || Date.now(),
+    error: String(task.error || '生成失败'),
+    errorDetails: { ...(task.errorDetails || {}) },
+    retryCount: Number(task.retryCount) || 0,
+  };
+  const records = Array.isArray(state.failedGenerationTasks) ? state.failedGenerationTasks : [];
+  const existingIndex = records.findIndex((item) => item.id === record.id);
+  if (existingIndex >= 0) records.splice(existingIndex, 1);
+  records.unshift(record);
+  state.failedGenerationTasks = records.slice(0, MAX_FAILED_GENERATION_TASKS);
+  save();
+  return true;
+}
+
+export function removeFailedGenerationTask(taskId) {
+  const records = Array.isArray(state.failedGenerationTasks) ? state.failedGenerationTasks : [];
+  const nextRecords = records.filter((task) => task.id !== taskId);
+  if (nextRecords.length === records.length) return false;
+  state.failedGenerationTasks = nextRecords;
+  save();
+  return true;
+}
+
 function createGenerationFailure(result) {
   const error = new Error((result && result.error) || '生图失败');
   error.code = result?.code || '';
@@ -399,6 +451,25 @@ function createGenerationFailure(result) {
   error.stage = result?.stage || '';
   error.reasonCode = result?.reasonCode || '';
   return error;
+}
+
+export function recordGenerationDuration({ source, projectId, versionId, imageId, generationDurationMs }) {
+  const duration = Number(generationDurationMs);
+  if (!imageId || !Number.isFinite(duration) || duration < 0) return false;
+
+  let image = null;
+  if (source === 'quick') {
+    image = state.history.find((item) => item.id === imageId) || null;
+  } else if (source === 'project') {
+    const project = state.projects.find((item) => item.id === projectId);
+    const version = project?.versions.find((item) => item.id === versionId);
+    image = version?.images.find((item) => item.id === imageId) || null;
+  }
+  if (!image) return false;
+
+  image.generationDurationMs = Math.round(duration);
+  save();
+  return true;
 }
 
 // ===== 生图 =====
@@ -612,7 +683,11 @@ export function updateProject(id, { name, description }) {
   return cloneProject(p);
 }
 
-export function deleteProject(id) { state.projects = state.projects.filter((p) => p.id !== id); save(); }
+export function deleteProject(id) {
+  state.projects = state.projects.filter((p) => p.id !== id);
+  state.failedGenerationTasks = (state.failedGenerationTasks || []).filter((task) => task.projectId !== id);
+  save();
+}
 
 export function setCurrentVersion(projectId, versionId) {
   const p = state.projects.find((p) => p.id === projectId);

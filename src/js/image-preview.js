@@ -20,6 +20,15 @@ function appendInfoRow(documentRef, container, label, value) {
   container.appendChild(row);
 }
 
+function appendPromptBlock(documentRef, container, prompt) {
+  if (!prompt) return;
+  const section = createElement(documentRef, 'section', 'image-preview-prompt');
+  section.setAttribute('data-image-preview-prompt', '');
+  section.appendChild(createElement(documentRef, 'strong', 'image-preview-prompt-heading', '提示词'));
+  section.appendChild(createElement(documentRef, 'div', 'image-preview-prompt-content', prompt));
+  container.appendChild(section);
+}
+
 function clampZoom(value) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(value.toFixed(1))));
 }
@@ -81,20 +90,26 @@ export function openImagePreview(record, options = {}) {
     });
     const failureSummary = createElement(documentRef, 'div', 'image-preview-failure');
     failureSummary.setAttribute('data-image-preview-failure', '');
-    failureSummary.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-title', help.title));
-    failureSummary.appendChild(createElement(documentRef, 'p', 'image-preview-failure-summary', help.summary));
+    const failureHeader = createElement(documentRef, 'div', 'image-preview-failure-header');
+    failureHeader.setAttribute('data-image-preview-failure-header', '');
+    failureHeader.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-title', help.title));
+    failureHeader.appendChild(createElement(documentRef, 'p', 'image-preview-failure-summary', help.summary));
+    failureSummary.appendChild(failureHeader);
+    const guidance = createElement(documentRef, 'div', 'image-preview-failure-guidance');
+    guidance.setAttribute('data-image-preview-failure-guidance', '');
     const reasons = createElement(documentRef, 'div', 'image-preview-failure-section');
     reasons.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-heading', '可能原因'));
     const reasonList = createElement(documentRef, 'ul', 'image-preview-failure-list');
     help.reasons.forEach((reason) => reasonList.appendChild(createElement(documentRef, 'li', '', reason)));
     reasons.appendChild(reasonList);
-    failureSummary.appendChild(reasons);
+    guidance.appendChild(reasons);
     const steps = createElement(documentRef, 'div', 'image-preview-failure-section');
     steps.appendChild(createElement(documentRef, 'strong', 'image-preview-failure-heading', '可尝试的解决步骤'));
     const stepList = createElement(documentRef, 'ol', 'image-preview-failure-list');
     help.steps.forEach((step) => stepList.appendChild(createElement(documentRef, 'li', '', step)));
     steps.appendChild(stepList);
-    failureSummary.appendChild(steps);
+    guidance.appendChild(steps);
+    failureSummary.appendChild(guidance);
     info.appendChild(failureSummary);
     appendInfoRow(documentRef, info, '错误', String(record.error || '未知错误'));
     if (errorDetails.diagnosticId) appendInfoRow(documentRef, info, '诊断编号', errorDetails.diagnosticId);
@@ -115,7 +130,8 @@ export function openImagePreview(record, options = {}) {
     });
     info.appendChild(chainBlock);
   }
-  appendInfoRow(documentRef, info, '提示词', record.prompt || '');
+  if (isFailureDetail) appendPromptBlock(documentRef, info, record.prompt || '');
+  else appendInfoRow(documentRef, info, '提示词', record.prompt || '');
 
   const actions = createElement(documentRef, 'div', 'image-preview-actions');
   const imageId = record.imageId || record.id || null;

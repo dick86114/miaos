@@ -40,7 +40,18 @@ test('默认状态包含 Grsai 与 Aiping 内置供应商，并保持 Grsai 为�
   assert.equal(state.defaults.defaultImageProvider, 'p_grsai');
   assert.equal(state.defaults.defaultImageModel, 'gpt-image-2');
   assert.equal(state.updateRepo, 'dick86114/miaos');
+  assert.deepEqual(state.failedGenerationTasks, []);
   assert.equal(validateState(state).ok, true);
+});
+
+test('状态迁移保留失败生图记录', () => {
+  const source = createDefaultState();
+  source.failedGenerationTasks = [{
+    id: 'task-failed', source: 'quick', status: 'failed', prompt: '测试失败任务', createdAt: 1, finishedAt: 2,
+  }];
+
+  const migrated = migrateState(source);
+  assert.deepEqual(migrated.failedGenerationTasks, source.failedGenerationTasks);
 });
 
 test('v5 状态迁移到 v6 时只补入一次 Aiping，v6 中主动删除后不会重新出现', () => {

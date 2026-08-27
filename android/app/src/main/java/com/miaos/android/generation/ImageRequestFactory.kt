@@ -84,13 +84,35 @@ object ImageRequestFactory {
         else -> value
     }
 
-    private fun buildGrsai(input: ImageGenerationInput): Map<String, Any> = linkedMapOf(
-        "model" to input.modelId,
-        "prompt" to input.prompt,
-        "images" to listOfNotNull(input.sourceImage),
-        "aspectRatio" to input.ratio.ifBlank { "1:1" },
-        "replyType" to "json",
-    )
+    private fun buildGrsai(input: ImageGenerationInput): Map<String, Any> {
+        val body = linkedMapOf<String, Any>(
+            "model" to input.modelId,
+            "prompt" to input.prompt,
+            "images" to listOfNotNull(input.sourceImage),
+            "replyType" to "json",
+        )
+        if (input.modelId !in setOf("gpt-image-2", "gpt-image-2-vip")) {
+            body["aspectRatio"] = input.ratio.ifBlank { "1:1" }
+            return body
+        }
+        val quality = when (input.quality) {
+            "标准" -> "low"
+            "超高清" -> "high"
+            else -> "medium"
+        }
+        body["quality"] = quality
+        body["aspectRatio"] = if (input.modelId == "gpt-image-2-vip") gptImageVipSize(input.quality, input.ratio) else input.ratio.ifBlank { "1:1" }
+        return body
+    }
+
+    private fun gptImageVipSize(quality: String, ratio: String): String {
+        val sizes = when (quality) {
+            "标准" -> mapOf("1:1" to "1024x1024", "4:3" to "1152x864", "16:9" to "1280x720", "9:16" to "720x1280")
+            "超高清" -> mapOf("1:1" to "2880x2880", "4:3" to "3264x2448", "16:9" to "3840x2160", "9:16" to "2160x3840")
+            else -> mapOf("1:1" to "2048x2048", "4:3" to "2304x1728", "16:9" to "2048x1152", "9:16" to "1152x2048")
+        }
+        return sizes[ratio] ?: sizes.getValue("1:1")
+    }
 
     /**
      * 与 macOS 保持兼容：常规 OpenAI 文生图使用 response_format；带参考图时使用兼容供应商约定的 extra_body.image。

@@ -359,3 +359,22 @@ test('失败详情展示通俗原因、解决步骤和可复制的诊断信息',
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(copied, /diag-example/);
 });
+
+test('失败详情将摘要、排查建议、参数和长提示词分区展示', async () => {
+  const { openImagePreview } = await loadPreview();
+  const documentRef = createDocument();
+  openImagePreview({
+    status: 'failed',
+    error: '请求被服务拒绝',
+    prompt: '很长的提示词\n'.repeat(80),
+    providerName: '测试供应商',
+    modelId: '测试模型',
+    ratio: '9:16',
+    quality: '超高清',
+  }, { documentRef });
+
+  const overlay = findByAttribute(documentRef.body, 'data-image-preview');
+  assert.ok(findByAttribute(overlay, 'data-image-preview-failure-header'));
+  assert.ok(findByAttribute(overlay, 'data-image-preview-failure-guidance'));
+  assert.ok(findByAttribute(overlay, 'data-image-preview-prompt'));
+});

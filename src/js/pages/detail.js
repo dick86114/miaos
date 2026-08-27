@@ -6,11 +6,11 @@ import {
   getProjects,
   deleteHistory,
   formatDateTime,
-  ratioToSize,
   saveLastSettings,
 } from '../store.js';
 import { navigate } from '../router.js';
-import { resolveImageDetailRecord } from '../image-detail-data.js';
+import { formatImageDimensions, resolveImageDetailRecord } from '../image-detail-data.js';
+import { formatGenerationDuration } from '../generation-timing.js';
 
 const DETAIL_MIN_ZOOM = 1;
 const DETAIL_MAX_ZOOM = 4;
@@ -84,6 +84,7 @@ export function renderDetail(container, params, routeOptions = {}) {
 
   const backTarget = item.backTarget || fallbackBackTarget;
   const modelName = item.model || item.modelId || '未记录模型';
+  const generationDurationText = formatGenerationDuration(item.generationDurationMs);
   const filePrefix = item.source === 'project' ? 'miaos-proj' : 'miaos';
   const deleteAction = item.canDelete
     ? `<button type="button" class="detail-icon-btn danger" id="btn-delete" title="删除">${icon('trash-2', 16)}</button>`
@@ -99,7 +100,7 @@ export function renderDetail(container, params, routeOptions = {}) {
       </div>
       <div class="detail-layout">
         <div class="detail-image-col">
-          <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.prompt || '生成结果')}" class="detail-image" />
+          <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.prompt || '生成结果')}" class="detail-image" id="detail-image" />
         </div>
         <div class="detail-panel-col">
           <div class="detail-panel">
@@ -113,9 +114,10 @@ export function renderDetail(container, params, routeOptions = {}) {
               <div class="param-chips">
                 ${item.providerName ? `<span class="param-chip"><span class="param-chip-label">供应商</span>${escapeHtml(item.providerName)}</span>` : ''}
                 <span class="param-chip"><span class="param-chip-label">模型</span>${escapeHtml(modelName)}</span>
-                <span class="param-chip"><span class="param-chip-label">尺寸</span>${ratioToSize(item.ratio)}</span>
+                <span class="param-chip"><span class="param-chip-label">尺寸</span><span id="detail-image-size">读取中…</span></span>
                 <span class="param-chip"><span class="param-chip-label">比例</span>${escapeHtml(item.ratio || '未记录')}</span>
                 <span class="param-chip"><span class="param-chip-label">质量</span>${escapeHtml(item.quality || '未记录')}</span>
+                ${generationDurationText ? `<span class="param-chip"><span class="param-chip-label">生图耗时</span>${escapeHtml(generationDurationText)}</span>` : ''}
                 <span class="param-chip"><span class="param-chip-label">生成时间</span>${formatDateTime(item.createdAt)}</span>
               </div>
             </div>
@@ -140,6 +142,15 @@ export function renderDetail(container, params, routeOptions = {}) {
     textarea.style.height = `${textarea.scrollHeight}px`;
   }
   root.querySelectorAll('.detail-textarea').forEach(syncDetailPromptHeight);
+
+  const sizeTrackedImage = root.querySelector('#detail-image');
+  const imageSizeLabel = root.querySelector('#detail-image-size');
+  function syncImageDimensions() {
+    const dimensions = formatImageDimensions(sizeTrackedImage?.naturalWidth, sizeTrackedImage?.naturalHeight);
+    if (dimensions && imageSizeLabel) imageSizeLabel.textContent = dimensions;
+  }
+  sizeTrackedImage?.addEventListener('load', syncImageDimensions);
+  syncImageDimensions();
 
   let closeFullscreenPreview = null;
   function openDetailImageFullscreen(imageSource, altText) {

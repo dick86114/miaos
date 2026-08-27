@@ -25,6 +25,34 @@ class ImageRequestFactoryTest {
     }
 
     @Test
+    fun `Grsai gpt-image-2 质量映射到接口字段并保留比例`() {
+        val low = ImageRequestFactory.build(ImageGenerationInput("grsai", "https://grsai.example/v1", "gpt-image-2", "猫", "1:1", "标准"))
+        val medium = ImageRequestFactory.build(ImageGenerationInput("grsai", "https://grsai.example/v1", "gpt-image-2", "猫", "16:9", "高清"))
+        val high = ImageRequestFactory.build(ImageGenerationInput("grsai", "https://grsai.example/v1", "gpt-image-2", "猫", "16:9", "超高清"))
+
+        assertEquals("low", low.body.getValue("quality"))
+        assertEquals("1:1", low.body.getValue("aspectRatio"))
+        assertEquals("medium", medium.body.getValue("quality"))
+        assertEquals("16:9", medium.body.getValue("aspectRatio"))
+        assertEquals("high", high.body.getValue("quality"))
+        assertEquals("16:9", high.body.getValue("aspectRatio"))
+    }
+
+    @Test
+    fun `Grsai gpt-image-2-vip 质量映射到像素尺寸`() {
+        val low = ImageRequestFactory.build(ImageGenerationInput("grsai", "https://grsai.example/v1", "gpt-image-2-vip", "猫", "16:9", "标准"))
+        val medium = ImageRequestFactory.build(ImageGenerationInput("grsai", "https://grsai.example/v1", "gpt-image-2-vip", "猫", "16:9", "高清"))
+        val high = ImageRequestFactory.build(ImageGenerationInput("grsai", "https://grsai.example/v1", "gpt-image-2-vip", "猫", "9:16", "超高清"))
+
+        assertEquals("low", low.body.getValue("quality"))
+        assertEquals("1280x720", low.body.getValue("aspectRatio"))
+        assertEquals("medium", medium.body.getValue("quality"))
+        assertEquals("2048x1152", medium.body.getValue("aspectRatio"))
+        assertEquals("high", high.body.getValue("quality"))
+        assertEquals("2160x3840", high.body.getValue("aspectRatio"))
+    }
+
+    @Test
     fun `OpenAI 兼容请求使用 b64_json 返回格式`() {
         val request = ImageRequestFactory.build(ImageGenerationInput(
             providerType = "openai",

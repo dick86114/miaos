@@ -33,6 +33,32 @@ test('失败任务可原地重新排队并保留原始生成参数', async () =>
   assert.equal(queue.getTasks()[0].retryCount, 1);
 });
 
+test('失败任务会在队列重建后恢复，并在重试或移除时清理持久记录', async () => {
+  const persisted = [{
+    id: 'task-persisted', source: 'quick', status: 'failed', prompt: '失败提示词', modelId: 'model',
+    ratio: '1:1', quality: '高清', createdAt: 1, finishedAt: 2, error: '网络错误', errorDetails: {},
+  }];
+  const removedIds = [];
+  const queue = createQueue({
+    getFailedGenerationTasks: () => persisted,
+    removeFailedGenerationTask: (taskId) => removedIds.push(taskId),
+    schedulePump: () => {},
+  });
+
+  assert.equal(queue.getTasks()[0].id, 'task-persisted');
+  assert.equal(queue.getTasks()[0].status, 'failed');
+  assert.equal(queue.retry('task-persisted'), true);
+  assert.deepEqual(removedIds, ['task-persisted']);
+
+  const removeQueue = createQueue({
+    getFailedGenerationTasks: () => persisted,
+    removeFailedGenerationTask: (taskId) => removedIds.push(taskId),
+    schedulePump: () => {},
+  });
+  assert.equal(removeQueue.removeTask('task-persisted'), true);
+  assert.deepEqual(removedIds, ['task-persisted', 'task-persisted']);
+});
+
 test('只有失败任务时不再显示生成中，也不显示取消未开始', () => {
   const failedOnly = getQuickQueueViewState([
     { id: 'a', source: 'quick', status: 'failed' },

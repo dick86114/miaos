@@ -32,6 +32,7 @@ import * as queue from '../queue.js';
 import { createPromptOptimizationManager } from '../prompt-optimization.js';
 import { createPromptOptimizationPageBinding } from './generate.js';
 import { getGenerationErrorHelp } from '../generation-error-help.js';
+import { createRunningTaskTicker, formatGenerationDuration } from '../generation-timing.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -403,7 +404,7 @@ export function renderProject(container, params, routeOptions = {}) {
       if (t.status === 'running') {
         return `
           <div class="gallery-item gallery-placeholder task-running" data-task-id="${t.id}">
-            <div class="placeholder-cover">${icon('loader', 28)}<span>生成中…</span></div>
+            <div class="placeholder-cover">${icon('loader', 28)}<span>生成中 · <span data-task-elapsed>${formatGenerationDuration(Date.now() - t.startedAt) || '0 秒'}</span></span></div>
             <div class="gallery-item-meta">
               <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
             </div>
@@ -610,7 +611,24 @@ export function renderProject(container, params, routeOptions = {}) {
       const records = getGalleryRecords(version, tasks);
       galleryRenderer.render(records);
       galleryEmpty.hidden = records.length > 0;
+      runningTaskTicker?.sync(tasks);
     }
+
+    function refreshRunningTaskElapsed() {
+      const runningTasks = new Map(queue.getTasks()
+        .filter((task) => task.versionId === curVer.id && task.status === 'running')
+        .map((task) => [task.id, task]));
+      galleryGrid.querySelectorAll('[data-task-elapsed]').forEach((element) => {
+        const taskId = element.closest('[data-task-id]')?.getAttribute('data-task-id');
+        const task = taskId ? runningTasks.get(taskId) : null;
+        if (task) element.textContent = formatGenerationDuration(Date.now() - task.startedAt) || '0 秒';
+      });
+    }
+
+    let runningTaskTicker = createRunningTaskTicker({
+      getTasks: () => queue.getTasks(),
+      onTick: refreshRunningTaskElapsed,
+    });
 
     renderGalleryCards(curVer, queue.getTasks());
 
@@ -1305,6 +1323,7 @@ export function renderProject(container, params, routeOptions = {}) {
       galleryController.dispose();
       unbindTimelinePanning();
       pageLifecycle.cleanup();
+      runningTaskTicker.destroy();
       unsubscribe();
     };
     workbenchCleanup = cleanup;

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 const {
   buildImageDetailRoute,
   buildProjectPromptChain,
+  formatImageDimensions,
   resolveImageDetailRecord,
 } = await import(`../src/js/image-detail-data.js?image-detail=${Date.now()}-${Math.random()}`);
 
@@ -35,6 +36,15 @@ function createProject() {
     ],
   };
 }
+
+test('详情页尺寸标签格式化真实图片像素尺寸', () => {
+  assert.equal(formatImageDimensions(2880, 2880), '2880×2880');
+});
+
+test('图片尺寸未加载或无效时不产生伪造尺寸', () => {
+  assert.equal(formatImageDimensions(0, 0), '');
+  assert.equal(formatImageDimensions(1024, Number.NaN), '');
+});
 
 test('快速图片详情保留完整提示词并返回快速生图', () => {
   const history = [createImage('quick-image', '快速生图完整提示词')];

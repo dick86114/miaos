@@ -21,6 +21,7 @@ import { buildImageDetailRoute } from '../image-detail-data.js';
 import { createPromptOptimizationManager, createPromptFragmentOverlay } from '../prompt-optimization.js';
 import { getQuickQueueViewState } from '../queue-view-state.js';
 import { getGenerationErrorHelp } from '../generation-error-help.js';
+import { createRunningTaskTicker, formatGenerationDuration } from '../generation-timing.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -708,7 +709,7 @@ export function renderGenerate(container) {
     }
     return `
       <article class="gallery-item gallery-placeholder ${isRunning ? 'task-running' : 'task-queued'}" data-task-id="${task.id}">
-        <div class="placeholder-cover">${icon(isRunning ? 'loader' : 'clock', 28)}<span>${isRunning ? '生成中…' : '排队中'}</span></div>
+        <div class="placeholder-cover">${icon(isRunning ? 'loader' : 'clock', 28)}<span>${isRunning ? `生成中 · <span data-task-elapsed>${formatGenerationDuration(Date.now() - task.startedAt) || '0 秒'}</span>` : '排队中'}</span></div>
         <div class="gallery-item-meta">
           <span class="gallery-item-time">${escapeHtml(paramsText)}</span>
           ${isRunning ? '' : `<button type="button" class="icon-btn task-cancel" data-task-id="${task.id}" title="取消任务">${icon('x', 13)}</button>`}
@@ -796,11 +797,28 @@ export function renderGenerate(container) {
     renderIcons(activeTitle);
     activeCount.textContent = viewState.countText;
     cancelAllQueued.hidden = !viewState.showCancelQueued;
+    runningTaskTicker.sync(tasks);
 
     if (hasNewQuickCompletion) quickHistoryPage = 1;
     if (hasNewQuickCompletion || completedQuickTaskIds.size !== previousCompletedQuickTaskIds.size) renderQuickHistory();
     previousCompletedQuickTaskIds = completedQuickTaskIds;
   }
+
+  function refreshRunningTaskElapsed() {
+    const runningTasks = new Map(queue.getTasks()
+      .filter((task) => task.source === 'quick' && task.status === 'running')
+      .map((task) => [task.id, task]));
+    queueView.querySelectorAll('[data-task-elapsed]').forEach((element) => {
+      const taskId = element.closest('[data-task-id]')?.getAttribute('data-task-id');
+      const task = taskId ? runningTasks.get(taskId) : null;
+      if (task) element.textContent = formatGenerationDuration(Date.now() - task.startedAt) || '0 秒';
+    });
+  }
+
+  const runningTaskTicker = createRunningTaskTicker({
+    getTasks: () => queue.getTasks(),
+    onTick: refreshRunningTaskElapsed,
+  });
 
   // 操作统一委托到结果区，历史卡片局部更新或分页时无需重复绑定监听器。
   resultArea.addEventListener('click', async (event) => {
@@ -863,6 +881,7 @@ export function renderGenerate(container) {
     closeDropdown();
     closeImagePreview?.();
     promptOptimizationBinding.destroy();
+    runningTaskTicker.destroy();
     unsubscribe();
   };
 }

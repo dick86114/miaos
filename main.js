@@ -26,6 +26,7 @@ const { createSecretsVault } = require('./src/main/secrets-vault');
 const { assertProviderId } = require('./src/main/provider-id');
 const { getRuntimeSecurityConfig } = require('./src/main/runtime-security');
 const { buildAipingImageRequest } = require('./src/main/services/aiping-image-adapter');
+const { buildGrsaiImageRequest } = require('./src/main/services/grsai-image-adapter');
 const { createConfigPairingServer } = require('./src/main/services/config-pairing');
 const crypto = require('crypto');
 
@@ -1015,17 +1016,17 @@ async function pollGrsaiResult({ model, id }) {
 }
 
 // ===== Grsai 生图 =====
-async function generateWithGrsai({ prompt, model, ratio, sourceImage }) {
+async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage }) {
   const headers = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
 
-  const body = {
+  const body = buildGrsaiImageRequest({
     model: model.model,
     prompt,
-    images: sourceImage ? [sourceImage] : [],
-    aspectRatio: ratio || '1:1',
-    replyType: 'json',
-  };
+    ratio: ratio || '1:1',
+    quality,
+    sourceImage,
+  });
 
   const result = await requestJson({
     url: model.endpoint,
@@ -1358,7 +1359,7 @@ registerSecureHandler({
       stage = 'image_generation';
       if (ptype === 'grsai') {
         const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
-        return await generateWithGrsai({ prompt, model, ratio, sourceImage: sourceImageDataUrl });
+        return await generateWithGrsai({ prompt, model, ratio, quality, sourceImage: sourceImageDataUrl });
       }
 
       let imageEndpoint = endpoint;
