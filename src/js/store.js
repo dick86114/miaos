@@ -369,10 +369,13 @@ export function finalizeTrashPurge(trashId, result = {}) {
   const remaining = validRefs.filter((ref, refIndex, refs) => refs.findIndex((candidate) => candidate.path === ref.path) === refIndex && !processed.has(ref.path));
   return commitStorageMutation(() => {
     const currentEntry = ensureStorage().trash[index];
+    if (complete) {
+      // 当前条目完成确认后即可移除；共享文件由活动状态或其他回收站条目继续保护。
+      ensureStorage().trash.splice(index, 1);
+      return { ok: true, trashId, removed: requested };
+    }
     currentEntry.fileRefs = structuredClone(remaining);
-    if (complete && remaining.length === 0) ensureStorage().trash.splice(index, 1);
-    if (!complete) return { ok: false, code: 'PURGE_PARTIAL', trashId, failedPaths: [...failedSet], remainingRefs: structuredClone(remaining) };
-    return { ok: true, trashId, removed: requested };
+    return { ok: false, code: 'PURGE_PARTIAL', trashId, failedPaths: [...failedSet], remainingRefs: structuredClone(remaining) };
   });
 }
 

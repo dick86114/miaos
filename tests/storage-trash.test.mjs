@@ -245,3 +245,23 @@ test('确认失败时回收站条目保持不变，部分成功仅移除已处�
     assert.equal(store.getStorageState().trash.length, 0);
   } finally { restore(); }
 });
+
+test('共享引用不阻止确认完成后移除当前回收站条目', async () => {
+  const state = createDefaultState();
+  state.projects = [projectFixture()];
+  state.storage.trash = [{
+    id: 'trash-shared-finalize', kind: 'history', payload: null,
+    fileRefs: [
+      { path: '/Users/me/.miaos/generated/shared.png' },
+      { path: '/Users/me/.miaos/generated/orphan.png' },
+    ], deletedAt: 1,
+  }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.purgeTrashEntry('trash-shared-finalize');
+    assert.deepEqual(request.fileDeletionRequest.paths, ['/Users/me/.miaos/generated/orphan.png']);
+    const finalized = store.finalizeTrashPurge('trash-shared-finalize', { deletedPaths: request.fileDeletionRequest.paths });
+    assert.equal(finalized.ok, true);
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});
