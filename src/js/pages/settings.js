@@ -21,6 +21,13 @@ import {
   setDefaults,
   getThemeMode,
   setThemeMode,
+  getStorageState,
+  scanStorage,
+  getStorageUsage,
+  deleteStorageFiles,
+  restoreTrashEntry,
+  purgeTrashEntry,
+  finalizeTrashPurge,
 } from '../store.js';
 
 const PROVIDER_TYPES = [
@@ -82,7 +89,7 @@ const UPDATE_STATE_TEXT = {
 
 export function renderSettings(container) {
   let pageState = {
-    tab: 'general', // general | providers | about
+    tab: 'general', // general | providers | storage | about
     selectedProviderId: null,
     isAddingProvider: false,
     // 编辑表单临时状态
@@ -107,6 +114,14 @@ export function renderSettings(container) {
     secretStorageMode: 'local',
     savedSecretStorageMode: 'local',
     legacySecretCount: 0,
+    storage: {
+      usage: null,
+      usageLoaded: false,
+      scan: null,
+      scanning: false,
+      error: '',
+      selectedOrphans: new Set(),
+    },
   };
 
   const root = htmlToElement(`<div class="settings-wrap"><div class="settings-layout"></div></div>`);
@@ -213,10 +228,14 @@ export function renderSettings(container) {
         <button class="settings-tab ${tab === 'about' ? 'is-active' : ''}" data-tab="about">
           ${icon('info', 16)}<span>关于与更新</span>
         </button>
+        <button class="settings-tab ${tab === 'storage' ? 'is-active' : ''}" data-tab="storage">
+          ${icon('folder', 16)}<span>存储管理</span>
+        </button>
       </div>
       <div class="settings-content">
         ${tab === 'general' ? renderGeneral(providers) : ''}
         ${tab === 'providers' ? renderProviders(providers) : ''}
+        ${tab === 'storage' ? renderStorage() : ''}
         ${tab === 'about' ? renderAbout() : ''}
       </div>
     `;
@@ -556,6 +575,81 @@ export function renderSettings(container) {
     `;
   }
 
+  // ========== 存储管理 ==========
+  function formatStorageBytes(value) {
+    const bytes = Number(value) || 0;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  }
+
+  function storageFileRefs(entry) {
+    return Array.isArray(entry?.fileRefs) ? entry.fileRefs : [];
+  }
+
+  function renderStorage() {
+    const storage = getStorageState() || { trash: [], lastScanAt: 0 };
+    const view = pageState.storage;
+    const totals = view.scan?.totals || view.usage?.totals || null;
+    const byCategory = totals?.byCategory || {};
+    const orphans = (view.scan?.files || []).filter((file) => file.category === 'orphan');
+    const scannedFiles = new Map((view.scan?.files || []).map((file) => [file.path, file]));
+    const trash = Array.isArray(storage.trash) ? storage.trash : [];
+    const lastScanAt = storage.lastScanAt || view.scan?.scannedAt || 0;
+    const displayScanTime = lastScanAt ? new Date(lastScanAt).toLocaleString('zh-CN', { hour12: false }) : '尚未扫描';
+    const usageCard = totals ? `
+      <div class="storage-stat-grid">
+        <div class="storage-stat"><span>总文件</span><strong>${totals.files || 0}</strong></div>
+        <div class="storage-stat"><span>总占用</span><strong>${formatStorageBytes(totals.bytes)}</strong></div>
+        <div class="storage-stat"><span>已使用文件</span><strong>${byCategory.active?.files || 0} / ${formatStorageBytes(byCategory.active?.bytes)}</strong></div>
+        <div class="storage-stat"><span>回收站文件</span><strong>${byCategory.trash?.files || 0} / ${formatStorageBytes(byCategory.trash?.bytes)}</strong></div>
+        <div class="storage-stat"><span>孤立文件</span><strong>${byCategory.orphan?.files || 0} / ${formatStorageBytes(byCategory.orphan?.bytes)}</strong></div>
+      </div>` : '<div class="storage-empty">暂无扫描结果<br /><strong>0 占用</strong></div>';
+
+    return `
+      <div class="page-header">
+        <h1 class="page-title">存储管理</h1>
+        <p class="page-subtitle">查看生成文件占用，清理回收站与孤立文件</p>
+      </div>
+      <section class="settings-card storage-management">
+        <div class="settings-section-header">
+          <div class="settings-section-title">${icon('folder', 16)}<span>使用情况</span></div>
+          <button class="btn btn-secondary" id="btn-scan-storage" type="button" ${view.scanning ? 'disabled' : ''}>
+            ${view.scanning ? icon('loader', 14) : icon('refresh-cw', 14)}<span>${view.scanning ? '扫描中…' : '扫描本地文件'}</span>
+          </button>
+        </div>
+        <div class="storage-scan-meta">最近扫描：${escapeHtml(displayScanTime)}</div>
+        ${usageCard}
+        ${view.error ? `<div class="storage-error" role="alert">${icon('alert-circle', 14)}<span>${escapeHtml(view.error)}</span><button class="btn btn-ghost btn-sm" id="btn-retry-storage" type="button">重试</button></div>` : ''}
+      </section>
+
+      <section class="settings-card storage-management">
+        <div class="settings-section-header"><div class="settings-section-title">${icon('layers', 16)}<span>回收站</span></div><span class="storage-count">${trash.length} 项</span></div>
+        <div class="storage-file-list storage-trash-list">
+          ${trash.length ? trash.map((entry) => {
+            const refs = storageFileRefs(entry);
+            const bytes = refs.reduce((sum, ref) => sum + (Number(ref?.size) || Number(scannedFiles.get(ref?.path)?.size) || 0), 0);
+            const label = entry.kind === 'project' ? '项目' : entry.kind === 'version' ? '版本' : entry.kind === 'history' ? '历史记录' : '条目';
+            const name = entry.payload?.name || entry.payload?.title || entry.payload?.projectName || entry.payload?.id || entry.id;
+            return `<div class="storage-row" data-trash-id="${escapeAttr(entry.id)}">
+              <div class="storage-row-main"><strong>${escapeHtml(String(name))}</strong><span>${label} · ${refs.length} 个文件 · ${formatStorageBytes(bytes)}</span><small>删除于 ${escapeHtml(entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('zh-CN', { hour12: false }) : '未知时间')}</small></div>
+              <div class="storage-row-actions"><button class="btn btn-ghost btn-sm" data-act="restore-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('arrow-left', 13)}<span>恢复</span></button><button class="btn btn-ghost btn-sm danger" data-act="purge-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('trash-2', 13)}<span>永久删除</span></button></div>
+            </div>`;
+          }).join('') : '<div class="storage-empty">回收站为空</div>'}
+        </div>
+      </section>
+
+      <section class="settings-card storage-management">
+        <div class="settings-section-header"><div class="settings-section-title">${icon('alert-circle', 16)}<span>孤立文件</span></div><span class="storage-count">${orphans.length} 项</span></div>
+        <div class="storage-orphan-toolbar"><label class="storage-select-all"><input id="select-all-orphans" type="checkbox" ${orphans.length && orphans.every((file) => view.selectedOrphans.has(file.path)) ? 'checked' : ''} ${orphans.length ? '' : 'disabled'} />全选</label><button class="btn btn-ghost btn-sm danger" id="btn-clean-orphans" type="button" ${view.selectedOrphans.size ? '' : 'disabled'}>${icon('trash-2', 13)}<span>清理所选</span></button></div>
+        <div class="storage-file-list storage-orphan-list">
+          ${orphans.length ? orphans.map((file) => `<label class="storage-row storage-orphan-row ${file.error ? 'is-unsafe' : ''}"><input type="checkbox" data-act="select-orphan" data-path="${escapeAttr(file.path)}" ${view.selectedOrphans.has(file.path) ? 'checked' : ''} ${file.error ? 'disabled' : ''} /><span class="storage-row-main"><strong>${escapeHtml(file.name || file.path)}</strong><span>${escapeHtml(file.extension || '文件')} · ${formatStorageBytes(file.size)}</span><small>${file.mtimeMs ? new Date(file.mtimeMs).toLocaleString('zh-CN', { hour12: false }) : '未知时间'}${file.error ? ` · ${escapeHtml(file.error)}` : ''}</small></span></label>`).join('') : '<div class="storage-empty">暂无孤立文件</div>'}
+        </div>
+      </section>
+    `;
+  }
+
   // ========== 关于与更新 ==========
   function renderAbout() {
     const u = pageState.update;
@@ -626,6 +720,7 @@ export function renderSettings(container) {
         pageState.form = null;
         pageState.testStatus = null;
         refresh();
+        if (pageState.tab === 'storage') loadStorageUsage();
       });
     });
 
@@ -633,8 +728,119 @@ export function renderSettings(container) {
       bindGeneralEvents();
     } else if (pageState.tab === 'providers') {
       bindProviderEvents();
+    } else if (pageState.tab === 'storage') {
+      bindStorageEvents();
     } else if (pageState.tab === 'about') {
       bindAboutEvents();
+    }
+  }
+
+  function bindStorageEvents() {
+    const inner = getInner();
+    const storageDelete = deleteStorageFiles;
+    if (!pageState.storage.usageLoaded && !pageState.storage.scan) loadStorageUsage();
+    const scanButton = inner.querySelector('#btn-scan-storage');
+    const runScan = async () => {
+      if (pageState.storage.scanning) return;
+      pageState.storage.scanning = true;
+      pageState.storage.error = '';
+      refresh();
+      try {
+        const result = await scanStorage();
+        if (!result || result.ok === false) throw new Error(result?.error || '扫描失败');
+        pageState.storage.scan = { ...result, scannedAt: Date.now() };
+        pageState.storage.usage = result;
+        pageState.storage.selectedOrphans = new Set();
+        toast('本地文件扫描完成', 'success');
+      } catch (error) {
+        pageState.storage.error = `扫描失败：${error?.message || '无法读取生成目录'}`;
+        toast(pageState.storage.error, 'error');
+      } finally {
+        pageState.storage.scanning = false;
+        refresh();
+      }
+    };
+    scanButton?.addEventListener('click', runScan);
+    inner.querySelector('#btn-retry-storage')?.addEventListener('click', runScan);
+
+    inner.querySelectorAll('[data-act="restore-trash"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const id = button.getAttribute('data-trash-id');
+        if (!await confirmDialog('确定恢复此回收站条目吗？')) return;
+        const result = restoreTrashEntry(id);
+        if (!result?.ok) { toast(result?.error || '恢复失败', 'error'); return; }
+        pageState.storage.scan = null;
+        pageState.storage.selectedOrphans = new Set();
+        refresh();
+        toast('已恢复回收站条目', 'success');
+      });
+    });
+
+    inner.querySelectorAll('[data-act="purge-trash"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const id = button.getAttribute('data-trash-id');
+        const request = purgeTrashEntry(id);
+        if (!request?.ok) { toast(request?.error || '无法准备永久删除', 'error'); return; }
+        const count = request.files?.length || request.fileDeletionRequest?.paths?.length || 0;
+        const size = (request.files || []).reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+        if (!await confirmDialog(`确定永久删除 ${count} 个文件（${formatStorageBytes(size)}）吗？此操作不可撤销。`)) return;
+        try {
+          const deletion = await storageDelete(request.files || request.fileDeletionRequest?.paths || []);
+          const finalized = finalizeTrashPurge(id, { ...deletion, requestedPaths: request.fileDeletionRequest?.paths || [] });
+          if (!finalized?.ok) toast(`部分删除失败，${finalized?.failedPaths?.length || deletion?.failed?.length || 0} 个文件保留`, 'error');
+          else toast('已永久删除', 'success');
+          pageState.storage.scan = null;
+          refresh();
+          await runScan();
+        } catch (error) {
+          toast(`删除失败：${error?.message || '未知错误'}`, 'error');
+        }
+      });
+    });
+
+    inner.querySelector('#select-all-orphans')?.addEventListener('change', (event) => {
+      const files = (pageState.storage.scan?.files || []).filter((file) => file.category === 'orphan' && !file.error);
+      pageState.storage.selectedOrphans = event.target.checked ? new Set(files.map((file) => file.path)) : new Set();
+      refresh();
+    });
+    inner.querySelectorAll('[data-act="select-orphan"]').forEach((input) => {
+      input.addEventListener('change', () => {
+        const path = input.getAttribute('data-path');
+        const selected = new Set(pageState.storage.selectedOrphans);
+        if (input.checked) selected.add(path); else selected.delete(path);
+        pageState.storage.selectedOrphans = selected;
+        refresh();
+      });
+    });
+    inner.querySelector('#btn-clean-orphans')?.addEventListener('click', async () => {
+      const paths = [...pageState.storage.selectedOrphans];
+      if (!paths.length) return;
+      if (!await confirmDialog(`确定清理选中的 ${paths.length} 个孤立文件吗？此操作不可撤销。`)) return;
+      try {
+        const result = await storageDelete(paths);
+        const failed = result?.failed?.length || 0;
+        const handled = new Set([...(result?.deleted || []), ...(result?.missing || [])].map((item) => typeof item === 'string' ? item : item.path));
+        pageState.storage.selectedOrphans = new Set(paths.filter((path) => !handled.has(path)));
+        toast(failed ? `已清理 ${handled.size} 个文件，${failed} 个失败项已保留` : `已清理 ${handled.size} 个孤立文件`, failed ? 'error' : 'success');
+        await runScan();
+      } catch (error) {
+        toast(`清理失败：${error?.message || '未知错误'}`, 'error');
+      }
+    });
+  }
+
+  async function loadStorageUsage() {
+    try {
+      const result = await getStorageUsage();
+      if (result && result.ok !== false) pageState.storage.usage = result;
+      else if (result?.error) pageState.storage.error = result.error;
+      pageState.storage.usageLoaded = true;
+      refresh();
+    } catch (error) {
+      // 首次安装时 generated 目录尚未创建，按空结果展示，不阻塞设置页。
+      if (!pageState.storage.scan) pageState.storage.usage = null;
+      pageState.storage.usageLoaded = true;
+      refresh();
     }
   }
 
