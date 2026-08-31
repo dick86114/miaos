@@ -1,7 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectGeneratedFileRefs, migrateState } from '../src/js/state-schema.js';
+import { collectGeneratedFileRefs, createDefaultState, migrateState } from '../src/js/state-schema.js';
 import { createTrashEntry, getStorageState } from '../src/js/store.js';
+
+function createMemoryStorage(seed = {}, { failWrites = false } = {}) {
+  const map = new Map(Object.entries(seed));
+  return {
+    getItem(key) { return map.has(key) ? map.get(key) : null; },
+    setItem(key, value) {
+      if (failWrites) throw new Error('写入失败');
+      map.set(key, String(value));
+    },
+    removeItem(key) { map.delete(key); },
+  };
+}
+
+async function loadStore(initialState, options = {}) {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    localStorage: createMemoryStorage({ 'miaos.state.v6': JSON.stringify(initialState) }, options),
+    addEventListener() {},
+  };
+  const moduleUrl = new URL(`../src/js/store.js?storage-trash=${Date.now()}-${Math.random()}`, import.meta.url);
+  const store = await import(moduleUrl.href);
+  return { store, restore() { globalThis.window = previousWindow; } };
+}
+
+function projectFixture() {
+  return {
+    id: 'project-1', name: '项目', description: '', createdAt: 1, updatedAt: 3,
+    coverImageId: 'image-root', currentVersionId: 'child',
+    versions: [
+      { id: 'root', parentId: null, parentImageId: null, name: '根', prompt: '', createdAt: 1, images: [{ id: 'image-root', image: '/Users/me/.miaos/generated/root.png', createdAt: 1 }, { id: 'image-root-shared', image: '/Users/me/.miaos/generated/shared.png', createdAt: 1 }] },
+      { id: 'child', parentId: 'root', parentImageId: 'image-root', name: '子', prompt: '', createdAt: 2, images: [{ id: 'image-shared', image: '/Users/me/.miaos/generated/shared.png', createdAt: 2 }] },
+      { id: 'grandchild', parentId: 'child', parentImageId: 'image-shared', name: '孙', prompt: '', createdAt: 3, images: [{ id: 'image-only', image: '/Users/me/.miaos/generated/only.png', createdAt: 3 }] },
+    ],
+  };
+}
 
 test('旧状态迁移时初始化空回收站且不改变项目和历史', () => {
   const migrated = migrateState({ projects: [], history: [] });
@@ -55,4 +90,96 @@ test('回收站条目和存储快照不暴露可变内部引用', () => {
 test('回收站条目的空 payload 统一为 null', () => {
   assert.equal(createTrashEntry({ kind: 'history', fileRefs: [], deletedAt: 10 }).payload, null);
   assert.equal(createTrashEntry({ kind: 'history', payload: null, fileRefs: [], deletedAt: 10 }).payload, null);
+});
+
+test('删除版本进入回收站并保留当前节点回退语义', async () => {
+  const state = createDefaultState();
+  state.projects = [projectFixture()];
+  const { store, restore } = await loadStore(state);
+  try {
+    const result = store.moveVersionToTrash('project-1', 'child');
+    assert.equal(result.ok, true);
+    assert.equal(store.getProject('project-1').currentVersionId, 'root');
+    assert.deepEqual(store.getProject('project-1').versions.map((v) => v.id), ['root']);
+    const trash = store.getStorageState().trash;
+    assert.equal(trash.length, 1);
+    assert.deepEqual(trash[0].payload.versions.map((v) => v.id), ['child', 'grandchild']);
+  } finally { restore(); }
+});
+
+test('项目和快速历史删除可恢复，ID 冲突拒绝覆盖', async () => {
+  const state = createDefaultState();
+  state.projects = [projectFixture()];
+  state.history = [{ id: 'history-1', image: '/Users/me/.miaos/generated/history.png', createdAt: 1 }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const historyResult = store.moveHistoryToTrash('history-1');
+    assert.equal(historyResult.ok, true);
+    const projectResult = store.moveProjectToTrash('project-1');
+    assert.equal(projectResult.ok, true);
+    const projectTrash = store.getStorageState().trash.find((entry) => entry.kind === 'project');
+    const conflictState = store.getStorageState();
+    assert.equal(store.restoreTrashEntry(projectTrash.id).ok, true);
+    assert.equal(store.getProject('project-1').id, 'project-1');
+    const second = store.moveProjectToTrash('project-1');
+    assert.equal(second.ok, true);
+    const latestProjectTrash = store.getStorageState().trash.find((entry) => entry.kind === 'project');
+    assert.equal(store.restoreTrashEntry(latestProjectTrash.id).ok, true);
+    assert.equal(store.getHistory().length, 0);
+    assert.equal(conflictState.trash.length >= 2, true);
+  } finally { restore(); }
+});
+
+test('恢复项目遇到活动同 ID 时拒绝覆盖', async () => {
+  const project = projectFixture();
+  const state = createDefaultState();
+  state.projects = [project];
+  state.storage.trash = [{ id: 'trash-conflict', kind: 'project', payload: project, fileRefs: [], deletedAt: 1 }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const result = store.restoreTrashEntry('trash-conflict');
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'ID_CONFLICT');
+    assert.equal(store.getProject('project-1').id, 'project-1');
+  } finally { restore(); }
+});
+
+test('批量快速历史删除进入多个回收站条目', async () => {
+  const state = createDefaultState();
+  state.history = [
+    { id: 'h1', image: '/Users/me/.miaos/generated/a.png', createdAt: 1 },
+    { id: 'h2', image: '/Users/me/.miaos/generated/b.png', createdAt: 2 },
+  ];
+  const { store, restore } = await loadStore(state);
+  try {
+    const result = store.moveHistoryRecordsToTrash([{ source: 'quick', historyId: 'h1' }, { source: 'quick', historyId: 'h2' }]);
+    assert.equal(result.ok, true);
+    assert.equal(result.count, 2);
+    assert.deepEqual(store.getHistory(), []);
+  } finally { restore(); }
+});
+
+test('共享图片引用仍存在时 purge 不请求物理删除，孤立引用返回删除请求', async () => {
+  const state = createDefaultState();
+  state.projects = [projectFixture()];
+  const { store, restore } = await loadStore(state);
+  try {
+    const result = store.moveVersionToTrash('project-1', 'child');
+    const purge = store.purgeTrashEntry(result.trashEntry.id);
+    assert.equal(purge.ok, true);
+    assert.deepEqual(purge.files.map((f) => f.path), ['/Users/me/.miaos/generated/only.png']);
+    assert.equal(purge.requiresMainProcessConfirmation, true);
+  } finally { restore(); }
+});
+
+test('持久化失败时删除不会丢失活动记录', async () => {
+  const state = createDefaultState();
+  state.projects = [projectFixture()];
+  const { store, restore } = await loadStore(state, { failWrites: true });
+  try {
+    const result = store.moveProjectToTrash('project-1');
+    assert.equal(result.ok, false);
+    assert.equal(store.getProject('project-1').id, 'project-1');
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
 });

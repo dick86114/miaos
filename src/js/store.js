@@ -5,6 +5,8 @@ import {
   createStatePersistence,
   DEFAULT_ENABLED_IMAGE,
   GRSAI_IMAGE_MODELS,
+  createEmptyStorageState,
+  collectGeneratedFileRefs,
   migrateLegacyProviderSecrets as migrateLegacyProviderSecretsInState,
   discardLegacyProviderSecrets as discardLegacyProviderSecretsInState,
 } from './state-schema.js';
@@ -172,6 +174,188 @@ export function createTrashEntry({ kind, payload, fileRefs, deletedAt }) {
 
 export function getStorageState() {
   return JSON.parse(JSON.stringify(state.storage));
+}
+
+function ensureStorage() {
+  if (!state.storage || typeof state.storage !== 'object' || Array.isArray(state.storage)) state.storage = createEmptyStorageState();
+  if (!Array.isArray(state.storage.trash)) state.storage.trash = [];
+  if (!Number.isFinite(state.storage.lastScanAt)) state.storage.lastScanAt = 0;
+  return state.storage;
+}
+
+function commitStorageMutation(mutator) {
+  const previousState = cloneStateForRollback();
+  try {
+    const result = mutator();
+    statePersistence.saveNow(state);
+    return result;
+  } catch (error) {
+    state = previousState;
+    return { ok: false, error: error?.message || '状态保存失败' };
+  }
+}
+
+function conflictResult(message = '恢复失败：活动记录存在同 ID') {
+  return { ok: false, code: 'ID_CONFLICT', error: message };
+}
+
+export function moveProjectToTrash(projectId) {
+  const project = state.projects.find((item) => item.id === projectId);
+  if (!project) return { ok: false, code: 'NOT_FOUND', error: '项目不存在' };
+  const payload = structuredClone(project);
+  const fileRefs = collectGeneratedFileRefs(project);
+  return commitStorageMutation(() => {
+    const storage = ensureStorage();
+    const trashEntry = createTrashEntry({ kind: 'project', payload, fileRefs, deletedAt: Date.now() });
+    state.projects = state.projects.filter((item) => item.id !== projectId);
+    state.failedGenerationTasks = (state.failedGenerationTasks || []).filter((task) => task.projectId !== projectId);
+    storage.trash.unshift(trashEntry);
+    return { ok: true, trashEntry: structuredClone(trashEntry) };
+  });
+}
+
+export function moveVersionToTrash(projectId, versionId) {
+  const project = state.projects.find((item) => item.id === projectId);
+  if (!project) return { ok: false, code: 'NOT_FOUND', error: '项目不存在' };
+  if (project.versions.length <= 1) return { ok: false, code: 'LAST_VERSION', error: '至少保留一个版本' };
+  const target = project.versions.find((item) => item.id === versionId);
+  if (!target) return { ok: false, code: 'NOT_FOUND', error: '版本不存在' };
+  const rootVersions = project.versions.filter((v) => v.parentId === null).sort((a, b) => a.createdAt - b.createdAt);
+  const targetRootIndex = target.parentId === null ? rootVersions.findIndex((v) => v.id === target.id) : -1;
+  const toDelete = new Set();
+  const stack = [versionId];
+  while (stack.length) {
+    const current = stack.pop();
+    if (toDelete.has(current)) continue;
+    toDelete.add(current);
+    project.versions.filter((v) => v.parentId === current).forEach((v) => stack.push(v.id));
+  }
+  const deletedVersions = project.versions.filter((v) => toDelete.has(v.id));
+  const indexes = deletedVersions.map((version) => ({ id: version.id, index: project.versions.findIndex((item) => item.id === version.id) }));
+  const payload = {
+    projectId,
+    versionId,
+    versions: deletedVersions,
+    indexes,
+    previousCurrentVersionId: project.currentVersionId,
+    previousCoverImageId: project.coverImageId,
+    targetParentId: target.parentId,
+  };
+  const fileRefs = collectGeneratedFileRefs(deletedVersions);
+  return commitStorageMutation(() => {
+    const storage = ensureStorage();
+    project.versions = project.versions.filter((version) => !toDelete.has(version.id));
+    if (toDelete.has(project.currentVersionId)) {
+      if (target.parentId && !toDelete.has(target.parentId)) project.currentVersionId = target.parentId;
+      else if (targetRootIndex > 0) project.currentVersionId = rootVersions[targetRootIndex - 1].id;
+      else project.currentVersionId = project.versions.find((v) => v.parentId === null)?.id || project.versions[0].id;
+    }
+    if (project.coverImageId && !project.versions.some((v) => v.images.some((image) => image.id === project.coverImageId))) project.coverImageId = null;
+    project.updatedAt = Date.now();
+    const trashEntry = createTrashEntry({ kind: 'version', payload, fileRefs, deletedAt: Date.now() });
+    storage.trash.unshift(trashEntry);
+    return { ok: true, trashEntry: structuredClone(trashEntry) };
+  });
+}
+
+export function moveHistoryToTrash(historyId) {
+  const item = state.history.find((entry) => entry.id === historyId);
+  if (!item) return { ok: false, code: 'NOT_FOUND', error: '历史记录不存在' };
+  return commitStorageMutation(() => {
+    const storage = ensureStorage();
+    const trashEntry = createTrashEntry({ kind: 'history', payload: item, fileRefs: collectGeneratedFileRefs(item), deletedAt: Date.now() });
+    state.history = state.history.filter((entry) => entry.id !== historyId);
+    storage.trash.unshift(trashEntry);
+    return { ok: true, trashEntry: structuredClone(trashEntry) };
+  });
+}
+
+export function moveHistoryRecordsToTrash(records) {
+  const ids = [...new Set((Array.isArray(records) ? records : []).map((record) => typeof record === 'string' ? record : (record?.historyId || record?.id)).filter(Boolean))];
+  const items = ids.map((id) => state.history.find((entry) => entry.id === id)).filter(Boolean);
+  if (!items.length) return { ok: true, count: 0, trashEntries: [] };
+  return commitStorageMutation(() => {
+    const storage = ensureStorage();
+    const trashEntries = items.map((item) => createTrashEntry({ kind: 'history', payload: item, fileRefs: collectGeneratedFileRefs(item), deletedAt: Date.now() }));
+    const idSet = new Set(items.map((item) => item.id));
+    state.history = state.history.filter((entry) => !idSet.has(entry.id));
+    storage.trash.unshift(...trashEntries);
+    return { ok: true, count: trashEntries.length, trashEntries: structuredClone(trashEntries) };
+  });
+}
+
+export function restoreTrashEntry(trashId) {
+  const storage = ensureStorage();
+  const index = storage.trash.findIndex((entry) => entry.id === trashId);
+  if (index < 0) return { ok: false, code: 'NOT_FOUND', error: '回收站条目不存在' };
+  const entry = storage.trash[index];
+  if (entry.kind === 'project') {
+    const project = entry.payload;
+    if (!project?.id) return { ok: false, code: 'INVALID_ENTRY', error: '回收站条目无效' };
+    if (state.projects.some((item) => item.id === project.id)) return conflictResult('恢复失败：项目 ID 已存在');
+    return commitStorageMutation(() => {
+      state.projects.unshift(structuredClone(project));
+      ensureStorage().trash.splice(index, 1);
+      return { ok: true, kind: entry.kind, restoredId: project.id };
+    });
+  }
+  if (entry.kind === 'version') {
+    const payload = entry.payload || {};
+    const project = state.projects.find((item) => item.id === payload.projectId);
+    if (!project) return { ok: false, code: 'NOT_FOUND', error: '目标项目不存在' };
+    const versions = Array.isArray(payload.versions) ? payload.versions : [];
+    if (versions.some((version) => project.versions.some((item) => item.id === version.id))) return conflictResult('恢复失败：版本 ID 已存在');
+    return commitStorageMutation(() => {
+      const merged = project.versions.slice();
+      versions.forEach((version, offset) => {
+        const wanted = payload.indexes?.find((item) => item.id === version.id)?.index;
+        const indexToUse = Number.isInteger(wanted) ? Math.min(Math.max(wanted, 0), merged.length) : merged.length;
+        merged.splice(indexToUse + offset, 0, structuredClone(version));
+      });
+      project.versions = merged;
+      if (payload.previousCurrentVersionId && project.versions.some((version) => version.id === payload.previousCurrentVersionId)) project.currentVersionId = payload.previousCurrentVersionId;
+      if (payload.previousCoverImageId && project.versions.some((version) => version.images.some((image) => image.id === payload.previousCoverImageId))) project.coverImageId = payload.previousCoverImageId;
+      project.updatedAt = Date.now();
+      ensureStorage().trash.splice(index, 1);
+      return { ok: true, kind: entry.kind, restoredId: payload.versionId };
+    });
+  }
+  if (entry.kind === 'history') {
+    const item = entry.payload;
+    if (!item?.id) return { ok: false, code: 'INVALID_ENTRY', error: '回收站条目无效' };
+    if (state.history.some((record) => record.id === item.id)) return conflictResult('恢复失败：历史记录 ID 已存在');
+    return commitStorageMutation(() => {
+      state.history.unshift(structuredClone(item));
+      ensureStorage().trash.splice(index, 1);
+      return { ok: true, kind: entry.kind, restoredId: item.id };
+    });
+  }
+  return { ok: false, code: 'UNSUPPORTED_KIND', error: '不支持的回收站类型' };
+}
+
+export function purgeTrashEntry(trashId) {
+  const storage = ensureStorage();
+  const index = storage.trash.findIndex((entry) => entry.id === trashId);
+  if (index < 0) return { ok: false, code: 'NOT_FOUND', error: '回收站条目不存在' };
+  const entry = storage.trash[index];
+  const activeRefs = new Set(collectGeneratedFileRefs({ ...state, storage: undefined }).map((ref) => ref.path));
+  const remainingRefs = new Set(storage.trash.filter((_, i) => i !== index).flatMap((item) => {
+    const refs = Array.isArray(item.fileRefs) && item.fileRefs.length > 0 ? item.fileRefs : collectGeneratedFileRefs(item.payload);
+    return refs.map((ref) => ref.path);
+  }));
+  const files = (entry.fileRefs || []).filter((ref, refIndex, refs) => ref?.path && refs.findIndex((candidate) => candidate.path === ref.path) === refIndex && !activeRefs.has(ref.path) && !remainingRefs.has(ref.path));
+  const result = commitStorageMutation(() => {
+    ensureStorage().trash.splice(index, 1);
+    const requestedFiles = structuredClone(files);
+    return {
+      ok: true,
+      trashId,
+      files: requestedFiles,
+      fileDeletionRequest: { paths: requestedFiles.map((file) => file.path) },
+      requiresMainProcessConfirmation: true,
+    };
+  });
+  return result;
 }
 
 export function getProvider(id) {
@@ -366,11 +550,7 @@ export async function fetchModels(provider, category = 'image') {
 export function getHistory() { return state.history.slice(); }
 export function getHistoryItem(id) { return state.history.find((h) => h.id === id) || null; }
 export function deleteHistory(id) {
-  const nextHistory = state.history.filter((h) => h.id !== id);
-  if (nextHistory.length === state.history.length) return false;
-  state.history = nextHistory;
-  save();
-  return true;
+  return moveHistoryToTrash(id).ok;
 }
 
 // 统一历史的批量删除入口：快速记录与项目图片根据来源分别复用现有删除操作。
@@ -404,7 +584,7 @@ export function deleteHistoryRecords(selection) {
   return deletedCount;
 }
 
-export function clearHistory() { state.history = []; save(); }
+export function clearHistory() { return moveHistoryRecordsToTrash(state.history).ok; }
 
 function cloneFailedGenerationTask(task) {
   return JSON.parse(JSON.stringify(task));
@@ -698,9 +878,7 @@ export function updateProject(id, { name, description }) {
 }
 
 export function deleteProject(id) {
-  state.projects = state.projects.filter((p) => p.id !== id);
-  state.failedGenerationTasks = (state.failedGenerationTasks || []).filter((task) => task.projectId !== id);
-  save();
+  return moveProjectToTrash(id).ok;
 }
 
 export function setCurrentVersion(projectId, versionId) {
@@ -807,41 +985,7 @@ export function updateVersionFields(versionId, { name, prompt, modelId, provider
 }
 
 export function deleteVersion(projectId, versionId) {
-  const p = state.projects.find((p) => p.id === projectId);
-  if (!p) return;
-  if (p.versions.length <= 1) return;
-  const target = p.versions.find((v) => v.id === versionId);
-  if (!target) return;
-  const rootVersions = p.versions
-    .filter((v) => v.parentId === null)
-    .sort((a, b) => a.createdAt - b.createdAt);
-  const targetRootIndex = target.parentId === null ? rootVersions.findIndex((v) => v.id === target.id) : -1;
-  const toDelete = new Set();
-  const stack = [versionId];
-  while (stack.length) {
-    const cur = stack.pop();
-    toDelete.add(cur);
-    p.versions.filter((v) => v.parentId === cur).forEach((v) => stack.push(v.id));
-  }
-  p.versions = p.versions.filter((v) => !toDelete.has(v.id));
-  if (toDelete.has(p.currentVersionId)) {
-    if (target.parentId && !toDelete.has(target.parentId)) {
-      // 直接删除当前分支时，回到仍然存在的父节点。
-      p.currentVersionId = target.parentId;
-    } else if (targetRootIndex > 0) {
-      // 删除主线时优先回到时间轴中左侧最近的主线。
-      p.currentVersionId = rootVersions[targetRootIndex - 1].id;
-    } else {
-      const fallback = p.versions.find((v) => v.parentId === null) || p.versions[0];
-      p.currentVersionId = fallback.id;
-    }
-  }
-  if (p.coverImageId) {
-    const stillExists = p.versions.some((v) => v.images.some((i) => i.id === p.coverImageId));
-    if (!stillExists) p.coverImageId = null;
-  }
-  p.updatedAt = Date.now();
-  save();
+  return moveVersionToTrash(projectId, versionId).ok;
 }
 
 export async function generateSmart(projectId, versionId, { prompt, providerId, modelId, ratio, quality, sourceImage }) {
