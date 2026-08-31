@@ -106,6 +106,7 @@ export function createHistoryPageController(dependencies = {}) {
 
     const deleteRecords = moveRecords || legacyDeleteRecords || moveHistoryRecordsToTrash;
     const result = deleteRecords(records);
+    if (result?.ok === false) return 0;
     const deletedCount = typeof result === 'number' ? result : (result?.count || 0);
     selected.clear();
     // 继续以删除前的请求页查询，让选择器将已经越界的页码收敛到最后有效页。

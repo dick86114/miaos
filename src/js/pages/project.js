@@ -1159,7 +1159,7 @@ export function renderProject(container, params, routeOptions = {}) {
         }
         const updatedProject = getProject(project.id);
         const currentVersionId = updatedProject?.currentVersionId;
-        toast('已删除', 'success');
+        toast('已移入回收站', 'success');
         renderWorkbench(container, updatedProject);
         requestAnimationFrame(() => {
           const nextTimelineOuter = container.querySelector('.pwb-timeline-outer');

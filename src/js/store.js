@@ -347,14 +347,61 @@ export function moveHistoryToTrash(historyId) {
 }
 
 export function moveHistoryRecordsToTrash(records) {
-  const ids = [...new Set((Array.isArray(records) ? records : []).map((record) => typeof record === 'string' ? record : (record?.historyId || record?.id)).filter(Boolean))];
-  const items = ids.map((id) => state.history.find((entry) => entry.id === id)).filter(Boolean);
-  if (!items.length) return { ok: true, count: 0, trashEntries: [] };
+  const input = Array.isArray(records) ? records : [];
+  const operations = [];
+  const seen = new Set();
+  const failedRecords = [];
+  input.forEach((record) => {
+    const isProject = typeof record === 'object' && record?.source === 'project';
+    const key = isProject
+      ? `project:${record.projectId}:${record.versionId}:${record.imageId}`
+      : `quick:${typeof record === 'string' ? record : (record?.historyId || record?.id)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (isProject) {
+      const project = state.projects.find((item) => item.id === record.projectId);
+      const version = project?.versions.find((item) => item.id === record.versionId);
+      const image = version?.images.find((item) => item.id === record.imageId);
+      if (!project || !version || !image) {
+        failedRecords.push({ record, error: '项目图片不存在' });
+        return;
+      }
+      operations.push({ kind: 'image', project, version, image, imageIndex: version.images.indexOf(image) });
+      return;
+    }
+    const id = typeof record === 'string' ? record : (record?.historyId || record?.id);
+    const item = id ? state.history.find((entry) => entry.id === id) : null;
+    if (!item) {
+      failedRecords.push({ record, error: '历史记录不存在' });
+      return;
+    }
+    operations.push({ kind: 'history', item });
+  });
+  if (failedRecords.length > 0) return { ok: false, count: 0, trashEntries: [], failedRecords };
+  if (!operations.length) return { ok: true, count: 0, trashEntries: [] };
   return commitStorageMutation(() => {
     const storage = ensureStorage();
-    const trashEntries = items.map((item) => createTrashEntry({ kind: 'history', payload: item, fileRefs: collectGeneratedFileRefs(item), deletedAt: Date.now() }));
-    const idSet = new Set(items.map((item) => item.id));
-    state.history = state.history.filter((entry) => !idSet.has(entry.id));
+    const trashEntries = operations.map((operation) => {
+      if (operation.kind === 'image') {
+        const { project, version, image, imageIndex } = operation;
+        const payload = {
+          projectId: project.id,
+          versionId: version.id,
+          image: structuredClone(image),
+          imageIndex,
+          previousCoverImageId: project.coverImageId,
+        };
+        return createTrashEntry({ kind: 'image', payload, fileRefs: collectGeneratedFileRefs(image), deletedAt: Date.now() });
+      }
+      return createTrashEntry({ kind: 'history', payload: operation.item, fileRefs: collectGeneratedFileRefs(operation.item), deletedAt: Date.now() });
+    });
+    const historyIds = new Set(operations.filter((operation) => operation.kind === 'history').map((operation) => operation.item.id));
+    state.history = state.history.filter((entry) => !historyIds.has(entry.id));
+    operations.filter((operation) => operation.kind === 'image').forEach(({ project, version, image }) => {
+      version.images = version.images.filter((item) => item.id !== image.id);
+      if (project.coverImageId === image.id) project.coverImageId = null;
+      project.updatedAt = Date.now();
+    });
     storage.trash.unshift(...trashEntries);
     return { ok: true, count: trashEntries.length, trashEntries: structuredClone(trashEntries) };
   });
