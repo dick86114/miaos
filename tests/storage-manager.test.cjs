@@ -162,3 +162,39 @@ test('通过初次 lstat 后在 realpath 前消失的文件归入 missing', asyn
     fs.rmSync(files.home, { recursive: true, force: true });
   }
 });
+
+test('隔离后 unlink 前对象被替换时不得删除替换对象', async () => {
+  const files = fixture();
+  const activeCanonical = fs.realpathSync(files.active);
+  let quarantinePath = null;
+  const raceFs = new Proxy(fs, {
+    get(target, property) {
+      if (property === 'renameSync') {
+        return (from, to, ...args) => {
+          const result = target.renameSync(from, to, ...args);
+          if (from === activeCanonical) {
+            quarantinePath = to;
+            fs.unlinkSync(quarantinePath);
+            fs.symlinkSync(files.outside, quarantinePath);
+          }
+          return result;
+        };
+      }
+      return Reflect.get(target, property);
+    },
+  });
+  try {
+    const result = await createStorageManager({ fsImpl: raceFs, pathImpl: path, cryptoImpl: crypto, getUserDataPath: () => files.home })
+      .deleteFiles([{ path: files.active }]);
+    assert.equal(result.deleted.length, 0);
+    assert.equal(result.missing.length, 0);
+    assert.equal(result.failed.length, 1);
+    assert.equal(result.failed[0].code, 'STORAGE_FILE_SYMLINK_NOT_ALLOWED');
+    assert.equal(fs.existsSync(files.outside), true);
+    assert.equal(fs.readFileSync(files.outside, 'utf8'), 'outside');
+    assert.equal(fs.existsSync(files.active), false);
+    assert.equal(quarantinePath.startsWith(path.join(fs.realpathSync(files.generated), '.miaos-quarantine-')), true);
+  } finally {
+    fs.rmSync(files.home, { recursive: true, force: true });
+  }
+});

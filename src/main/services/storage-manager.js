@@ -1,6 +1,7 @@
 const nodeCrypto = require('crypto');
 const nodeFs = require('fs');
 const nodePath = require('path');
+const QUARANTINE_PREFIX = '.miaos-quarantine-';
 
 function createStorageError(message, code) {
   const error = new Error(message);
@@ -15,6 +16,7 @@ function createStorageManager({
   getUserDataPath,
 } = {}) {
   if (typeof getUserDataPath !== 'function') throw new TypeError('缺少 getUserDataPath');
+  let quarantineSequence = 0;
 
   function isWithin(candidate, parent, allowParent = false) {
     const relative = pathImpl.relative(parent, candidate);
@@ -110,6 +112,7 @@ function createStorageManager({
         throw createStorageError('无法读取应用生成目录', 'STORAGE_SCAN_FAILED');
       }
       for (const entry of entries) {
+        if (entry.name.startsWith(QUARANTINE_PREFIX)) continue;
         const candidate = pathImpl.join(directory, entry.name);
         let stat;
         try { stat = fsImpl.lstatSync(candidate); } catch (_) { continue; }
@@ -163,6 +166,20 @@ function createStorageManager({
     return { path, error: error && error.message ? error.message : '文件删除失败', code: error && error.code };
   }
 
+  function createQuarantinePath(root, originalPath) {
+    const base = pathImpl.basename(originalPath);
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      quarantineSequence += 1;
+      const suffix = `${Date.now().toString(36)}-${quarantineSequence.toString(36)}`;
+      const candidate = pathImpl.join(root.canonicalRoot, `${QUARANTINE_PREFIX}${suffix}-${base}`);
+      try { fsImpl.lstatSync(candidate); } catch (error) {
+        if (error && error.code === 'ENOENT') return candidate;
+        throw error;
+      }
+    }
+    throw createStorageError('无法创建安全隔离文件名', 'STORAGE_QUARANTINE_FAILED');
+  }
+
   async function deleteFiles(fileRefs = []) {
     let root;
     try { root = generatedRoot(); } catch (error) {
@@ -201,6 +218,7 @@ function createStorageManager({
         failed.push(failure(candidate, createStorageError('文件路径不在应用生成目录内', 'STORAGE_PATH_NOT_ALLOWED')));
         continue;
       }
+      let quarantinePath = null;
       try {
         const metadata = stableFile(canonical);
         const expected = ref && typeof ref === 'object' ? (ref.checksum || ref.sha256) : null;
@@ -227,11 +245,50 @@ function createStorageManager({
           throw createStorageError('文件在删除前已被替换', 'STORAGE_FILE_REPLACED');
         }
         if (expected && expected !== finalChecksum) throw createStorageError('文件 checksum 不匹配', 'STORAGE_CHECKSUM_MISMATCH');
-        fsImpl.unlinkSync(finalCanonical);
-        deleted.push({ path: finalCanonical, checksum: finalChecksum });
+        quarantinePath = createQuarantinePath(root, finalCanonical);
+        try {
+          fsImpl.renameSync(finalCanonical, quarantinePath);
+        } catch (error) {
+          if (error && error.code === 'ENOENT') { missing.push({ path: candidate }); continue; }
+          throw error;
+        }
+        let quarantineStat;
+        try { quarantineStat = fsImpl.lstatSync(quarantinePath); } catch (error) {
+          if (error && error.code === 'ENOENT') { missing.push({ path: candidate }); continue; }
+          throw error;
+        }
+        if (quarantineStat.isSymbolicLink()) throw createStorageError('隔离文件不允许是符号链接', 'STORAGE_FILE_SYMLINK_NOT_ALLOWED');
+        if (!quarantineStat.isFile()) throw createStorageError('隔离文件必须是普通文件', 'STORAGE_FILE_NOT_REGULAR');
+        const quarantineCanonical = fsImpl.realpathSync(quarantinePath);
+        if (!isWithin(quarantineCanonical, root.canonicalRoot, false)) throw createStorageError('隔离文件路径不在应用生成目录内', 'STORAGE_PATH_NOT_ALLOWED');
+        if (!sameIdentity(finalStat, quarantineStat)) throw createStorageError('文件在隔离后已被替换', 'STORAGE_FILE_REPLACED');
+        const quarantineBuffer = fsImpl.readFileSync(quarantineCanonical);
+        const afterQuarantineRead = fsImpl.lstatSync(quarantineCanonical);
+        const quarantineChecksum = checksum(quarantineBuffer);
+        if (!sameIdentity(quarantineStat, afterQuarantineRead) || quarantineBuffer.length !== afterQuarantineRead.size || quarantineChecksum !== finalChecksum) {
+          throw createStorageError('文件在隔离后已被替换', 'STORAGE_FILE_REPLACED');
+        }
+        // 最后一轮检查只针对隔离路径；原始目录项已被 rename 原子摘除。
+        const beforeUnlinkStat = fsImpl.lstatSync(quarantinePath);
+        if (beforeUnlinkStat.isSymbolicLink()) throw createStorageError('隔离文件不允许是符号链接', 'STORAGE_FILE_SYMLINK_NOT_ALLOWED');
+        if (!beforeUnlinkStat.isFile() || !sameIdentity(quarantineStat, beforeUnlinkStat)) throw createStorageError('文件在删除前已被替换', 'STORAGE_FILE_REPLACED');
+        fsImpl.unlinkSync(quarantinePath);
+        deleted.push({ path: finalCanonical, checksum: quarantineChecksum });
       } catch (error) {
         if (error && error.code === 'ENOENT') missing.push({ path: canonical });
-        else failed.push(failure(canonical, error));
+        else {
+          failed.push(failure(canonical, error));
+          // 仅在隔离文件仍是可信普通文件且原始路径为空时尝试恢复；不恢复可疑替换对象。
+          if (quarantinePath) {
+            try {
+              const quarantined = fsImpl.lstatSync(quarantinePath);
+              const originalMissing = (() => { try { fsImpl.lstatSync(canonical); return false; } catch (restoreError) { return restoreError && restoreError.code === 'ENOENT'; } })();
+              if (originalMissing && quarantined.isFile() && !quarantined.isSymbolicLink()) fsImpl.renameSync(quarantinePath, canonical);
+            } catch (_) {
+              // 保留隔离文件，避免恢复一个已被替换的对象。
+            }
+          }
+        }
       }
     }
     return { deleted, missing, failed };
