@@ -164,7 +164,7 @@ export function createTrashEntry({ kind, payload, fileRefs, deletedAt }) {
   return {
     id: uid('trash'),
     kind,
-    payload: JSON.parse(JSON.stringify(payload)),
+    payload: payload == null ? null : JSON.parse(JSON.stringify(payload)),
     fileRefs: JSON.parse(JSON.stringify(Array.isArray(fileRefs) ? fileRefs : [])),
     deletedAt,
   };

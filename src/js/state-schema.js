@@ -39,6 +39,7 @@ function normalizeStorageState(storage) {
 
 function isGeneratedPath(value) {
   if (typeof value !== 'string' || !value || value.toLowerCase().startsWith('data:')) return false;
+  if (!value.startsWith('/') || value.startsWith('//') || /^[A-Za-z][A-Za-z0-9+.-]*:/u.test(value)) return false;
   const marker = '/.miaos/generated/';
   const markerIndex = value.indexOf(marker);
   if (markerIndex < 0) return false;

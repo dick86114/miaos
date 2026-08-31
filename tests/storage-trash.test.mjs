@@ -15,6 +15,15 @@ test('文件引用收集只保留 generated 内的路径', () => {
   }), [{ path: '/Users/me/.miaos/generated/a.png', size: null, checksum: null }]);
 });
 
+test('文件引用收集拒绝协议地址和相对路径', () => {
+  assert.deepEqual(collectGeneratedFileRefs({
+    remote: 'https://example.com/.miaos/generated/remote.png',
+    fileUrl: 'file:///Users/me/.miaos/generated/url.png',
+    relative: 'Users/me/.miaos/generated/relative.png',
+    local: '/Users/me/.miaos/generated/local.png',
+  }), [{ path: '/Users/me/.miaos/generated/local.png', size: null, checksum: null }]);
+});
+
 test('迁移保留未知字段并修复无效回收站字段', () => {
   const migrated = migrateState({
     projects: [{ id: 'project-1' }],
@@ -41,4 +50,9 @@ test('回收站条目和存储快照不暴露可变内部引用', () => {
   const snapshot = getStorageState();
   snapshot.trash.push(entry);
   assert.deepEqual(getStorageState(), { trash: [], lastScanAt: 0 });
+});
+
+test('回收站条目的空 payload 统一为 null', () => {
+  assert.equal(createTrashEntry({ kind: 'history', fileRefs: [], deletedAt: 10 }).payload, null);
+  assert.equal(createTrashEntry({ kind: 'history', payload: null, fileRefs: [], deletedAt: 10 }).payload, null);
 });
