@@ -47,3 +47,24 @@ test('存储管理样式支持窄窗口并避免横向溢出', async () => {
   assert.match(css, /@media \(max-width: 640px\)/u);
   assert.match(css, /overflow-wrap:\s*anywhere/u);
 });
+
+test('未完成详细扫描时只展示总量，不把 usage 的 byCategory 当作孤立文件', async () => {
+  const settings = await source('src/js/pages/settings.js');
+  assert.match(settings, /const hasDetailedScan = Boolean\(view\.scan\)/u);
+  assert.match(settings, /hasDetailedScan[\s\S]{0,400}byCategory\.active/u);
+});
+
+test('存储 Tab 在窄窗口允许换行或滚动，且首次进入只触发一次 usage IPC', async () => {
+  const [settings, css] = await Promise.all([source('src/js/pages/settings.js'), source('src/css/pages.css')]);
+  assert.doesNotMatch(settings, /if \(pageState\.tab === 'storage'\) loadStorageUsage\(\);/u);
+  assert.match(settings, /usageLoaded/u);
+  assert.match(css, /\.settings-tabs\s*\{[^}]*flex-wrap:\s*wrap/u);
+  assert.match(css, /\.settings-tab\s*\{[^}]*white-space:\s*normal/u);
+});
+
+test('空引用、共享保护和已不存在文件支持 metadata-only 清理确认', async () => {
+  const [settings, store] = await Promise.all([source('src/js/pages/settings.js'), source('src/js/store.js')]);
+  assert.match(settings, /metadataOnly/u);
+  assert.match(store, /metadataOnly:\s*true/u);
+  assert.match(store, /result\.metadataOnly === true/u);
+});

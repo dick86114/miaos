@@ -281,3 +281,43 @@ test('缺少明确确认结果时不允许完成 purge', async () => {
     assert.equal(store.getStorageState().trash.length, 1);
   } finally { restore(); }
 });
+
+test('无可删除文件时允许显式 metadata-only 清理回收站记录', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [{ id: 'trash-empty', kind: 'history', payload: null, fileRefs: [], deletedAt: 1 }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.purgeTrashEntry('trash-empty');
+    assert.equal(request.metadataOnly, true);
+    assert.equal(request.requiresMainProcessConfirmation, false);
+    const finalized = store.finalizeTrashPurge('trash-empty', { metadataOnly: true });
+    assert.equal(finalized.ok, true);
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});
+
+test('仅包含活动共享引用时允许 metadata-only 清理而不请求物理删除', async () => {
+  const state = createDefaultState();
+  state.projects = [{ id: 'p1', versions: [{ id: 'v1', images: [{ id: 'i1', image: '/Users/me/.miaos/generated/shared.png' }] }] }];
+  state.storage.trash = [{ id: 'trash-shared-only', kind: 'history', payload: null, fileRefs: [{ path: '/Users/me/.miaos/generated/shared.png' }], deletedAt: 1 }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.purgeTrashEntry('trash-shared-only');
+    assert.equal(request.metadataOnly, true);
+    assert.deepEqual(request.fileDeletionRequest.paths, []);
+    assert.equal(store.finalizeTrashPurge('trash-shared-only', { metadataOnly: true }).ok, true);
+  } finally { restore(); }
+});
+
+test('主进程确认文件已不存在后可完成普通 purge', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [{ id: 'trash-missing', kind: 'history', payload: null, fileRefs: [{ path: '/Users/me/.miaos/generated/missing.png' }], deletedAt: 1 }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.purgeTrashEntry('trash-missing');
+    assert.equal(request.metadataOnly, false);
+    const finalized = store.finalizeTrashPurge('trash-missing', { requestedPaths: request.fileDeletionRequest.paths, deletedPaths: [], missingPaths: request.fileDeletionRequest.paths });
+    assert.equal(finalized.ok, true);
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});

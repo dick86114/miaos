@@ -2379,6 +2379,7 @@ i[data-lucide="loader"] {
 /* 顶部 Tab 导航 */
 .settings-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 0 0 0 0;
   border-bottom: 1px solid var(--line);
@@ -2400,6 +2401,8 @@ i[data-lucide="loader"] {
   font-family: inherit;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
+  white-space: normal;
+  min-width: 0;
 }
 .settings-tab:hover {
   color: var(--ink);

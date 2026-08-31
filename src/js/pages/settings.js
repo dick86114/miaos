@@ -117,6 +117,7 @@ export function renderSettings(container) {
     storage: {
       usage: null,
       usageLoaded: false,
+      usageLoading: false,
       scan: null,
       scanning: false,
       error: '',
@@ -593,6 +594,7 @@ export function renderSettings(container) {
     const view = pageState.storage;
     const totals = view.scan?.totals || view.usage?.totals || null;
     const byCategory = totals?.byCategory || {};
+    const hasDetailedScan = Boolean(view.scan);
     const orphans = (view.scan?.files || []).filter((file) => file.category === 'orphan');
     const scannedFiles = new Map((view.scan?.files || []).map((file) => [file.path, file]));
     const trash = Array.isArray(storage.trash) ? storage.trash : [];
@@ -602,9 +604,9 @@ export function renderSettings(container) {
       <div class="storage-stat-grid">
         <div class="storage-stat"><span>总文件</span><strong>${totals.files || 0}</strong></div>
         <div class="storage-stat"><span>总占用</span><strong>${formatStorageBytes(totals.bytes)}</strong></div>
-        <div class="storage-stat"><span>已使用文件</span><strong>${byCategory.active?.files || 0} / ${formatStorageBytes(byCategory.active?.bytes)}</strong></div>
+        ${hasDetailedScan ? `<div class="storage-stat"><span>已使用文件</span><strong>${byCategory.active?.files || 0} / ${formatStorageBytes(byCategory.active?.bytes)}</strong></div>
         <div class="storage-stat"><span>回收站文件</span><strong>${byCategory.trash?.files || 0} / ${formatStorageBytes(byCategory.trash?.bytes)}</strong></div>
-        <div class="storage-stat"><span>孤立文件</span><strong>${byCategory.orphan?.files || 0} / ${formatStorageBytes(byCategory.orphan?.bytes)}</strong></div>
+        <div class="storage-stat"><span>孤立文件</span><strong>${byCategory.orphan?.files || 0} / ${formatStorageBytes(byCategory.orphan?.bytes)}</strong></div>` : ''}
       </div>` : '<div class="storage-empty">暂无扫描结果<br /><strong>0 占用</strong></div>';
 
     return `
@@ -720,7 +722,6 @@ export function renderSettings(container) {
         pageState.form = null;
         pageState.testStatus = null;
         refresh();
-        if (pageState.tab === 'storage') loadStorageUsage();
       });
     });
 
@@ -785,6 +786,15 @@ export function renderSettings(container) {
         const size = (request.files || []).reduce((sum, file) => sum + (Number(file.size) || 0), 0);
         if (!await confirmDialog(`确定永久删除 ${count} 个文件（${formatStorageBytes(size)}）吗？此操作不可撤销。`)) return;
         try {
+          if (request.metadataOnly === true && request.requiresMainProcessConfirmation === false) {
+            const finalized = finalizeTrashPurge(id, { metadataOnly: true });
+            if (!finalized?.ok) { toast(finalized?.error || '清理回收站条目失败', 'error'); return; }
+            toast('已清理回收站记录', 'success');
+            pageState.storage.scan = null;
+            refresh();
+            await runScan();
+            return;
+          }
           const deletion = await storageDelete(request.files || request.fileDeletionRequest?.paths || []);
           const finalized = finalizeTrashPurge(id, { ...deletion, requestedPaths: request.fileDeletionRequest?.paths || [] });
           if (!finalized?.ok) toast(`部分删除失败，${finalized?.failedPaths?.length || deletion?.failed?.length || 0} 个文件保留`, 'error');
@@ -830,6 +840,8 @@ export function renderSettings(container) {
   }
 
   async function loadStorageUsage() {
+    if (pageState.storage.usageLoaded || pageState.storage.usageLoading) return;
+    pageState.storage.usageLoading = true;
     try {
       const result = await getStorageUsage();
       if (result && result.ok !== false) pageState.storage.usage = result;
@@ -841,6 +853,8 @@ export function renderSettings(container) {
       if (!pageState.storage.scan) pageState.storage.usage = null;
       pageState.storage.usageLoaded = true;
       refresh();
+    } finally {
+      pageState.storage.usageLoading = false;
     }
   }
 

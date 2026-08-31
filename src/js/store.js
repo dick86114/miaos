@@ -399,7 +399,8 @@ export function purgeTrashEntry(trashId) {
     trashId,
     files: requestedFiles,
     fileDeletionRequest: { paths: requestedFiles.map((file) => file.path) },
-    requiresMainProcessConfirmation: true,
+    metadataOnly: requestedFiles.length === 0,
+    requiresMainProcessConfirmation: requestedFiles.length > 0,
   };
 }
 
@@ -413,6 +414,17 @@ export function finalizeTrashPurge(trashId, result = {}) {
   const deleted = (result.deletedPaths || result.deleted || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
   const missing = (result.missingPaths || result.missing || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
   const failed = (result.failedPaths || result.failed || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
+  const activeRefs = new Set(collectGeneratedFileRefs({ ...state, storage: undefined }).map((ref) => ref.path));
+  const refsForEntry = (item) => collectGeneratedFileRefs({ fileRefs: item?.fileRefs, payload: item?.payload });
+  const remainingRefs = new Set(storage.trash.filter((_, i) => i !== index).flatMap((item) => refsForEntry(item).map((ref) => ref.path)));
+  const deletable = validRefs.filter((ref, refIndex, refs) => refs.findIndex((candidate) => candidate.path === ref.path) === refIndex && !activeRefs.has(ref.path) && !remainingRefs.has(ref.path));
+  if (result.metadataOnly === true) {
+    if (deletable.length > 0) return { ok: false, code: 'PURGE_CONFIRMATION_REQUIRED', trashId, error: '仍有文件需要主进程确认删除' };
+    return commitStorageMutation(() => {
+      ensureStorage().trash.splice(index, 1);
+      return { ok: true, trashId, removed: [], metadataOnly: true };
+    });
+  }
   const hasDeletedConfirmation = Array.isArray(result.deletedPaths) || Array.isArray(result.deleted);
   const hasMissingConfirmation = Array.isArray(result.missingPaths) || Array.isArray(result.missing);
   if (requested.length === 0 || (!hasDeletedConfirmation && !hasMissingConfirmation)) {
