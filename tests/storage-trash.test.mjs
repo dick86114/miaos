@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { collectGeneratedFileRefs, createDefaultState, migrateState } from '../src/js/state-schema.js';
 import { createTrashEntry, getStorageState } from '../src/js/store.js';
+import storageManagerModule from '../src/main/services/storage-manager.js';
+
+const { createStorageManager } = storageManagerModule;
 
 function createMemoryStorage(seed = {}, { failWrites = false } = {}) {
   const map = new Map(Object.entries(seed));
@@ -41,6 +47,30 @@ function projectFixture() {
 test('旧状态迁移时初始化空回收站且不改变项目和历史', () => {
   const migrated = migrateState({ projects: [], history: [] });
   assert.deepEqual(migrated.storage, { trash: [], lastScanAt: 0 });
+});
+
+test('旧状态首次扫描发现未引用生成文件为孤儿且不会自动删除', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-storage-migration-'));
+  const generated = path.join(home, 'generated');
+  const orphanPath = path.join(generated, 'legacy-orphan.png');
+  fs.mkdirSync(generated, { recursive: true });
+  fs.writeFileSync(orphanPath, 'legacy-orphan');
+  try {
+    const migrated = migrateState({ projects: [], history: [] });
+    assert.deepEqual(migrated.storage, { trash: [], lastScanAt: 0 });
+
+    const manager = createStorageManager({ getUserDataPath: () => home });
+    const scan = await manager.scan({
+      activeRefs: collectGeneratedFileRefs(migrated.projects),
+      trashRefs: migrated.storage.trash.flatMap((entry) => entry.fileRefs || []),
+    });
+    assert.deepEqual(scan.files.map((file) => ({ path: file.path, category: file.category })), [
+      { path: fs.realpathSync(orphanPath), category: 'orphan' },
+    ]);
+    assert.equal(fs.existsSync(orphanPath), true);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test('文件引用收集只保留 generated 内的路径', () => {
