@@ -198,3 +198,35 @@ test('隔离后 unlink 前对象被替换时不得删除替换对象', async () 
     fs.rmSync(files.home, { recursive: true, force: true });
   }
 });
+
+test('beforeUnlink hook 替换为另一普通文件时拒绝删除或恢复替换对象', async () => {
+  const files = fixture();
+  let quarantinePath = null;
+  const replacement = path.join(files.generated, 'replacement.bin');
+  fs.writeFileSync(replacement, 'replacement-object');
+  const managerWithHook = createStorageManager({
+    fsImpl: fs,
+    pathImpl: path,
+    cryptoImpl: crypto,
+    getUserDataPath: () => files.home,
+    beforeUnlink: ({ path: isolatedPath }) => {
+      quarantinePath = isolatedPath;
+      fs.unlinkSync(isolatedPath);
+      fs.copyFileSync(replacement, isolatedPath);
+    },
+  });
+  try {
+    const result = await managerWithHook.deleteFiles([{ path: files.active }]);
+    assert.equal(result.deleted.length, 0);
+    assert.equal(result.missing.length, 0);
+    assert.equal(result.failed.length, 1);
+    assert.equal(result.failed[0].code, 'STORAGE_FILE_REPLACED');
+    assert.equal(fs.existsSync(files.active), false);
+    assert.equal(fs.existsSync(replacement), true);
+    assert.equal(fs.readFileSync(replacement, 'utf8'), 'replacement-object');
+    assert.equal(fs.existsSync(quarantinePath), true);
+    assert.equal(fs.readFileSync(quarantinePath, 'utf8'), 'replacement-object');
+  } finally {
+    fs.rmSync(files.home, { recursive: true, force: true });
+  }
+});

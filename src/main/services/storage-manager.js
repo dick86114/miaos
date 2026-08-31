@@ -14,6 +14,7 @@ function createStorageManager({
   pathImpl = nodePath,
   cryptoImpl = nodeCrypto,
   getUserDataPath,
+  beforeUnlink = null,
 } = {}) {
   if (typeof getUserDataPath !== 'function') throw new TypeError('缺少 getUserDataPath');
   let quarantineSequence = 0;
@@ -219,6 +220,9 @@ function createStorageManager({
         continue;
       }
       let quarantinePath = null;
+      let savedQuarantineStat = null;
+      let savedQuarantineChecksum = null;
+      let finalChecksum = null;
       try {
         const metadata = stableFile(canonical);
         const expected = ref && typeof ref === 'object' ? (ref.checksum || ref.sha256) : null;
@@ -240,7 +244,7 @@ function createStorageManager({
         if (!sameIdentity(metadata.stat, finalStat)) throw createStorageError('文件在删除前已被替换', 'STORAGE_FILE_REPLACED');
         const finalBuffer = fsImpl.readFileSync(finalCanonical);
         const afterFinalRead = fsImpl.lstatSync(finalCanonical);
-        const finalChecksum = checksum(finalBuffer);
+        finalChecksum = checksum(finalBuffer);
         if (!sameIdentity(finalStat, afterFinalRead) || finalBuffer.length !== afterFinalRead.size || finalChecksum !== metadata.checksum) {
           throw createStorageError('文件在删除前已被替换', 'STORAGE_FILE_REPLACED');
         }
@@ -259,15 +263,18 @@ function createStorageManager({
         }
         if (quarantineStat.isSymbolicLink()) throw createStorageError('隔离文件不允许是符号链接', 'STORAGE_FILE_SYMLINK_NOT_ALLOWED');
         if (!quarantineStat.isFile()) throw createStorageError('隔离文件必须是普通文件', 'STORAGE_FILE_NOT_REGULAR');
+        savedQuarantineStat = quarantineStat;
         const quarantineCanonical = fsImpl.realpathSync(quarantinePath);
         if (!isWithin(quarantineCanonical, root.canonicalRoot, false)) throw createStorageError('隔离文件路径不在应用生成目录内', 'STORAGE_PATH_NOT_ALLOWED');
         if (!sameIdentity(finalStat, quarantineStat)) throw createStorageError('文件在隔离后已被替换', 'STORAGE_FILE_REPLACED');
         const quarantineBuffer = fsImpl.readFileSync(quarantineCanonical);
         const afterQuarantineRead = fsImpl.lstatSync(quarantineCanonical);
         const quarantineChecksum = checksum(quarantineBuffer);
+        savedQuarantineChecksum = quarantineChecksum;
         if (!sameIdentity(quarantineStat, afterQuarantineRead) || quarantineBuffer.length !== afterQuarantineRead.size || quarantineChecksum !== finalChecksum) {
           throw createStorageError('文件在隔离后已被替换', 'STORAGE_FILE_REPLACED');
         }
+        if (typeof beforeUnlink === 'function') await beforeUnlink({ path: quarantinePath, originalPath: finalCanonical });
         // 最后一轮检查只针对隔离路径；原始目录项已被 rename 原子摘除。
         const beforeUnlinkStat = fsImpl.lstatSync(quarantinePath);
         if (beforeUnlinkStat.isSymbolicLink()) throw createStorageError('隔离文件不允许是符号链接', 'STORAGE_FILE_SYMLINK_NOT_ALLOWED');
@@ -283,7 +290,14 @@ function createStorageManager({
             try {
               const quarantined = fsImpl.lstatSync(quarantinePath);
               const originalMissing = (() => { try { fsImpl.lstatSync(canonical); return false; } catch (restoreError) { return restoreError && restoreError.code === 'ENOENT'; } })();
-              if (originalMissing && quarantined.isFile() && !quarantined.isSymbolicLink()) fsImpl.renameSync(quarantinePath, canonical);
+              if (originalMissing && quarantined.isFile() && !quarantined.isSymbolicLink() && savedQuarantineStat && sameIdentity(savedQuarantineStat, quarantined)) {
+                const restoreBuffer = fsImpl.readFileSync(quarantinePath);
+                const restoreAfterStat = fsImpl.lstatSync(quarantinePath);
+                const restoreChecksum = checksum(restoreBuffer);
+                if (sameIdentity(quarantined, restoreAfterStat) && restoreChecksum === savedQuarantineChecksum && restoreChecksum === finalChecksum) {
+                  fsImpl.renameSync(quarantinePath, canonical);
+                }
+              }
             } catch (_) {
               // 保留隔离文件，避免恢复一个已被替换的对象。
             }
