@@ -31,6 +31,9 @@ const EXPECTED_CHANNELS = [
   'export-config',
   'start-config-pairing',
   'stop-config-pairing',
+  'storage-scan',
+  'storage-delete',
+  'storage-get-usage',
   'save-image',
   'show-in-folder',
   'test-connection',
@@ -506,7 +509,7 @@ test('app.setPath 非预期异常会传播且不显示数据目录错误', async
   }
 });
 
-test('正常启动精确注册 23 个真实安全 handler（含密钥保存方式、配置导出与局域网配对），未知 sender 全部被拒绝', async () => {
+test('正常启动精确注册 26 个真实安全 handler（含存储管理），未知 sender 全部被拒绝', async () => {
   const homePath = createTempHome('miaos-ipc-registrations-');
   try {
     const { calls } = await runMainWithMock({ homePath });
@@ -520,6 +523,49 @@ test('正常启动精确注册 23 个真实安全 handler（含密钥保存方�
       assert.deepEqual(result, { ok: false, error: 'IPC 来源不受信任', code: 'IPC_UNTRUSTED_SENDER' });
     }
     assert.deepEqual(calls.networkRequests, []);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('存储 IPC 只接受受限引用并保留删除明细', async () => {
+  const homePath = createTempHome('miaos-storage-ipc-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    assert.equal(typeof calls.ipcHandlers['storage-scan'], 'function');
+    assert.equal(typeof calls.ipcHandlers['storage-delete'], 'function');
+    assert.equal(typeof calls.ipcHandlers['storage-get-usage'], 'function');
+
+    const untrusted = await calls.ipcHandlers['storage-scan']({ sender: { id: 999 } }, {});
+    assert.deepEqual(untrusted, { ok: false, error: 'IPC 来源不受信任', code: 'IPC_UNTRUSTED_SENDER' });
+
+    const malformed = await calls.ipcHandlers['storage-scan'](trustedEvent(), { activeRefs: 'nope' });
+    assert.equal(malformed.ok, false);
+    assert.equal(malformed.code, 'IPC_VALIDATION_FAILED');
+
+    const outside = await calls.ipcHandlers['storage-delete'](trustedEvent(), [{ path: path.join(homePath, 'outside.png') }]);
+    assert.equal(outside.ok, false);
+    assert.equal(outside.code, 'IPC_VALIDATION_FAILED');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('存储删除 handler 原样保留 deleted/missing/failed 结果', async () => {
+  const homePath = createTempHome('miaos-storage-ipc-result-');
+  try {
+    const generated = path.join(homePath, '.miaos', 'generated');
+    fs.mkdirSync(generated, { recursive: true });
+    fs.writeFileSync(path.join(generated, 'ok.png'), 'ok');
+    const canonicalOk = fs.realpathSync(path.join(generated, 'ok.png'));
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['storage-delete'](trustedEvent(), [
+      { path: path.join(generated, 'ok.png') },
+      { path: path.join(generated, 'missing.png') },
+    ]);
+    assert.deepEqual(result.deleted.map((item) => item.path), [canonicalOk]);
+    assert.deepEqual(result.missing.map((item) => item.path), [path.join(generated, 'missing.png')]);
+    assert.deepEqual(result.failed, []);
   } finally {
     cleanupTempHome(homePath);
   }

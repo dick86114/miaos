@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('api', {
   deleteProviderSecret: (providerId, options) => ipcRenderer.invoke('provider-secret-delete', providerId, options),
   completeProviderSecretTransaction: (operation, transactionId) => ipcRenderer.invoke('provider-secret-migrate', { operation, transactionId }),
   migrateProviderSecrets: (entries) => ipcRenderer.invoke('provider-secret-migrate', entries),
+  storageScan: (refs) => ipcRenderer.invoke('storage-scan', refs),
+  storageDelete: (fileRefs) => ipcRenderer.invoke('storage-delete', fileRefs),
+  storageGetUsage: () => ipcRenderer.invoke('storage-get-usage'),
 
   // ===== 自动更新（仅检测，跳转 GitHub 下载） =====
   updateGetCurrentVersion: () => ipcRenderer.invoke('update-get-current-version'),

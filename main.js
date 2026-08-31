@@ -22,6 +22,7 @@ const { AppError } = require('./src/main/services/app-error');
 const { createDiagnosticLogger } = require('./src/main/services/diagnostic-log');
 const { createImageFileAccess } = require('./src/main/security/image-files');
 const { createImageDecoder } = require('./src/main/security/image-decoder');
+const { createStorageManager } = require('./src/main/services/storage-manager');
 const { createSecretsVault } = require('./src/main/secrets-vault');
 const { assertProviderId } = require('./src/main/provider-id');
 const { getRuntimeSecurityConfig } = require('./src/main/runtime-security');
@@ -35,6 +36,7 @@ let updateInfoCache = null;
 let secretsVault = null;
 let activeConfigPairing = null;
 let diagnosticLogger = null;
+let storageManager = null;
 const providerTransactions = new Map();
 const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
 const imageFileAccess = createImageFileAccess({
@@ -201,6 +203,12 @@ if (!shouldStartApp) {
   return;
 }
 app.setPath('userData', userDataPath);
+storageManager = createStorageManager({
+  fsImpl: fs,
+  pathImpl: path,
+  cryptoImpl: crypto,
+  getUserDataPath: () => app.getPath('userData'),
+});
 secretsVault = createSecretsVault({
   filePath: path.join(userDataPath, 'secrets.json'),
   safeStorage,
@@ -305,6 +313,65 @@ function validateObject(value, field) {
     throw new Error(`${field}格式不正确`);
   }
   return value;
+}
+
+function storageGeneratedRoot() {
+  return path.resolve(app.getPath('userData'), 'generated');
+}
+
+function isStoragePath(value) {
+  if (typeof value !== 'string' || !value || value.startsWith('file://')) return false;
+  const candidate = path.resolve(value);
+  const root = storageGeneratedRoot();
+  const relative = path.relative(root, candidate);
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function validateStorageRefShape(value, field = '文件引用') {
+  validateObject(value, field);
+  const rawPath = validateString(value.path, { field: `${field}路径`, minLength: 1, maxLength: 4096, trim: false });
+  const result = { path: rawPath };
+  if (value.checksum !== undefined || value.sha256 !== undefined) {
+    const checksum = value.checksum ?? value.sha256;
+    if (typeof checksum !== 'string' || checksum.length > 128) throw new Error(`${field}校验摘要格式不正确`);
+    result.checksum = checksum;
+  }
+  return result;
+}
+
+function normalizeStorageRef(value, field = '文件引用', { ignoreOutside = false } = {}) {
+  const shaped = validateStorageRefShape(value, field);
+  if (!isStoragePath(shaped.path)) {
+    if (ignoreOutside) return null;
+    const error = new Error(`${field}路径不在应用生成目录内`);
+    error.code = 'IPC_VALIDATION_FAILED';
+    throw error;
+  }
+  return { ...shaped, path: path.resolve(shaped.path) };
+}
+
+function normalizeStorageRefArray(values, field) {
+  if (!Array.isArray(values) || values.length > 5000) throw new Error(`${field}格式不正确`);
+  return values.map((value) => normalizeStorageRef(value, field));
+}
+
+function validateStorageScanArgs(refs = {}) {
+  validateObject(refs, '存储扫描参数');
+  if (refs.activeRefs !== undefined) {
+    if (!Array.isArray(refs.activeRefs) || refs.activeRefs.length > 5000) throw new Error('活动文件引用格式不正确');
+    refs.activeRefs.forEach((value) => validateStorageRefShape(value, '活动文件引用'));
+  }
+  if (refs.trashRefs !== undefined) {
+    if (!Array.isArray(refs.trashRefs) || refs.trashRefs.length > 5000) throw new Error('回收站文件引用格式不正确');
+    refs.trashRefs.forEach((value) => validateStorageRefShape(value, '回收站文件引用'));
+  }
+}
+
+function normalizeStorageScanArgs(refs = {}) {
+  return {
+    activeRefs: (refs.activeRefs || []).map((value) => normalizeStorageRef(value, '活动文件引用', { ignoreOutside: true })).filter(Boolean),
+    trashRefs: (refs.trashRefs || []).map((value) => normalizeStorageRef(value, '回收站文件引用', { ignoreOutside: true })).filter(Boolean),
+  };
 }
 
 function validateOptionalString(value, field, options = {}) {
@@ -758,6 +825,40 @@ async function readSaveImageBuffer(imageSource) {
   if (!match) throw new Error('无效的本地生成图片');
   return Buffer.from(match[1], 'base64');
 }
+
+// 存储管理：渲染层只能提交 generated 目录内的文件引用，实际扫描和删除均由主进程执行。
+registerSecureHandler({
+  ipcMain,
+  channel: 'storage-scan',
+  getMainWindow: () => mainWindow,
+  validate: validateStorageScanArgs,
+  handle: async (_event, refs = {}) => {
+    const result = await storageManager.scan(normalizeStorageScanArgs(refs));
+    return { ok: true, ...result };
+  },
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'storage-delete',
+  getMainWindow: () => mainWindow,
+  validate: (fileRefs) => normalizeStorageRefArray(fileRefs, '待删除文件引用'),
+  handle: async (_event, fileRefs) => {
+    const result = await storageManager.deleteFiles(normalizeStorageRefArray(fileRefs, '待删除文件引用'));
+    return { ok: true, ...result };
+  },
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'storage-get-usage',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => {
+    const result = await storageManager.scan({ activeRefs: [], trashRefs: [] });
+    return { ok: true, generatedDir: result.generatedDir, totals: result.totals };
+  },
+});
 
 registerSecureHandler({
   ipcMain,

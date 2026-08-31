@@ -162,6 +162,56 @@ export function getStateSnapshot() {
   return JSON.parse(JSON.stringify(state));
 }
 
+// 根据当前状态构造主进程扫描所需的活动与回收站文件引用。
+export function buildStorageReferences(snapshot = getStateSnapshot()) {
+  const active = collectGeneratedFileRefs({ ...snapshot, storage: undefined });
+  const trash = [];
+  const trashEntries = Array.isArray(snapshot?.storage?.trash) ? snapshot.storage.trash : [];
+  trashEntries.forEach((entry) => {
+    collectGeneratedFileRefs({ fileRefs: entry?.fileRefs, payload: entry?.payload }).forEach((ref) => {
+      trash.push({ ...ref, category: 'trash' });
+    });
+  });
+  const merge = (refs, category) => {
+    const map = new Map();
+    refs.forEach((ref) => {
+      if (!ref || typeof ref.path !== 'string') return;
+      const previous = map.get(ref.path) || { path: ref.path, size: null, checksum: null };
+      map.set(ref.path, {
+        ...previous,
+        ...(typeof ref.size === 'number' ? { size: ref.size } : {}),
+        ...(typeof ref.checksum === 'string' ? { checksum: ref.checksum } : {}),
+        category,
+      });
+    });
+    return [...map.values()];
+  };
+  return {
+    activeRefs: merge(active, 'active'),
+    trashRefs: merge(trash, 'trash'),
+  };
+}
+
+export async function scanStorage() {
+  if (!window.api?.storageScan) return { ok: false, error: '运行环境异常：无法调用存储扫描接口' };
+  const result = await window.api.storageScan(buildStorageReferences());
+  if (result && result.ok !== false) {
+    ensureStorage().lastScanAt = Date.now();
+    save();
+  }
+  return result;
+}
+
+export async function deleteStorageFiles(fileRefs) {
+  if (!window.api?.storageDelete) return { ok: false, error: '运行环境异常：无法调用存储删除接口' };
+  return window.api.storageDelete(fileRefs);
+}
+
+export async function getStorageUsage() {
+  if (!window.api?.storageGetUsage) return { ok: false, error: '运行环境异常：无法调用存储统计接口' };
+  return window.api.storageGetUsage();
+}
+
 export function createTrashEntry({ kind, payload, fileRefs, deletedAt }) {
   return {
     id: uid('trash'),
