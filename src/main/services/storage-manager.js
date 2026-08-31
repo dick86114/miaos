@@ -86,6 +86,13 @@ function createStorageManager({
     return { stat: after, checksum: checksum(buffer) };
   }
 
+  function sameIdentity(left, right) {
+    return left.dev === right.dev
+      && left.ino === right.ino
+      && left.size === right.size
+      && left.mtimeMs === right.mtimeMs;
+  }
+
   async function scan({ activeRefs = [], trashRefs = [] } = {}) {
     const root = generatedRoot();
     const references = new Map();
@@ -185,7 +192,11 @@ function createStorageManager({
         continue;
       }
       let canonical;
-      try { canonical = fsImpl.realpathSync(candidate); } catch (error) { failed.push(failure(candidate, error)); continue; }
+      try { canonical = fsImpl.realpathSync(candidate); } catch (error) {
+        if (error && error.code === 'ENOENT') missing.push({ path: candidate });
+        else failed.push(failure(candidate, error));
+        continue;
+      }
       if (!isWithin(canonical, root.canonicalRoot, false)) {
         failed.push(failure(candidate, createStorageError('文件路径不在应用生成目录内', 'STORAGE_PATH_NOT_ALLOWED')));
         continue;
@@ -194,8 +205,30 @@ function createStorageManager({
         const metadata = stableFile(canonical);
         const expected = ref && typeof ref === 'object' ? (ref.checksum || ref.sha256) : null;
         if (expected && expected !== metadata.checksum) throw createStorageError('文件 checksum 不匹配', 'STORAGE_CHECKSUM_MISMATCH');
-        fsImpl.unlinkSync(canonical);
-        deleted.push({ path: canonical, checksum: metadata.checksum });
+        // unlink 前再次从词法路径检查类型、规范路径和身份，缩短替换竞态窗口。
+        let finalStat;
+        try { finalStat = fsImpl.lstatSync(candidate); } catch (error) {
+          if (error && error.code === 'ENOENT') { missing.push({ path: candidate }); continue; }
+          throw error;
+        }
+        if (finalStat.isSymbolicLink()) throw createStorageError('不允许删除符号链接文件', 'STORAGE_FILE_SYMLINK_NOT_ALLOWED');
+        if (!finalStat.isFile()) throw createStorageError('只能删除普通文件', 'STORAGE_FILE_NOT_REGULAR');
+        let finalCanonical;
+        try { finalCanonical = fsImpl.realpathSync(candidate); } catch (error) {
+          if (error && error.code === 'ENOENT') { missing.push({ path: candidate }); continue; }
+          throw error;
+        }
+        if (!isWithin(finalCanonical, root.canonicalRoot, false)) throw createStorageError('文件路径不在应用生成目录内', 'STORAGE_PATH_NOT_ALLOWED');
+        if (!sameIdentity(metadata.stat, finalStat)) throw createStorageError('文件在删除前已被替换', 'STORAGE_FILE_REPLACED');
+        const finalBuffer = fsImpl.readFileSync(finalCanonical);
+        const afterFinalRead = fsImpl.lstatSync(finalCanonical);
+        const finalChecksum = checksum(finalBuffer);
+        if (!sameIdentity(finalStat, afterFinalRead) || finalBuffer.length !== afterFinalRead.size || finalChecksum !== metadata.checksum) {
+          throw createStorageError('文件在删除前已被替换', 'STORAGE_FILE_REPLACED');
+        }
+        if (expected && expected !== finalChecksum) throw createStorageError('文件 checksum 不匹配', 'STORAGE_CHECKSUM_MISMATCH');
+        fsImpl.unlinkSync(finalCanonical);
+        deleted.push({ path: finalCanonical, checksum: finalChecksum });
       } catch (error) {
         if (error && error.code === 'ENOENT') missing.push({ path: canonical });
         else failed.push(failure(canonical, error));

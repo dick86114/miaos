@@ -107,3 +107,58 @@ test('generated 根目录被替换为符号链接时拒绝扫描和删除', asyn
     fs.rmSync(external, { recursive: true, force: true });
   }
 });
+
+test('删除前重新检查身份，文件被替换为符号链接时拒绝删除', async () => {
+  const files = fixture();
+  let candidateChecks = 0;
+  const raceFs = new Proxy(fs, {
+    get(target, property) {
+      if (property !== 'lstatSync') return Reflect.get(target, property);
+      return (filePath, ...args) => {
+        const stat = target.lstatSync(filePath, ...args);
+        if (filePath === files.active) {
+          candidateChecks += 1;
+          if (candidateChecks === 2) {
+            fs.unlinkSync(files.active);
+            fs.symlinkSync(files.outside, files.active);
+            return target.lstatSync(filePath, ...args);
+          }
+        }
+        return stat;
+      };
+    },
+  });
+  try {
+    const result = await createStorageManager({ fsImpl: raceFs, pathImpl: path, cryptoImpl: crypto, getUserDataPath: () => files.home })
+      .deleteFiles([{ path: files.active }]);
+    assert.equal(result.deleted.length, 0);
+    assert.equal(result.missing.length, 0);
+    assert.equal(result.failed.length, 1);
+    assert.equal(result.failed[0].code, 'STORAGE_FILE_SYMLINK_NOT_ALLOWED');
+  } finally {
+    fs.rmSync(files.home, { recursive: true, force: true });
+  }
+});
+
+test('通过初次 lstat 后在 realpath 前消失的文件归入 missing', async () => {
+  const files = fixture();
+  const originalRealpath = fs.realpathSync;
+  const raceFs = new Proxy(fs, {
+    get(target, property) {
+      if (property !== 'realpathSync') return Reflect.get(target, property);
+      return (filePath, ...args) => {
+        if (filePath === files.active) fs.unlinkSync(filePath);
+        return originalRealpath.call(target, filePath, ...args);
+      };
+    },
+  });
+  try {
+    const result = await createStorageManager({ fsImpl: raceFs, pathImpl: path, cryptoImpl: crypto, getUserDataPath: () => files.home })
+      .deleteFiles([{ path: files.active }]);
+    assert.deepEqual(result.deleted, []);
+    assert.deepEqual(result.missing, [{ path: files.active }]);
+    assert.deepEqual(result.failed, []);
+  } finally {
+    fs.rmSync(files.home, { recursive: true, force: true });
+  }
+});
