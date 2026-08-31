@@ -1124,7 +1124,8 @@ test('真实 generate handler 允许 generated、选择器授权、粘贴授权�
     assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
 
     const picked = await calls.ipcHandlers['pick-image-file'](trustedEvent());
-    assert.deepEqual(picked, { canceled: false, filePath: fs.realpathSync(pickedImage) });
+    assert.equal(picked.canceled, false);
+    assert.ok(picked.filePath.startsWith(fs.realpathSync(generatedDir) + path.sep));
     const pickedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(picked.filePath));
     assert.equal(pickedResult.code, 'IPC_HANDLER_FAILED');
     assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
@@ -1195,7 +1196,8 @@ test('真实 generate handler 恢复真实 WebP，转换为 PNG 后进入下游�
     assertPngSourceImage(calls);
 
     const pickedResult = await calls.ipcHandlers['pick-image-file'](trustedEvent());
-    assert.deepEqual(pickedResult, { canceled: false, filePath: fs.realpathSync(pickedWebpPath) });
+    assert.equal(pickedResult.canceled, false);
+    assert.ok(pickedResult.filePath.startsWith(fs.realpathSync(generatedDir) + path.sep));
     assert.deepEqual(calls.openDialogOptions[0].filters[0].extensions, ['png', 'jpg', 'jpeg', 'webp', 'bmp']);
 
     const zeroVp8Path = path.join(generatedDir, 'zero-vp8.webp');

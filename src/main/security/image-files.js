@@ -180,11 +180,33 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath, decodeImageB
     return canonicalPath;
   }
 
+  // 将用户明确选择的图片复制到应用生成目录，避免重启后丢失临时授权。
+  async function importImageToGenerated(value) {
+    const candidatePath = pathImpl.resolve(normalizePathReference(value));
+    lstatRegularFile(candidatePath, { sourceImage: true });
+    const canonicalPath = fsImpl.realpathSync(candidatePath);
+    const { buffer, mime } = await readRegularFileSafely(canonicalPath);
+    const generatedDir = pathImpl.resolve(getUserDataPath(), 'generated');
+    fsImpl.mkdirSync(generatedDir, { recursive: true, mode: 0o700 });
+    const extension = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1] || 'png';
+    const filePath = pathImpl.join(
+      generatedDir,
+      `source_${Date.now()}_${crypto.randomBytes(8).toString('hex')}.${extension}`,
+    );
+    fsImpl.writeFileSync(filePath, buffer, { mode: 0o600 });
+    const importedPath = resolveGeneratedFile(filePath, { sourceImage: true });
+    const importedStat = fsImpl.lstatSync(importedPath);
+    authorizedPaths.set(importedPath, createIdentity(importedStat, buffer));
+    return importedPath;
+  }
+
   function resolveAuthorizedSourceFile(value) {
     const candidatePath = pathImpl.resolve(normalizePathReference(value));
     const generatedDir = pathImpl.resolve(getUserDataPath(), 'generated');
     if (isWithinPath(candidatePath, generatedDir, true)) {
-      return { canonicalPath: resolveGeneratedFile(candidatePath, { sourceImage: true }) };
+      const canonicalPath = resolveGeneratedFile(candidatePath, { sourceImage: true });
+      const identity = authorizedPaths.get(canonicalPath);
+      return identity ? { canonicalPath, identity } : { canonicalPath };
     }
 
     lstatRegularFile(candidatePath, { sourceImage: true });
@@ -217,6 +239,8 @@ function createImageFileAccess({ fsImpl, pathImpl, getUserDataPath, decodeImageB
   return {
     authorizePickedImage: authorizeFile,
     authorizePastedImage: authorizeFile,
+    importPickedImage: importImageToGenerated,
+    importPastedImage: importImageToGenerated,
     readSourceImageAsDataUrl,
     resolveGeneratedFile,
   };

@@ -1432,7 +1432,9 @@ registerSecureHandler({
     const fileName = `pasted-${Date.now()}.${ext}`;
     const filePath = path.join(tmpDir, fileName);
     fs.writeFileSync(filePath, buffer);
-    return { ok: true, filePath: await imageFileAccess.authorizePastedImage(filePath) };
+    const importedPath = await imageFileAccess.importPastedImage(filePath);
+    try { fs.unlinkSync(filePath); } catch (_) {}
+    return { ok: true, filePath: importedPath };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -1452,7 +1454,7 @@ registerSecureHandler({
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
   });
   if (result.canceled || !result.filePaths.length) return { canceled: true };
-  const filePath = await imageFileAccess.authorizePickedImage(result.filePaths[0]);
+  const filePath = await imageFileAccess.importPickedImage(result.filePaths[0]);
   return { canceled: false, filePath };
   },
 });
