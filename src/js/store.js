@@ -160,6 +160,20 @@ export function getStateSnapshot() {
   return JSON.parse(JSON.stringify(state));
 }
 
+export function createTrashEntry({ kind, payload, fileRefs, deletedAt }) {
+  return {
+    id: uid('trash'),
+    kind,
+    payload: JSON.parse(JSON.stringify(payload)),
+    fileRefs: JSON.parse(JSON.stringify(Array.isArray(fileRefs) ? fileRefs : [])),
+    deletedAt,
+  };
+}
+
+export function getStorageState() {
+  return JSON.parse(JSON.stringify(state.storage));
+}
+
 export function getProvider(id) {
   const p = state.providers.find((p) => p.id === id);
   return p ? cloneProvider(p) : null;

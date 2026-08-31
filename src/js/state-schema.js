@@ -22,6 +22,65 @@ export const GRSAI_IMAGE_MODELS = [
 
 export const DEFAULT_ENABLED_IMAGE = ['gpt-image-2', 'nano-banana-2', 'nano-banana-pro'];
 
+export function createEmptyStorageState() {
+  return { trash: [], lastScanAt: 0 };
+}
+
+function normalizeStorageState(storage) {
+  if (!storage || typeof storage !== 'object' || Array.isArray(storage)) {
+    return createEmptyStorageState();
+  }
+  return {
+    ...storage,
+    trash: Array.isArray(storage.trash) ? storage.trash : [],
+    lastScanAt: Number.isFinite(storage.lastScanAt) ? storage.lastScanAt : 0,
+  };
+}
+
+function isGeneratedPath(value) {
+  if (typeof value !== 'string' || !value || value.toLowerCase().startsWith('data:')) return false;
+  const marker = '/.miaos/generated/';
+  const markerIndex = value.indexOf(marker);
+  if (markerIndex < 0) return false;
+  const relativePath = value.slice(markerIndex + marker.length);
+  return !!relativePath && !relativePath.split('/').includes('..');
+}
+
+// 仅从状态值提取生成目录下的路径，不访问文件系统。
+export function collectGeneratedFileRefs(value) {
+  const refs = [];
+  const seenPaths = new Set();
+  const visited = new WeakSet();
+
+  function add(path, metadata = {}) {
+    if (!isGeneratedPath(path) || seenPaths.has(path)) return;
+    seenPaths.add(path);
+    refs.push({
+      path,
+      size: typeof metadata.size === 'number' ? metadata.size : null,
+      checksum: typeof metadata.checksum === 'string' ? metadata.checksum : null,
+    });
+  }
+
+  function visit(current) {
+    if (!current || typeof current !== 'object' || visited.has(current)) return;
+    visited.add(current);
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+      return;
+    }
+    if (typeof current.path === 'string') add(current.path, current);
+    Object.entries(current).forEach(([key, child]) => {
+      if (typeof child === 'string') add(child, {});
+      else if (child && typeof child === 'object') visit(child);
+    });
+  }
+
+  if (typeof value === 'string') add(value);
+  else visit(value);
+  return refs;
+}
+
 // Aiping 文档中列出的图像模型。图片编辑模型默认关闭，避免在没有参考图时误选。
 export const AIPING_IMAGE_MODELS = [
   { id: 'Qwen-Image', name: 'Qwen-Image' },
@@ -110,6 +169,7 @@ export function createDefaultState() {
     },
     themeMode: 'system',
     updateRepo: 'dick86114/miaos',
+    storage: createEmptyStorageState(),
   };
 }
 
@@ -162,6 +222,7 @@ export function migrateState(parsed) {
       },
       updateRepo: typeof source.updateRepo === 'string' ? source.updateRepo : 'dick86114/miaos',
       themeMode: source.themeMode || 'system',
+      storage: normalizeStorageState(source.storage),
     };
   }
 
@@ -227,7 +288,8 @@ export function migrateState(parsed) {
     defaultTextModel = source.textProvider.model || '';
   }
 
-  return {
+  const migrated = {
+    ...source,
     schemaVersion: STATE_SCHEMA_VERSION,
     providers: appendAipingIfMissing(providers),
     history: source.history || [],
@@ -244,7 +306,10 @@ export function migrateState(parsed) {
     },
     updateRepo: typeof source.updateRepo === 'string' ? source.updateRepo : 'dick86114/miaos',
     themeMode: source.themeMode || 'system',
+    storage: normalizeStorageState(source.storage),
   };
+  delete migrated.textProvider;
+  return migrated;
 }
 
 
@@ -317,6 +382,8 @@ export function validateState(value) {
   if (!Array.isArray(value?.failedGenerationTasks)) errors.push('failedGenerationTasks 必须是数组');
   if (!Array.isArray(value?.projects)) errors.push('projects 必须是数组');
   if (!value?.defaults || typeof value.defaults !== 'object') errors.push('defaults 必须是对象');
+  if (!value?.storage || typeof value.storage !== 'object' || Array.isArray(value.storage)) errors.push('storage 必须是对象');
+  if (!Array.isArray(value?.storage?.trash)) errors.push('storage.trash 必须是数组');
   return { ok: errors.length === 0, errors };
 }
 
