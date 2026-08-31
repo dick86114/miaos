@@ -309,6 +309,31 @@ export function moveVersionToTrash(projectId, versionId) {
   });
 }
 
+// 单张项目图片进入回收站，保留原版本位置以支持恢复。
+export function moveImageToTrash(projectId, versionId, imageId) {
+  const project = state.projects.find((item) => item.id === projectId);
+  const version = project?.versions.find((item) => item.id === versionId);
+  const imageIndex = version?.images.findIndex((item) => item.id === imageId) ?? -1;
+  if (!project || !version || imageIndex < 0) return { ok: false, code: 'NOT_FOUND', error: '图片不存在' };
+  const image = version.images[imageIndex];
+  const payload = {
+    projectId,
+    versionId,
+    image: structuredClone(image),
+    imageIndex,
+    previousCoverImageId: project.coverImageId,
+  };
+  const fileRefs = collectGeneratedFileRefs(image);
+  return commitStorageMutation(() => {
+    version.images.splice(imageIndex, 1);
+    if (project.coverImageId === imageId) project.coverImageId = null;
+    project.updatedAt = Date.now();
+    const trashEntry = createTrashEntry({ kind: 'image', payload, fileRefs, deletedAt: Date.now() });
+    ensureStorage().trash.unshift(trashEntry);
+    return { ok: true, trashEntry: structuredClone(trashEntry) };
+  });
+}
+
 export function moveHistoryToTrash(historyId) {
   const item = state.history.find((entry) => entry.id === historyId);
   if (!item) return { ok: false, code: 'NOT_FOUND', error: '历史记录不存在' };
@@ -379,6 +404,22 @@ export function restoreTrashEntry(trashId) {
       state.history.unshift(structuredClone(item));
       ensureStorage().trash.splice(index, 1);
       return { ok: true, kind: entry.kind, restoredId: item.id };
+    });
+  }
+  if (entry.kind === 'image') {
+    const payload = entry.payload || {};
+    const project = state.projects.find((item) => item.id === payload.projectId);
+    const version = project?.versions.find((item) => item.id === payload.versionId);
+    const image = payload.image;
+    if (!project || !version || !image?.id) return { ok: false, code: 'NOT_FOUND', error: '目标项目版本不存在' };
+    if (version.images.some((item) => item.id === image.id)) return conflictResult('恢复失败：图片 ID 已存在');
+    return commitStorageMutation(() => {
+      const indexToUse = Number.isInteger(payload.imageIndex) ? Math.min(Math.max(payload.imageIndex, 0), version.images.length) : version.images.length;
+      version.images.splice(indexToUse, 0, structuredClone(image));
+      if (payload.previousCoverImageId === image.id) project.coverImageId = image.id;
+      project.updatedAt = Date.now();
+      ensureStorage().trash.splice(index, 1);
+      return { ok: true, kind: entry.kind, restoredId: image.id };
     });
   }
   return { ok: false, code: 'UNSUPPORTED_KIND', error: '不支持的回收站类型' };

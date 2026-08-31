@@ -4,13 +4,13 @@ import { mountPage, htmlToElement, toast, confirmDialog, createEventLoopGuard, c
 import {
   getProject,
   updateProject,
-  deleteProject,
+  moveProjectToTrash,
   setCurrentVersion,
   createRootVersion,
   createVersion,
-  deleteVersion,
+  moveVersionToTrash,
   generateSmart,
-  deleteImage,
+  moveImageToTrash,
   setProjectCover,
   getVersionLabels,
   getProviders,
@@ -157,7 +157,9 @@ export function createProjectGalleryController(dependencies) {
     queueApi,
     getCurrentVersion,
     confirmDialog: confirmDelete,
-    deleteImage: deleteImageFn,
+    moveImageToTrash: moveImageToTrashFn,
+    // 兼容旧测试注入；生产路径始终使用回收站接口。
+    deleteImage: legacyDeleteImage,
     refreshGallery,
     toast: showToast,
     onOpenImage,
@@ -213,10 +215,12 @@ export function createProjectGalleryController(dependencies) {
     if (!current) return;
 
     if (action === 'delete') {
-      if (!await confirmDelete('确定删除这张图片吗？')) return;
+      if (!await confirmDelete('确定将这张图片移入回收站吗？文件不会立即物理删除，之后仍可在存储管理中恢复。')) return;
       if (disposed) return;
-      deleteImageFn(current.project.id, current.version.id, current.image.id);
-      showToast?.('已删除', 'success');
+      const move = moveImageToTrashFn || legacyDeleteImage;
+      const result = move?.(current.project.id, current.version.id, current.image.id);
+      if (result === false || result?.ok === false) return;
+      showToast?.('已移入回收站', 'success');
       refreshGallery?.();
       return;
     }
@@ -1145,10 +1149,14 @@ export function renderProject(container, params, routeOptions = {}) {
           return s + (v ? v.images.length : 0);
         }, 0);
         const label = ver.parentId ? '分支' : '主线';
-        const message = `确定删除${label}「${ver.name}」吗？\n\n该${label}及其下 ${descendants.length} 个衍生节点、共 ${imgCount} 张生成图都将一并删除，且无法恢复。`;
+        const message = `确定将${label}「${ver.name}」移入回收站吗？\n\n该${label}及其下 ${descendants.length} 个衍生节点、共 ${imgCount} 张生成图会一并移入回收站，之后仍可在存储管理中恢复。`;
         if (!await confirmDialog(message)) return;
         // 数据层会原子删除节点及全部后代，避免中间状态影响当前节点回退规则。
-        deleteVersion(project.id, rid);
+        const moveResult = moveVersionToTrash(project.id, rid);
+        if (moveResult?.ok === false) {
+          toast(moveResult.error || '移入回收站失败', 'error');
+          return;
+        }
         const updatedProject = getProject(project.id);
         const currentVersionId = updatedProject?.currentVersionId;
         toast('已删除', 'success');
@@ -1215,7 +1223,7 @@ export function renderProject(container, params, routeOptions = {}) {
         return fresh && version ? { project: fresh, version } : null;
       },
       confirmDialog,
-      deleteImage,
+      moveImageToTrash,
       refreshGallery,
       toast,
       onOpenImage: (image, version) => {
@@ -1308,9 +1316,13 @@ export function renderProject(container, params, routeOptions = {}) {
       e.preventDefault(); navigate('/projects');
     });
     root.querySelector('#btn-delete-project').addEventListener('click', async () => {
-      if (!await confirmDialog(`确定删除项目「${project.name}」吗？所有版本与图片将一并删除。`)) return;
-      deleteProject(project.id);
-      toast('项目已删除', 'success');
+      if (!await confirmDialog(`确定将项目「${project.name}」移入回收站吗？所有版本与图片将一并移入回收站，之后仍可在存储管理中恢复。`)) return;
+      const moveResult = moveProjectToTrash(project.id);
+      if (moveResult?.ok === false) {
+        toast(moveResult.error || '移入回收站失败', 'error');
+        return;
+      }
+      toast('项目已移入回收站', 'success');
       navigate('/projects');
     });
 

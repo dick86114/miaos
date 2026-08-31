@@ -87,9 +87,9 @@ const UPDATE_STATE_TEXT = {
   error: '检查时出错',
 };
 
-export function renderSettings(container) {
+export function renderSettings(container, params = [], query = {}) {
   let pageState = {
-    tab: 'general', // general | providers | storage | about
+    tab: query.section === 'storage' ? 'storage' : 'general', // general | providers | storage | about
     selectedProviderId: null,
     isAddingProvider: false,
     // 编辑表单临时状态
@@ -632,8 +632,8 @@ export function renderSettings(container) {
           ${trash.length ? trash.map((entry) => {
             const refs = storageFileRefs(entry);
             const bytes = refs.reduce((sum, ref) => sum + (Number(ref?.size) || Number(scannedFiles.get(ref?.path)?.size) || 0), 0);
-            const label = entry.kind === 'project' ? '项目' : entry.kind === 'version' ? '版本' : entry.kind === 'history' ? '历史记录' : '条目';
-            const name = entry.payload?.name || entry.payload?.title || entry.payload?.projectName || entry.payload?.id || entry.id;
+            const label = entry.kind === 'project' ? '项目' : entry.kind === 'version' ? '版本' : entry.kind === 'image' ? '项目图片' : entry.kind === 'history' ? '历史记录' : '条目';
+            const name = entry.payload?.name || entry.payload?.title || entry.payload?.projectName || entry.payload?.image?.id || entry.payload?.id || entry.id;
             return `<div class="storage-row" data-trash-id="${escapeAttr(entry.id)}">
               <div class="storage-row-main"><strong>${escapeHtml(String(name))}</strong><span>${label} · ${refs.length} 个文件 · ${formatStorageBytes(bytes)}</span><small>删除于 ${escapeHtml(entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('zh-CN', { hour12: false }) : '未知时间')}</small></div>
               <div class="storage-row-actions"><button class="btn btn-ghost btn-sm" data-act="restore-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('arrow-left', 13)}<span>恢复</span></button><button class="btn btn-ghost btn-sm danger" data-act="purge-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('trash-2', 13)}<span>永久删除</span></button></div>

@@ -4,7 +4,8 @@ import { mountPage, htmlToElement, toast, confirmDialog, createKeyedListRenderer
 import {
   getHistory,
   getProjects,
-  deleteHistoryRecords,
+  moveHistoryRecordsToTrash,
+  getStorageUsage,
   formatRelativeTime,
 } from '../store.js';
 import { navigate } from '../router.js';
@@ -12,6 +13,14 @@ import { getUnifiedHistory } from '../history-data.js';
 import { buildImageDetailRoute } from '../image-detail-data.js';
 
 const HISTORY_PAGE_SIZE = 24;
+
+function formatStorageBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  return `${(bytes / (1024 ** index)).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
 
 /**
  * 管理历史页的筛选、分页和批量选择状态。
@@ -22,7 +31,9 @@ export function createHistoryPageController(dependencies = {}) {
     getUnifiedHistory: selectUnifiedHistory = getUnifiedHistory,
     getHistory: readHistory = getHistory,
     getProjects: readProjects = getProjects,
-    deleteHistoryRecords: deleteRecords = deleteHistoryRecords,
+    moveHistoryRecordsToTrash: moveRecords,
+    // 兼容旧测试注入；生产路径使用回收站批量接口。
+    deleteHistoryRecords: legacyDeleteRecords,
     confirmDialog: confirmDelete = confirmDialog,
   } = dependencies;
   let page = 1;
@@ -90,10 +101,12 @@ export function createHistoryPageController(dependencies = {}) {
       projectCount ? `项目生图 ${projectCount} 张` : '',
     ].filter(Boolean).join('，');
     const projectWarning = projectCount ? '项目图片删除会影响对应项目版本。' : '';
-    const confirmed = await confirmDelete(`确定删除所选 ${records.length} 张图片吗？（${sources}）此操作不可撤销。${projectWarning}`);
+    const confirmed = await confirmDelete(`确定将所选 ${records.length} 张图片移入回收站吗？（${sources}）文件不会立即物理删除，可在存储管理中恢复。${projectWarning}`);
     if (!confirmed) return 0;
 
-    const deletedCount = deleteRecords(records);
+    const deleteRecords = moveRecords || legacyDeleteRecords || moveHistoryRecordsToTrash;
+    const result = deleteRecords(records);
+    const deletedCount = typeof result === 'number' ? result : (result?.count || 0);
     selected.clear();
     // 继续以删除前的请求页查询，让选择器将已经越界的页码收敛到最后有效页。
     getPage();
@@ -408,6 +421,10 @@ export function renderHistory(container, params = [], routeOptions = {}) {
             <button type="button" class="text-btn" id="history-batch-toggle">${icon('check-square', 14)}<span>批量管理</span></button>
           </div>
         </div>
+        <section class="history-storage-summary" data-history-storage-summary>
+          <div><span class="stats-report-kicker">本地文件</span><h3>存储占用</h3><p data-history-storage-value>正在读取…</p></div>
+          <a class="btn btn-secondary" href="#/settings?section=storage" data-history-storage-link>${icon('folder', 14)}<span>存储管理</span></a>
+        </section>
         <div id="history-list">
           <div class="history-grid gallery-grid" data-history-grid></div>
           <div class="history-empty" data-history-empty hidden>
@@ -630,6 +647,15 @@ export function renderHistory(container, params = [], routeOptions = {}) {
   });
 
   renderView();
+  const storageValue = root.querySelector('[data-history-storage-value]');
+  getStorageUsage().then((usage) => {
+    if (!storageValue) return;
+    const bytes = usage?.totals?.bytes;
+    const files = usage?.totals?.files;
+    storageValue.textContent = usage?.ok === false ? '暂时无法读取占用' : `${files || 0} 个文件 · ${formatStorageBytes(bytes)}`;
+  }).catch(() => {
+    if (storageValue) storageValue.textContent = '暂时无法读取占用';
+  });
   const parsedScrollTop = Number.parseInt(routeOptions.scroll, 10);
   const restoreScrollTop = Number.isFinite(parsedScrollTop) && parsedScrollTop > 0 ? parsedScrollTop : 0;
   const restoreScrollFrame = restoreScrollTop > 0
