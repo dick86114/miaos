@@ -183,3 +183,65 @@ test('持久化失败时删除不会丢失活动记录', async () => {
     assert.equal(store.getStorageState().trash.length, 0);
   } finally { restore(); }
 });
+
+test('删除唯一根及其子树时拒绝删除，不进入回收站', async () => {
+  const state = createDefaultState();
+  const project = projectFixture();
+  project.versions = project.versions.slice(0, 2);
+  project.currentVersionId = 'child';
+  state.projects = [project];
+  const { store, restore } = await loadStore(state);
+  try {
+    const result = store.moveVersionToTrash('project-1', 'root');
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'LAST_VERSION');
+    assert.equal(store.getProject('project-1').versions.length, 2);
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});
+
+test('purge 请求过滤恶意 fileRefs，只保留 generated 路径且不移除条目', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [{
+    id: 'trash-malicious', kind: 'history', payload: { image: '/Users/me/.miaos/generated/safe.png' },
+    fileRefs: [
+      { path: '/etc/passwd' },
+      { path: 'https://example.com/.miaos/generated/remote.png' },
+      { path: '/Users/me/.miaos/generated/safe.png' },
+    ], deletedAt: 1,
+  }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const result = store.purgeTrashEntry('trash-malicious');
+    assert.deepEqual(result.fileDeletionRequest.paths, ['/Users/me/.miaos/generated/safe.png']);
+    assert.equal(store.getStorageState().trash.length, 1);
+  } finally { restore(); }
+});
+
+test('确认失败时回收站条目保持不变，部分成功仅移除已处理引用', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [{
+    id: 'trash-partial', kind: 'history', payload: null,
+    fileRefs: [
+      { path: '/Users/me/.miaos/generated/ok.png' },
+      { path: '/Users/me/.miaos/generated/fail.png' },
+    ], deletedAt: 1,
+  }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.purgeTrashEntry('trash-partial');
+    assert.equal(store.getStorageState().trash.length, 1);
+    const failed = store.finalizeTrashPurge('trash-partial', { deletedPaths: [], failedPaths: request.fileDeletionRequest.paths });
+    assert.equal(failed.ok, false);
+    assert.equal(store.getStorageState().trash.length, 1);
+    const partial = store.finalizeTrashPurge('trash-partial', {
+      deletedPaths: ['/Users/me/.miaos/generated/ok.png'],
+      failedPaths: [{ path: '/Users/me/.miaos/generated/fail.png', error: '占用' }],
+    });
+    assert.equal(partial.ok, false);
+    assert.deepEqual(store.getStorageState().trash[0].fileRefs.map((ref) => ref.path), ['/Users/me/.miaos/generated/fail.png']);
+    const done = store.finalizeTrashPurge('trash-partial', { deletedPaths: ['/Users/me/.miaos/generated/fail.png'], missingPaths: [] });
+    assert.equal(done.ok, true);
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});

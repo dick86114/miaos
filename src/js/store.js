@@ -230,6 +230,7 @@ export function moveVersionToTrash(projectId, versionId) {
     toDelete.add(current);
     project.versions.filter((v) => v.parentId === current).forEach((v) => stack.push(v.id));
   }
+  if (toDelete.size >= project.versions.length) return { ok: false, code: 'LAST_VERSION', error: '至少保留一个版本' };
   const deletedVersions = project.versions.filter((v) => toDelete.has(v.id));
   const indexes = deletedVersions.map((version) => ({ id: version.id, index: project.versions.findIndex((item) => item.id === version.id) }));
   const payload = {
@@ -339,23 +340,40 @@ export function purgeTrashEntry(trashId) {
   if (index < 0) return { ok: false, code: 'NOT_FOUND', error: '回收站条目不存在' };
   const entry = storage.trash[index];
   const activeRefs = new Set(collectGeneratedFileRefs({ ...state, storage: undefined }).map((ref) => ref.path));
-  const remainingRefs = new Set(storage.trash.filter((_, i) => i !== index).flatMap((item) => {
-    const refs = Array.isArray(item.fileRefs) && item.fileRefs.length > 0 ? item.fileRefs : collectGeneratedFileRefs(item.payload);
-    return refs.map((ref) => ref.path);
-  }));
-  const files = (entry.fileRefs || []).filter((ref, refIndex, refs) => ref?.path && refs.findIndex((candidate) => candidate.path === ref.path) === refIndex && !activeRefs.has(ref.path) && !remainingRefs.has(ref.path));
-  const result = commitStorageMutation(() => {
-    ensureStorage().trash.splice(index, 1);
-    const requestedFiles = structuredClone(files);
-    return {
-      ok: true,
-      trashId,
-      files: requestedFiles,
-      fileDeletionRequest: { paths: requestedFiles.map((file) => file.path) },
-      requiresMainProcessConfirmation: true,
-    };
+  const refsForEntry = (item) => collectGeneratedFileRefs({ fileRefs: item?.fileRefs, payload: item?.payload });
+  const remainingRefs = new Set(storage.trash.filter((_, i) => i !== index).flatMap((item) => refsForEntry(item).map((ref) => ref.path)));
+  const files = refsForEntry(entry).filter((ref, refIndex, refs) => !activeRefs.has(ref.path) && !remainingRefs.has(ref.path) && refs.findIndex((candidate) => candidate.path === ref.path) === refIndex);
+  const requestedFiles = structuredClone(files);
+  return {
+    ok: true,
+    trashId,
+    files: requestedFiles,
+    fileDeletionRequest: { paths: requestedFiles.map((file) => file.path) },
+    requiresMainProcessConfirmation: true,
+  };
+}
+
+export function finalizeTrashPurge(trashId, result = {}) {
+  const storage = ensureStorage();
+  const index = storage.trash.findIndex((entry) => entry.id === trashId);
+  if (index < 0) return { ok: false, code: 'NOT_FOUND', error: '回收站条目不存在' };
+  const entry = storage.trash[index];
+  const validRefs = collectGeneratedFileRefs({ fileRefs: entry.fileRefs, payload: entry.payload });
+  const requested = (result.requestedPaths || result.fileDeletionRequest?.paths || result.files?.map((file) => file.path) || []).filter((path) => collectGeneratedFileRefs(path).length > 0);
+  const deleted = (result.deletedPaths || result.deleted || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
+  const missing = (result.missingPaths || result.missing || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
+  const failed = (result.failedPaths || result.failed || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
+  const processed = new Set([...deleted, ...missing]);
+  const failedSet = new Set(failed);
+  const complete = failed.length === 0 && requested.every((path) => processed.has(path));
+  const remaining = validRefs.filter((ref, refIndex, refs) => refs.findIndex((candidate) => candidate.path === ref.path) === refIndex && !processed.has(ref.path));
+  return commitStorageMutation(() => {
+    const currentEntry = ensureStorage().trash[index];
+    currentEntry.fileRefs = structuredClone(remaining);
+    if (complete && remaining.length === 0) ensureStorage().trash.splice(index, 1);
+    if (!complete) return { ok: false, code: 'PURGE_PARTIAL', trashId, failedPaths: [...failedSet], remainingRefs: structuredClone(remaining) };
+    return { ok: true, trashId, removed: requested };
   });
-  return result;
 }
 
 export function getProvider(id) {
