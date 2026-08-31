@@ -231,16 +231,17 @@ test('确认失败时回收站条目保持不变，部分成功仅移除已处�
   try {
     const request = store.purgeTrashEntry('trash-partial');
     assert.equal(store.getStorageState().trash.length, 1);
-    const failed = store.finalizeTrashPurge('trash-partial', { deletedPaths: [], failedPaths: request.fileDeletionRequest.paths });
+    const failed = store.finalizeTrashPurge('trash-partial', { requestedPaths: request.fileDeletionRequest.paths, deletedPaths: [], failedPaths: request.fileDeletionRequest.paths });
     assert.equal(failed.ok, false);
     assert.equal(store.getStorageState().trash.length, 1);
     const partial = store.finalizeTrashPurge('trash-partial', {
+      requestedPaths: request.fileDeletionRequest.paths,
       deletedPaths: ['/Users/me/.miaos/generated/ok.png'],
       failedPaths: [{ path: '/Users/me/.miaos/generated/fail.png', error: '占用' }],
     });
     assert.equal(partial.ok, false);
     assert.deepEqual(store.getStorageState().trash[0].fileRefs.map((ref) => ref.path), ['/Users/me/.miaos/generated/fail.png']);
-    const done = store.finalizeTrashPurge('trash-partial', { deletedPaths: ['/Users/me/.miaos/generated/fail.png'], missingPaths: [] });
+    const done = store.finalizeTrashPurge('trash-partial', { requestedPaths: ['/Users/me/.miaos/generated/fail.png'], deletedPaths: ['/Users/me/.miaos/generated/fail.png'], missingPaths: [] });
     assert.equal(done.ok, true);
     assert.equal(store.getStorageState().trash.length, 0);
   } finally { restore(); }
@@ -260,8 +261,23 @@ test('共享引用不阻止确认完成后移除当前回收站条目', async ()
   try {
     const request = store.purgeTrashEntry('trash-shared-finalize');
     assert.deepEqual(request.fileDeletionRequest.paths, ['/Users/me/.miaos/generated/orphan.png']);
-    const finalized = store.finalizeTrashPurge('trash-shared-finalize', { deletedPaths: request.fileDeletionRequest.paths });
+    const finalized = store.finalizeTrashPurge('trash-shared-finalize', { requestedPaths: request.fileDeletionRequest.paths, deletedPaths: request.fileDeletionRequest.paths });
     assert.equal(finalized.ok, true);
     assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});
+
+test('缺少明确确认结果时不允许完成 purge', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [{
+    id: 'trash-await-confirmation', kind: 'history', payload: null,
+    fileRefs: [{ path: '/Users/me/.miaos/generated/pending.png' }], deletedAt: 1,
+  }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const result = store.finalizeTrashPurge('trash-await-confirmation', {});
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'PURGE_CONFIRMATION_REQUIRED');
+    assert.equal(store.getStorageState().trash.length, 1);
   } finally { restore(); }
 });

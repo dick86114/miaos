@@ -363,6 +363,11 @@ export function finalizeTrashPurge(trashId, result = {}) {
   const deleted = (result.deletedPaths || result.deleted || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
   const missing = (result.missingPaths || result.missing || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
   const failed = (result.failedPaths || result.failed || []).map((item) => typeof item === 'string' ? item : item?.path).filter((path) => collectGeneratedFileRefs(path).length > 0);
+  const hasDeletedConfirmation = Array.isArray(result.deletedPaths) || Array.isArray(result.deleted);
+  const hasMissingConfirmation = Array.isArray(result.missingPaths) || Array.isArray(result.missing);
+  if (requested.length === 0 || (!hasDeletedConfirmation && !hasMissingConfirmation)) {
+    return { ok: false, code: 'PURGE_CONFIRMATION_REQUIRED', trashId, error: '需要主进程提供明确的 deleted/missing 确认结果' };
+  }
   const processed = new Set([...deleted, ...missing]);
   const failedSet = new Set(failed);
   const complete = failed.length === 0 && requested.every((path) => processed.has(path));
