@@ -1,6 +1,6 @@
 // 统一图片详情页：快速历史、全量历史和项目图片共用图二式双栏布局。
 import { icon } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, toImageSrc } from '../ui.js';
 import {
   getHistory,
   getProjects,
@@ -100,7 +100,7 @@ export function renderDetail(container, params, routeOptions = {}) {
       </div>
       <div class="detail-layout">
         <div class="detail-image-col">
-          <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.prompt || '生成结果')}" class="detail-image" id="detail-image" />
+          <img src="${escapeHtml(toImageSrc(item.image))}" alt="${escapeHtml(item.prompt || '生成结果')}" class="detail-image" id="detail-image" />
         </div>
         <div class="detail-panel-col">
           <div class="detail-panel">
@@ -168,7 +168,7 @@ export function renderDetail(container, params, routeOptions = {}) {
 
     const image = document.createElement('img');
     image.className = 'detail-fullscreen-image';
-    image.src = imageSource;
+    image.src = toImageSrc(imageSource);
     image.alt = altText || '生成结果';
     image.draggable = false;
     image.setAttribute('data-detail-fullscreen-image', '');

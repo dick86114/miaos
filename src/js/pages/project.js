@@ -1,6 +1,6 @@
 // 项目工作台：横向时间轴（主线节点+分支卡片） + 详情面板
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, createEventLoopGuard, createKeyedListRenderer, toImageSrc } from '../ui.js';
 import {
   getProject,
   updateProject,
@@ -382,7 +382,7 @@ export function renderProject(container, params, routeOptions = {}) {
       return `
         <div class="gallery-item pwb-gallery-item" data-image-id="${img.id}">
           <div class="gallery-item-img-wrap">
-            <img src="${img.image}" alt="生成结果" loading="lazy" />
+            <img src="${toImageSrc(img.image)}" alt="生成结果" loading="lazy" />
             ${branchBadge}
             ${metaTags}
             <div class="gallery-item-hover-actions">
@@ -462,7 +462,7 @@ export function renderProject(container, params, routeOptions = {}) {
       if (!isChild) return '';
       const pImg = getParentImage(curVer, project);
       return pImg
-        ? `<div class="pwb-source-image-bar">${icon('git-branch', 14)}<span>父图：<strong>${formatRelativeTime(pImg.createdAt)}</strong> 生成 · <em>点击查看</em></span><div class="pwb-source-image-thumb-wrap"><img src="${pImg.image}" class="pwb-source-image-thumb" alt="参考图" />${icon('maximize-2', 11)}</div></div>`
+        ? `<div class="pwb-source-image-bar">${icon('git-branch', 14)}<span>父图：<strong>${formatRelativeTime(pImg.createdAt)}</strong> 生成 · <em>点击查看</em></span><div class="pwb-source-image-thumb-wrap"><img src="${toImageSrc(pImg.image)}" class="pwb-source-image-thumb" alt="参考图" />${icon('maximize-2', 11)}</div></div>`
         : `<div class="pwb-source-image-bar"><span class="pwb-source-image-missing">⚠ 父参考图已被删除，无法继续图生图，请重新派生</span></div>`;
     })();
     const promptDraft = projectPromptDrafts.read(project.id, curVer.id, curVer.prompt);
@@ -1363,7 +1363,7 @@ export function openDeriveDialog(projectId, parentVersionId, container, renderWo
   const defaultImgId = preselectedImageId || parent.images[0].id;
   const gridHtml = parent.images.map((img) => `
     <div class="derive-image-item ${img.id === defaultImgId ? 'selected' : ''}" data-image-id="${img.id}">
-      <img src="${img.image}" alt="参考图" loading="lazy" />
+      <img src="${toImageSrc(img.image)}" alt="参考图" loading="lazy" />
       <span class="derive-image-time">${formatRelativeTime(img.createdAt)}</span>
     </div>
   `).join('');

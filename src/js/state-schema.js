@@ -47,6 +47,18 @@ function isGeneratedPath(value) {
   return !!relativePath && !relativePath.split('/').includes('..');
 }
 
+function normalizeLocalFileUrl(value) {
+  if (typeof value !== 'string' || !value.toLowerCase().startsWith('file://')) return value;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) return null;
+    const decodedPath = decodeURIComponent(url.pathname || '');
+    return decodedPath.startsWith('/') ? decodedPath : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 // 仅从状态值提取生成目录下的路径，不访问文件系统。
 export function collectGeneratedFileRefs(value) {
   const refs = [];
@@ -54,6 +66,7 @@ export function collectGeneratedFileRefs(value) {
   const visited = new WeakSet();
 
   function add(path, metadata = {}) {
+    path = normalizeLocalFileUrl(path);
     if (!isGeneratedPath(path) || seenPaths.has(path)) return;
     seenPaths.add(path);
     refs.push({

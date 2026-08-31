@@ -68,3 +68,17 @@ test('空引用、共享保护和已不存在文件支持 metadata-only 清理�
   assert.match(store, /metadataOnly:\s*true/u);
   assert.match(store, /result\.metadataOnly === true/u);
 });
+
+test('孤儿清理向主进程传递带校验信息的引用并处理失败响应', async () => {
+  const settings = await source('src/js/pages/settings.js');
+  assert.match(settings, /selectedOrphans[\s\S]{0,500}scan\?\.files[\s\S]{0,300}checksum/u);
+  assert.match(settings, /if \(!result \|\| result\.ok === false\)/u);
+});
+
+test('项目删除文案明确进入可恢复回收站', async () => {
+  const projects = await source('src/js/pages/projects.js');
+  assert.match(projects, /移入回收站/u);
+  assert.match(projects, /可在存储管理恢复/u);
+  assert.doesNotMatch(projects, /此操作不可撤销/u);
+  assert.doesNotMatch(projects, /toast\('项目已删除'/u);
+});

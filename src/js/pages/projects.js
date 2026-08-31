@@ -81,9 +81,9 @@ export function renderProjects(container) {
           const id = btn.getAttribute('data-id');
           const p = getProjects().find((x) => x.id === id);
           if (!p) return;
-          if (!await confirmDialog(`确定删除项目「${p.name}」吗？所有版本与图片将一并删除，此操作不可撤销。`)) return;
+          if (!await confirmDialog(`确定将项目「${p.name}」移入回收站吗？文件暂不物理删除，可在存储管理恢复。`)) return;
           deleteProject(id);
-          toast('项目已删除', 'success');
+          toast('项目已移入回收站，可在存储管理恢复', 'success');
           renderView(container, getProjects());
         });
       });

@@ -16,6 +16,13 @@ export function escapeAttr(value) {
   return escapeHtml(value);
 }
 
+// 状态内部统一保存绝对路径；仅在交给浏览器渲染时补 file 协议。
+export function toImageSrc(value) {
+  const source = String(value ?? '');
+  if (!source || /^[a-z][a-z\d+.-]*:/iu.test(source)) return source;
+  return source.startsWith('/') ? `file://${encodeURI(source)}` : source;
+}
+
 // 轻量 Toast。相同 key 的状态会原位更新，避免高频请求堆叠重复提示。
 const toastRecordsByDocument = new WeakMap();
 const loadingButtons = new WeakSet();

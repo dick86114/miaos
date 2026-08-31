@@ -80,13 +80,16 @@ test('文件引用收集只保留 generated 内的路径', () => {
   }), [{ path: '/Users/me/.miaos/generated/a.png', size: null, checksum: null }]);
 });
 
-test('文件引用收集拒绝协议地址和相对路径', () => {
+test('文件引用收集兼容本地 file 协议并拒绝远程和相对路径', () => {
   assert.deepEqual(collectGeneratedFileRefs({
     remote: 'https://example.com/.miaos/generated/remote.png',
     fileUrl: 'file:///Users/me/.miaos/generated/url.png',
     relative: 'Users/me/.miaos/generated/relative.png',
     local: '/Users/me/.miaos/generated/local.png',
-  }), [{ path: '/Users/me/.miaos/generated/local.png', size: null, checksum: null }]);
+  }), [
+    { path: '/Users/me/.miaos/generated/url.png', size: null, checksum: null },
+    { path: '/Users/me/.miaos/generated/local.png', size: null, checksum: null },
+  ]);
 });
 
 test('迁移保留未知字段并修复无效回收站字段', () => {

@@ -862,7 +862,7 @@ export async function generateImage({ prompt, providerId, modelId, ratio, qualit
   });
   if (!result || !result.ok) throw createGenerationFailure(result);
 
-  const imageSrc = result.fileUrl || result.imagePath;
+  const imageSrc = result.imagePath || result.fileUrl;
   const record = {
     id: uid('h'),
     prompt: prompt.trim(),
@@ -1256,7 +1256,7 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
   if (!result || !result.ok) throw createGenerationFailure(result);
   const img = {
     id: uid('img'),
-    image: result.fileUrl || result.imagePath,
+    image: result.imagePath || result.fileUrl,
     ratio, quality,
     // 保存生成时的元数据，确保图片详情独立于版本（版本后续可能被修改）
     prompt: target.prompt.trim(),

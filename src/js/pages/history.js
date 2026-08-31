@@ -1,6 +1,6 @@
 // 全量历史页：混合快速生图与项目图片，统一提供筛选、预览和批量删除。
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, createKeyedListRenderer } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, createKeyedListRenderer, toImageSrc } from '../ui.js';
 import {
   getHistory,
   getProjects,
@@ -688,7 +688,7 @@ export function createHistoryCardHtml(item, batchMode = false, selectedItems = [
   return `
     <article class="gallery-item history-card ${batchMode ? 'is-batch-mode' : ''} ${isSelected ? 'is-selected' : ''}" data-history-key="${escapeHtml(item.key)}" data-history-source="${escapeHtml(item.source)}">
       <div class="gallery-item-img-wrap">
-        <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.prompt || '生成结果')}" loading="lazy" />
+        <img src="${escapeHtml(toImageSrc(item.image))}" alt="${escapeHtml(item.prompt || '生成结果')}" loading="lazy" />
         <div class="history-card-tags">
           <span class="history-source-badge ${isProject ? 'is-project' : 'is-quick'}">${escapeHtml(sourceLabel)}</span>
           ${projectName}

@@ -827,7 +827,14 @@ export function renderSettings(container, params = [], query = {}) {
       if (!paths.length) return;
       if (!await confirmDialog(`确定清理选中的 ${paths.length} 个孤立文件吗？此操作不可撤销。`)) return;
       try {
-        const result = await storageDelete(paths);
+        const selectedFiles = (pageState.storage.scan?.files || [])
+          .filter((file) => paths.includes(file.path))
+          .map((file) => ({ path: file.path, ...(typeof file.checksum === 'string' ? { checksum: file.checksum } : {}) }));
+        const result = await storageDelete(selectedFiles);
+        if (!result || result.ok === false) {
+          toast(`清理失败：${result?.error || '主进程拒绝删除'}`, 'error');
+          return;
+        }
         const failed = result?.failed?.length || 0;
         const handled = new Set([...(result?.deleted || []), ...(result?.missing || [])].map((item) => typeof item === 'string' ? item : item.path));
         pageState.storage.selectedOrphans = new Set(paths.filter((path) => !handled.has(path)));

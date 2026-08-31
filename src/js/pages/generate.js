@@ -1,6 +1,6 @@
 // 生图页：豆包风格 Composer 布局 + 全局任务队列
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, createEventLoopGuard, createKeyedListRenderer } from '../ui.js';
+import { mountPage, htmlToElement, toast, createEventLoopGuard, createKeyedListRenderer, toImageSrc } from '../ui.js';
 import {
   getProviders,
   getEnabledModels,
@@ -724,7 +724,7 @@ export function renderGenerate(container) {
     return `
       <article class="gallery-item quick-history-card" data-history-id="${escapeHtml(item.historyId)}">
         <div class="gallery-item-img-wrap">
-          <img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.prompt || '生成结果')}" loading="lazy" />
+          <img src="${escapeHtml(toImageSrc(item.image))}" alt="${escapeHtml(item.prompt || '生成结果')}" loading="lazy" />
           <div class="gallery-item-hover-actions">
             <button type="button" class="icon-btn" data-history-act="preview" data-history-id="${escapeHtml(item.historyId)}" title="查看大图">${icon('maximize-2', 14)}</button>
             <button type="button" class="icon-btn" data-history-act="download" data-history-id="${escapeHtml(item.historyId)}" title="保存到本地">${icon('download', 14)}</button>
