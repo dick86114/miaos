@@ -100,3 +100,20 @@ test('无法预览的存储文件显示异常占位而不伪造缩略图', async
   assert.match(settings, /storage-thumb-placeholder/u);
   assert.match(settings, /is-unsafe/u);
 });
+
+test('进入存储管理时自动扫描，扫描按钮只负责手动刷新', async () => {
+  const settings = await source('src/js/pages/settings.js');
+  assert.match(settings, /autoScanStarted/u);
+  assert.match(settings, /if \(!pageState\.storage\.autoScanStarted\)[\s\S]{0,260}runScan\(\)/u);
+});
+
+test('存储文件预览右侧展示文件元数据而不是提示词字段', async () => {
+  const [settings, preview] = await Promise.all([source('src/js/pages/settings.js'), source('src/js/image-preview.js')]);
+  assert.match(settings, /storageDetails/u);
+  assert.match(settings, /fileName/u);
+  assert.match(settings, /storageLocation/u);
+  assert.match(preview, /存储位置/u);
+  assert.match(preview, /文件大小/u);
+  assert.match(preview, /修改时间/u);
+  assert.match(preview, /storageDetails/u);
+});

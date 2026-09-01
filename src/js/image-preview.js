@@ -82,6 +82,7 @@ export function openImagePreview(record, options = {}) {
   }
 
   const info = createElement(documentRef, 'div', 'image-preview-info');
+  const storageDetails = record.storageDetails;
   if (isFailureDetail) {
     const errorDetails = record.errorDetails || {};
     const help = getGenerationErrorHelp({
@@ -114,10 +115,19 @@ export function openImagePreview(record, options = {}) {
     appendInfoRow(documentRef, info, '错误', String(record.error || '未知错误'));
     if (errorDetails.diagnosticId) appendInfoRow(documentRef, info, '诊断编号', errorDetails.diagnosticId);
   }
-  appendInfoRow(documentRef, info, '模型', [record.providerName, record.modelId].filter(Boolean).join(' / '));
-  appendInfoRow(documentRef, info, '版本', record.versionName || record.contextLabel || '');
-  appendInfoRow(documentRef, info, '参数', formatGenerationParams(record));
-  if (Array.isArray(record.promptChain) && record.promptChain.length > 0) {
+  if (storageDetails) {
+    appendInfoRow(documentRef, info, '文件名', storageDetails.fileName || '');
+    appendInfoRow(documentRef, info, '文件大小', storageDetails.fileSize || '');
+    appendInfoRow(documentRef, info, '修改时间', storageDetails.modifiedAt || '');
+    appendInfoRow(documentRef, info, '存储位置', storageDetails.storageLocation || '');
+    appendInfoRow(documentRef, info, '文件类型', storageDetails.fileType || '');
+    appendInfoRow(documentRef, info, '状态', storageDetails.status || '');
+  } else {
+    appendInfoRow(documentRef, info, '模型', [record.providerName, record.modelId].filter(Boolean).join(' / '));
+    appendInfoRow(documentRef, info, '版本', record.versionName || record.contextLabel || '');
+    appendInfoRow(documentRef, info, '参数', formatGenerationParams(record));
+  }
+  if (!storageDetails && Array.isArray(record.promptChain) && record.promptChain.length > 0) {
     const chainBlock = createElement(documentRef, 'div', 'image-preview-chain');
     chainBlock.setAttribute('data-image-preview-chain', '');
     chainBlock.appendChild(createElement(documentRef, 'div', 'image-preview-chain-heading', '衍生路径'));
@@ -130,8 +140,10 @@ export function openImagePreview(record, options = {}) {
     });
     info.appendChild(chainBlock);
   }
-  if (isFailureDetail) appendPromptBlock(documentRef, info, record.prompt || '');
-  else appendInfoRow(documentRef, info, '提示词', record.prompt || '');
+  if (!storageDetails) {
+    if (isFailureDetail) appendPromptBlock(documentRef, info, record.prompt || '');
+    else appendInfoRow(documentRef, info, '提示词', record.prompt || '');
+  }
 
   const actions = createElement(documentRef, 'div', 'image-preview-actions');
   const imageId = record.imageId || record.id || null;

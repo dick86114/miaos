@@ -2501,7 +2501,7 @@ i[data-lucide="loader"] {
 @media (max-width: 640px) {
   .storage-thumb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .storage-thumb-body { padding: 8px; }
-  .storage-thumb-card .storage-row-actions { padding: 0 8px 8px; flex-direction: column; }
+  .storage-thumb-card .storage-row-actions { padding: 0 8px 8px; flex-direction: row; }
   .storage-thumb-select { padding: 7px 8px 0; }
   .storage-stat-grid { grid-template-columns: 1fr; }
   .storage-management .settings-section-header { align-items: flex-start; flex-direction: column; }
