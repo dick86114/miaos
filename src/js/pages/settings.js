@@ -1,6 +1,7 @@
 // 设置页面：通用设置 / 模型供应商 / 关于与更新
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, confirmDialog, promptDialog, escapeHtml, escapeAttr, withButtonLoading } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, promptDialog, escapeHtml, escapeAttr, withButtonLoading, toImageSrc } from '../ui.js';
+import { openImagePreview } from '../image-preview.js';
 import { renderReleaseNotes } from '../release-notes.js';
 import {
   getProviders,
@@ -589,6 +590,14 @@ export function renderSettings(container, params = [], query = {}) {
     return Array.isArray(entry?.fileRefs) ? entry.fileRefs : [];
   }
 
+  function renderStorageThumb(path, { error = '', alt = '本地图片' } = {}) {
+    if (!path || error) {
+      return `<div class="storage-thumb-placeholder" role="img" aria-label="无法预览">${icon('image-off', 24)}<span>${escapeHtml(error || '无法预览')}</span></div>`;
+    }
+    const imageSrc = toImageSrc(path);
+    return `<button class="storage-thumb-preview" type="button" data-storage-preview="${escapeAttr(path)}" title="查看大图" aria-label="查看大图"><img class="storage-thumb-image" src="${escapeAttr(imageSrc)}" alt="${escapeAttr(alt)}" loading="lazy" />${icon('maximize-2', 14)}</button>`;
+  }
+
   function renderStorage() {
     const storage = getStorageState() || { trash: [], lastScanAt: 0 };
     const view = pageState.storage;
@@ -628,16 +637,18 @@ export function renderSettings(container, params = [], query = {}) {
 
       <section class="settings-card storage-management">
         <div class="settings-section-header"><div class="settings-section-title">${icon('layers', 16)}<span>回收站</span></div><span class="storage-count">${trash.length} 项</span></div>
-        <div class="storage-file-list storage-trash-list">
+        <div class="storage-thumb-grid storage-trash-list">
           ${trash.length ? trash.map((entry) => {
             const refs = storageFileRefs(entry);
             const bytes = refs.reduce((sum, ref) => sum + (Number(ref?.size) || Number(scannedFiles.get(ref?.path)?.size) || 0), 0);
             const label = entry.kind === 'project' ? '项目' : entry.kind === 'version' ? '版本' : entry.kind === 'image' ? '项目图片' : entry.kind === 'history' ? '历史记录' : '条目';
             const name = entry.payload?.name || entry.payload?.title || entry.payload?.projectName || entry.payload?.image?.id || entry.payload?.id || entry.id;
-            return `<div class="storage-row" data-trash-id="${escapeAttr(entry.id)}">
-              <div class="storage-row-main"><strong>${escapeHtml(String(name))}</strong><span>${label} · ${refs.length} 个文件 · ${formatStorageBytes(bytes)}</span><small>删除于 ${escapeHtml(entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('zh-CN', { hour12: false }) : '未知时间')}</small></div>
+            const previewRef = refs.map((ref) => scannedFiles.get(ref?.path) || ref).find((ref) => ref?.path);
+            return `<article class="storage-thumb-card" data-trash-id="${escapeAttr(entry.id)}">
+              ${renderStorageThumb(previewRef?.path, { alt: String(name) })}
+              <div class="storage-thumb-body"><strong title="${escapeAttr(String(name))}">${escapeHtml(String(name))}</strong><span>${label} · ${refs.length} 个文件 · ${formatStorageBytes(bytes)}</span><small>删除于 ${escapeHtml(entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('zh-CN', { hour12: false }) : '未知时间')}</small></div>
               <div class="storage-row-actions"><button class="btn btn-ghost btn-sm" data-act="restore-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('arrow-left', 13)}<span>恢复</span></button><button class="btn btn-ghost btn-sm danger" data-act="purge-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('trash-2', 13)}<span>永久删除</span></button></div>
-            </div>`;
+            </article>`;
           }).join('') : '<div class="storage-empty">回收站为空</div>'}
         </div>
       </section>
@@ -645,8 +656,12 @@ export function renderSettings(container, params = [], query = {}) {
       <section class="settings-card storage-management">
         <div class="settings-section-header"><div class="settings-section-title">${icon('alert-circle', 16)}<span>孤立文件</span></div><span class="storage-count">${orphans.length} 项</span></div>
         <div class="storage-orphan-toolbar"><label class="storage-select-all"><input id="select-all-orphans" type="checkbox" ${orphans.length && orphans.every((file) => view.selectedOrphans.has(file.path)) ? 'checked' : ''} ${orphans.length ? '' : 'disabled'} />全选</label><button class="btn btn-ghost btn-sm danger" id="btn-clean-orphans" type="button" ${view.selectedOrphans.size ? '' : 'disabled'}>${icon('trash-2', 13)}<span>清理所选</span></button></div>
-        <div class="storage-file-list storage-orphan-list">
-          ${orphans.length ? orphans.map((file) => `<label class="storage-row storage-orphan-row ${file.error ? 'is-unsafe' : ''}"><input type="checkbox" data-act="select-orphan" data-path="${escapeAttr(file.path)}" ${view.selectedOrphans.has(file.path) ? 'checked' : ''} ${file.error ? 'disabled' : ''} /><span class="storage-row-main"><strong>${escapeHtml(file.name || file.path)}</strong><span>${escapeHtml(file.extension || '文件')} · ${formatStorageBytes(file.size)}</span><small>${file.mtimeMs ? new Date(file.mtimeMs).toLocaleString('zh-CN', { hour12: false }) : '未知时间'}${file.error ? ` · ${escapeHtml(file.error)}` : ''}</small></span></label>`).join('') : '<div class="storage-empty">暂无孤立文件</div>'}
+        <div class="storage-thumb-grid storage-orphan-list">
+          ${orphans.length ? orphans.map((file) => `<article class="storage-thumb-card storage-orphan-card ${file.error ? 'is-unsafe' : ''}">
+            ${renderStorageThumb(file.path, { error: file.error, alt: file.name || file.path })}
+            <label class="storage-thumb-select"><input type="checkbox" data-act="select-orphan" data-path="${escapeAttr(file.path)}" ${view.selectedOrphans.has(file.path) ? 'checked' : ''} ${file.error ? 'disabled' : ''} /><span>选择</span></label>
+            <div class="storage-thumb-body"><strong title="${escapeAttr(file.name || file.path)}">${escapeHtml(file.name || file.path)}</strong><span>${escapeHtml(file.extension || '文件')} · ${formatStorageBytes(file.size)}</span><small>${file.mtimeMs ? new Date(file.mtimeMs).toLocaleString('zh-CN', { hour12: false }) : '未知时间'}${file.error ? ` · ${escapeHtml(file.error)}` : ''}</small></div>
+          </article>`).join('') : '<div class="storage-empty">暂无孤立文件</div>'}
         </div>
       </section>
     `;
@@ -740,6 +755,15 @@ export function renderSettings(container, params = [], query = {}) {
     const inner = getInner();
     const storageDelete = deleteStorageFiles;
     if (!pageState.storage.usageLoaded && !pageState.storage.scan) loadStorageUsage();
+    inner.querySelectorAll('[data-storage-preview]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const imagePath = button.getAttribute('data-storage-preview');
+        if (!imagePath) return;
+        openImagePreview({ image: toImageSrc(imagePath), prompt: button.querySelector('img')?.alt || '本地图片' }, {
+          triggerElement: button,
+        });
+      });
+    });
     const scanButton = inner.querySelector('#btn-scan-storage');
     const runScan = async () => {
       if (pageState.storage.scanning) return;

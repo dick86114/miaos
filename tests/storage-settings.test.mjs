@@ -82,3 +82,21 @@ test('项目删除文案明确进入可恢复回收站', async () => {
   assert.doesNotMatch(projects, /此操作不可撤销/u);
   assert.doesNotMatch(projects, /toast\('项目已删除'/u);
 });
+
+test('回收站和孤儿文件使用缩略图网格展示并支持图片预览', async () => {
+  const [settings, css] = await Promise.all([source('src/js/pages/settings.js'), source('src/css/pages.css')]);
+  assert.match(settings, /storage-thumb-grid/u);
+  assert.match(settings, /data-storage-preview/u);
+  assert.match(settings, /openImagePreview/u);
+  assert.match(settings, /toImageSrc/u);
+  assert.match(settings, /image: toImageSrc\(imagePath\)/u);
+  assert.match(css, /\.storage-thumb-grid/u);
+  assert.match(css, /\.storage-thumb-card/u);
+  assert.match(css, /\.storage-thumb-image/u);
+});
+
+test('无法预览的存储文件显示异常占位而不伪造缩略图', async () => {
+  const settings = await source('src/js/pages/settings.js');
+  assert.match(settings, /storage-thumb-placeholder/u);
+  assert.match(settings, /is-unsafe/u);
+});
