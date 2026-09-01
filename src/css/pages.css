@@ -1281,7 +1281,9 @@ i[data-lucide="loader"] {
 .projects-toolbar { display: flex; align-items: center; gap: 12px; }
 
 .project-grid {
+  width: 100%;
   column-width: 280px;
+  column-count: auto;
   column-gap: 16px;
 }
 .project-card {
