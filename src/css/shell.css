@@ -60,6 +60,7 @@ body {
 .sidebar.is-collapsed {
   width: 60px;
   padding: 16px 8px;
+  overflow: hidden;
 }
 .sidebar.is-collapsed .sidebar-logo .logo-img {
   width: 32px;
@@ -154,7 +155,7 @@ body.is-sidebar-resizing, body.is-sidebar-resizing * { cursor: col-resize !impor
   flex: 1;
   overflow: auto;
   background: var(--bg);
-  padding: 24px;
+  padding: 20px 24px 12px;
 }
 .main-content:has(.history-page),
 .main-content:has(.settings-wrap) {
@@ -231,7 +232,7 @@ body.is-sidebar-resizing, body.is-sidebar-resizing * { cursor: col-resize !impor
 
 /* ===== 响应式：窄窗口时侧边栏收为图标栏 ===== */
 @media (max-width: 880px) {
-  .main-content { padding: 16px; }
+  .main-content { padding: 16px 16px 8px; }
   .main-content:has(.history-page),
   .main-content:has(.settings-wrap) { padding: 0; }
 }

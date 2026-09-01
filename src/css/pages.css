@@ -1281,13 +1281,12 @@ i[data-lucide="loader"] {
 .projects-toolbar { display: flex; align-items: center; gap: 12px; }
 
 .project-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+  column-width: 280px;
+  column-gap: 16px;
 }
 .project-card {
   position: relative;
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1296,17 +1295,23 @@ i[data-lucide="loader"] {
   text-decoration: none;
   color: inherit;
   cursor: pointer;
+  width: 100%;
+  margin: 0 0 16px;
+  vertical-align: top;
+  break-inside: avoid;
   transition: box-shadow var(--motion-normal) var(--motion-ease), transform var(--motion-normal) var(--motion-ease);
 }
 .project-card:hover { box-shadow: var(--shadow-2); transform: translateY(-2px); }
 .project-cover {
   width: 100%;
-  height: 140px;
+  height: auto;
+  min-height: 0;
   object-fit: cover;
   display: block;
   background: var(--surface-2);
 }
 .project-cover-placeholder {
+  min-height: 180px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2462,7 +2467,7 @@ i[data-lucide="loader"] {
 .settings-content {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 0 40px;
+  padding: 18px 24px 0;
   min-height: 0;
 }
 .settings-content .page-header {
@@ -2942,8 +2947,15 @@ i[data-lucide="loader"] {
 }
 .form-step:last-of-type { border-bottom: none; }
 .form-step-save {
-  padding-top: 20px;
-  padding-bottom: 8px;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin: 16px -28px -24px;
+  padding: 14px 28px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 -8px 22px rgba(15, 23, 42, 0.10);
+  backdrop-filter: blur(12px);
 }
 .form-step-header {
   display: flex;
@@ -3573,16 +3585,18 @@ i[data-lucide="loader"] {
 .history-pagination[hidden] { display: none !important; }
 .history-page-label { min-width: 128px; color: var(--ink-3); font-size: 12px; text-align: center; }
 .history-batch-bar {
-  position: sticky;
-  bottom: 14px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 8;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 14px 22px;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-md) var(--r-md) 0 0;
   color: var(--ink);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: var(--shadow-2);
@@ -3595,7 +3609,7 @@ i[data-lucide="loader"] {
   .history-toolbar { width: 100%; justify-content: flex-start; }
   .history-toolbar .search-box { flex: 1 1 220px; }
   .history-source-filter { flex: 0 1 130px; }
-  .history-batch-bar { bottom: 8px; flex-wrap: wrap; }
+  .history-batch-bar { flex-wrap: wrap; }
 }
 
 /* 横向分段选择控件 */
@@ -3703,10 +3717,10 @@ i[data-lucide="loader"] {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin: 4px 0 16px;
-  padding: 12px 14px;
+  margin: 16px -24px 0;
+  padding: 12px 24px;
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-md) var(--r-md) 0 0;
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: var(--shadow-2);
   backdrop-filter: blur(14px);
@@ -3754,6 +3768,7 @@ i[data-lucide="loader"] {
   min-height: 0;
   overflow: hidden;
   background: var(--bg);
+  position: relative;
 }
 .history-page-tabs {
   flex: 0 0 auto;
@@ -3762,9 +3777,10 @@ i[data-lucide="loader"] {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 28px 40px;
+  padding: 14px 18px 18px;
 }
 .history-page-tabs [hidden] { display: none; }
+.history-page.is-batch-mode .history-tab-content { padding-bottom: 84px; }
 .history-storage-summary {
   display: flex;
   align-items: center;
@@ -3827,7 +3843,7 @@ i[data-lucide="loader"] {
   flex-direction: column;
   gap: 16px;
   width: 100%;
-  padding-bottom: 24px;
+  padding-bottom: 12px;
 }
 .stats-summary-cards {
   display: grid;

@@ -55,6 +55,8 @@ export function initSidebarResize(sidebar, resizeHandle, {
   minWidth = 60,
   maxWidth = 320,
   defaultWidth = 200,
+  compactThreshold = 136,
+  expandedMinWidth = 176,
 } = {}) {
   if (!sidebar || !resizeHandle) return () => {};
   const savedWidth = Number.parseInt(storage?.getItem('miaos.sidebar.width') || '', 10);
@@ -65,10 +67,15 @@ export function initSidebarResize(sidebar, resizeHandle, {
 
   const clamp = (value) => Math.min(maxWidth, Math.max(minWidth, Math.round(value)));
   const applyWidth = (nextWidth, persist = true) => {
-    width = clamp(nextWidth);
+    const requestedWidth = clamp(nextWidth);
+    const wasCollapsed = width <= compactThreshold;
+    const nextCollapsed = wasCollapsed
+      ? requestedWidth < expandedMinWidth
+      : requestedWidth <= compactThreshold;
+    width = nextCollapsed ? minWidth : Math.max(expandedMinWidth, requestedWidth);
     sidebar.style.width = `${width}px`;
-    sidebar.classList.toggle('is-collapsed', width <= minWidth + 12);
-    document.body.setAttribute('data-sidebar', width <= minWidth + 12 ? 'collapsed' : 'expanded');
+    sidebar.classList.toggle('is-collapsed', nextCollapsed);
+    document.body.setAttribute('data-sidebar', nextCollapsed ? 'collapsed' : 'expanded');
     resizeHandle.setAttribute('aria-valuemin', String(minWidth));
     resizeHandle.setAttribute('aria-valuemax', String(maxWidth));
     resizeHandle.setAttribute('aria-valuenow', String(width));

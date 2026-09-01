@@ -20,7 +20,9 @@ test('设置页主题与密钥保存使用 macOS 风格控件，并移除设置�
   assert.match(settings, /旧版钥匙串密钥，当前未读取/u);
   assert.match(css, /\.theme-mode-control/u);
   assert.match(css, /\.macos-switch/u);
-  assert.match(css, /\.settings-content\s*\{[^}]*padding:\s*24px 0 40px/u);
+  assert.match(css, /\.settings-content\s*\{[^}]*padding:\s*18px 24px 0/u);
+  assert.match(css, /\.general-save-bar\s*\{[^}]*bottom:\s*0/u);
+  assert.match(css, /\.general-save-bar\s*\{[^}]*box-shadow:/u);
 });
 
 test('统计分析 Tab 使用已注册的柱状图图标', async () => {

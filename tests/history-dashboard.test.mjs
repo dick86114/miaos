@@ -37,8 +37,11 @@ test('侧边栏使用可拖动分割线调整宽度，不保留独立收缩按�
   assert.doesNotMatch(main, /sidebar-(?:collapse|expand|toggle)-btn/u);
   assert.match(html, /id="sidebar-resize-handle"/u);
   assert.match(renderer, /initSidebarResize\(/u);
+  assert.match(renderer, /compactThreshold/u);
+  assert.match(renderer, /expandedMinWidth/u);
   assert.match(renderer, /pointerdown/u);
   assert.match(shellCss, /\.sidebar-resize-handle\s*\{[^}]*cursor:\s*col-resize/u);
+  assert.match(shellCss, /\.sidebar\.is-collapsed[^}]*overflow:\s*hidden/u);
 });
 
 test('查询统计页复用一体化 Tab，并且空态不包含去生图引导', async () => {
@@ -49,6 +52,9 @@ test('查询统计页复用一体化 Tab，并且空态不包含去生图引导'
   assert.doesNotMatch(source, /去生图|立即生图|data-history-empty-action|navigate\('\/generate'\)/u);
   assert.match(css, /\.history-tab-content\s*\{[^}]*overflow-y:\s*auto/u);
   assert.match(css, /\.history-filter-row\s*\{[^}]*flex-wrap:\s*wrap/u);
+  assert.match(css, /\.history-batch-bar\s*\{[^}]*bottom:\s*0/u);
+  assert.match(css, /\.history-batch-bar\s*\{[^}]*box-shadow:/u);
+  assert.match(css, /\.history-tab-content\s*\{[^}]*padding:\s*14px 18px 18px/u);
   assert.match(css, /\.history-empty\[hidden\]\s*\{[^}]*display:\s*none\s*!important;/u);
 });
 

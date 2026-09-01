@@ -530,6 +530,7 @@ export function renderHistory(container, params = [], routeOptions = {}) {
     nextPage.disabled = pageData.page >= pageData.totalPages;
 
     batchToggle.classList.toggle('is-active', state.batchMode);
+    root.classList.toggle('is-batch-mode', state.batchMode);
     batchToggle.innerHTML = `${icon(state.batchMode ? 'x' : 'check-square', 14)}<span>${state.batchMode ? '退出批量管理' : '批量管理'}</span>`;
     renderIcons(batchToggle);
     batchBar.hidden = !state.batchMode;

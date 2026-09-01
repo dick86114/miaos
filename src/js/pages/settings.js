@@ -335,11 +335,6 @@ export function renderSettings(container, params = [], query = {}) {
         </div>
       </div>
 
-      <div class="general-save-bar ${generalDirty ? 'is-dirty' : ''}">
-        <span class="general-save-hint">${generalDirty ? '有未保存的通用设置' : '通用设置已保存'}</span>
-        <button class="btn btn-primary" id="btn-save-general" type="button" ${generalDirty ? '' : 'disabled'}>${icon('save', 14)}<span>保存通用设置</span></button>
-      </div>
-
       <div class="settings-card">
         <div class="settings-section-header">
           <div class="settings-section-title">${icon('arrow-right-left', 16)}<span>Android 配置迁移</span></div>
@@ -362,6 +357,11 @@ export function renderSettings(container, params = [], query = {}) {
             </div>
           ` : ''}
         </div>
+      </div>
+
+      <div class="general-save-bar ${generalDirty ? 'is-dirty' : ''}">
+        <span class="general-save-hint">${generalDirty ? '有未保存的通用设置' : '通用设置已保存'}</span>
+        <button class="btn btn-primary" id="btn-save-general" type="button" ${generalDirty ? '' : 'disabled'}>${icon('save', 14)}<span>保存通用设置</span></button>
       </div>
     `;
   }
