@@ -327,20 +327,24 @@ function isStoragePath(value) {
   return relative && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function validateStorageRefShape(value, field = '文件引用') {
+function validateStorageRefShape(value, field = '文件引用', { allowLegacyChecksum = false } = {}) {
   validateObject(value, field);
   const rawPath = validateString(value.path, { field: `${field}路径`, minLength: 1, maxLength: 4096, trim: false });
   const result = { path: rawPath };
   if (value.checksum !== undefined || value.sha256 !== undefined) {
     const checksum = value.checksum ?? value.sha256;
-    if (typeof checksum !== 'string' || checksum.length > 128) throw new Error(`${field}校验摘要格式不正确`);
+    if (checksum === null && allowLegacyChecksum) return result;
+    if (typeof checksum !== 'string' || checksum.length > 128) {
+      if (allowLegacyChecksum) return result;
+      throw new Error(`${field}校验摘要格式不正确`);
+    }
     result.checksum = checksum;
   }
   return result;
 }
 
-function normalizeStorageRef(value, field = '文件引用', { ignoreOutside = false } = {}) {
-  const shaped = validateStorageRefShape(value, field);
+function normalizeStorageRef(value, field = '文件引用', { ignoreOutside = false, allowLegacyChecksum = false } = {}) {
+  const shaped = validateStorageRefShape(value, field, { allowLegacyChecksum });
   if (!isStoragePath(shaped.path)) {
     if (ignoreOutside) return null;
     const error = new Error(`${field}路径不在应用生成目录内`);
@@ -359,18 +363,18 @@ function validateStorageScanArgs(refs = {}) {
   validateObject(refs, '存储扫描参数');
   if (refs.activeRefs !== undefined) {
     if (!Array.isArray(refs.activeRefs) || refs.activeRefs.length > 5000) throw new Error('活动文件引用格式不正确');
-    refs.activeRefs.forEach((value) => validateStorageRefShape(value, '活动文件引用'));
+    refs.activeRefs.forEach((value) => validateStorageRefShape(value, '活动文件引用', { allowLegacyChecksum: true }));
   }
   if (refs.trashRefs !== undefined) {
     if (!Array.isArray(refs.trashRefs) || refs.trashRefs.length > 5000) throw new Error('回收站文件引用格式不正确');
-    refs.trashRefs.forEach((value) => validateStorageRefShape(value, '回收站文件引用'));
+    refs.trashRefs.forEach((value) => validateStorageRefShape(value, '回收站文件引用', { allowLegacyChecksum: true }));
   }
 }
 
 function normalizeStorageScanArgs(refs = {}) {
   return {
-    activeRefs: (refs.activeRefs || []).map((value) => normalizeStorageRef(value, '活动文件引用', { ignoreOutside: true })).filter(Boolean),
-    trashRefs: (refs.trashRefs || []).map((value) => normalizeStorageRef(value, '回收站文件引用', { ignoreOutside: true })).filter(Boolean),
+    activeRefs: (refs.activeRefs || []).map((value) => normalizeStorageRef(value, '活动文件引用', { ignoreOutside: true, allowLegacyChecksum: true })).filter(Boolean),
+    trashRefs: (refs.trashRefs || []).map((value) => normalizeStorageRef(value, '回收站文件引用', { ignoreOutside: true, allowLegacyChecksum: true })).filter(Boolean),
   };
 }
 

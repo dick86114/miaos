@@ -551,6 +551,42 @@ test('存储 IPC 只接受受限引用并保留删除明细', async () => {
   }
 });
 
+test('存储扫描忽略旧记录中的无效校验摘要并继续扫描', async () => {
+  const homePath = createTempHome('miaos-storage-scan-legacy-checksum-');
+  try {
+    const generated = path.join(homePath, '.miaos', 'generated');
+    fs.mkdirSync(generated, { recursive: true });
+    fs.writeFileSync(path.join(generated, 'legacy.png'), PNG_BYTES);
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['storage-scan'](trustedEvent(), {
+      activeRefs: [{ path: path.join(generated, 'legacy.png'), checksum: 'abc' }],
+      trashRefs: [],
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.files.find((file) => file.name === 'legacy.png')?.category, 'active');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('存储扫描兼容旧记录中的空校验摘要', async () => {
+  const homePath = createTempHome('miaos-storage-scan-null-checksum-');
+  try {
+    const generated = path.join(homePath, '.miaos', 'generated');
+    fs.mkdirSync(generated, { recursive: true });
+    fs.writeFileSync(path.join(generated, 'legacy-null.png'), PNG_BYTES);
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['storage-scan'](trustedEvent(), {
+      activeRefs: [{ path: path.join(generated, 'legacy-null.png'), checksum: null }],
+      trashRefs: [],
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.files.find((file) => file.name === 'legacy-null.png')?.category, 'active');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
 test('存储删除 handler 原样保留 deleted/missing/failed 结果', async () => {
   const homePath = createTempHome('miaos-storage-ipc-result-');
   try {
