@@ -19,6 +19,7 @@ const {
 const EXPECTED_CHANNELS = [
   'update-get-current-version',
   'update-check',
+  'update-install',
   'update-open-release-page',
   'update-configure',
   'provider-secret-set',
@@ -510,7 +511,7 @@ test('app.setPath 非预期异常会传播且不显示数据目录错误', async
   }
 });
 
-test('正常启动精确注册 27 个真实安全 handler（含失败日志导出），未知 sender 全部被拒绝', async () => {
+test('正常启动精确注册 28 个真实安全 handler（含失败日志导出和更新安装），未知 sender 全部被拒绝', async () => {
   const homePath = createTempHome('miaos-ipc-registrations-');
   try {
     const { calls } = await runMainWithMock({ homePath });

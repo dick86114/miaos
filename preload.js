@@ -34,9 +34,10 @@ contextBridge.exposeInMainWorld('api', {
   storageDelete: (fileRefs) => ipcRenderer.invoke('storage-delete', fileRefs),
   storageGetUsage: () => ipcRenderer.invoke('storage-get-usage'),
 
-  // ===== 自动更新（仅检测，跳转 GitHub 下载） =====
+  // ===== 自动更新（支持下载、替换与重启） =====
   updateGetCurrentVersion: () => ipcRenderer.invoke('update-get-current-version'),
   updateCheck: () => ipcRenderer.invoke('update-check'),
+  updateInstall: () => ipcRenderer.invoke('update-install'),
   openReleasePage: () => ipcRenderer.invoke('update-open-release-page'),
   onUpdateStatus: (callback) => {
     const listener = (_event, payload) => callback(payload);

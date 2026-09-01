@@ -84,6 +84,9 @@ const UPDATE_STATE_TEXT = {
   idle: '尚未检查',
   checking: '正在检查更新…',
   available: '发现新版本',
+  downloading: '正在下载更新',
+  installing: '正在安装更新',
+  completed: '更新已安装',
   'not-available': '当前已是最新版本',
   error: '检查时出错',
 };
@@ -749,7 +752,7 @@ export function renderSettings(container, params = [], query = {}) {
                 ${icon('refresh-cw', 14)}<span>检查更新</span>
               </button>
               <button class="btn btn-primary" id="btn-download" type="button" style="display:none;">
-                ${icon('external-link', 14)}<span>前往 GitHub 下载</span>
+                ${icon('download', 14)}<span>下载并安装更新</span>
               </button>
             </div>
           </div>
@@ -1551,8 +1554,9 @@ export function renderSettings(container, params = [], query = {}) {
     const btnDownload = inner.querySelector('#btn-download');
     if (btnDownload) {
       btnDownload.addEventListener('click', async () => {
-        if (!window.api || !window.api.openReleasePage) { toast('运行环境异常', 'error'); return; }
-        await window.api.openReleasePage();
+        if (!window.api?.updateInstall) { toast('当前运行环境不支持自动安装更新', 'error'); return; }
+        const result = await window.api.updateInstall();
+        if (result?.ok === false && !result.canceled) handleUpdateEvent({ state: 'error', message: result.error || '更新安装失败' });
       });
     }
   }
@@ -1663,6 +1667,32 @@ export function renderSettings(container, params = [], query = {}) {
         if (chip) chip.className = 'tag tag-primary';
         break;
       }
+      case 'downloading': {
+        if (latestVer && payload.version) latestVer.textContent = `v${payload.version}`;
+        if (latestDate) latestDate.textContent = Number.isFinite(payload.progress)
+          ? `正在下载：${Math.round(payload.progress * 100)}%`
+          : '正在下载更新包…';
+        if (btnCheck) btnCheck.style.display = 'none';
+        if (btnDownload) {
+          btnDownload.style.display = 'inline-flex';
+          btnDownload.disabled = true;
+          const label = btnDownload.querySelector('span');
+          if (label) label.textContent = '下载中…';
+        }
+        if (chip) { chip.textContent = UPDATE_STATE_TEXT.downloading; chip.className = 'tag tag-primary'; }
+        break;
+      }
+      case 'installing':
+        if (btnCheck) btnCheck.style.display = 'none';
+        if (btnDownload) btnDownload.style.display = 'none';
+        if (chip) { chip.textContent = UPDATE_STATE_TEXT.installing; chip.className = 'tag tag-primary'; }
+        if (latestDate) latestDate.textContent = '更新包已下载，应用将自动重启完成安装';
+        break;
+      case 'completed':
+        if (btnCheck) btnCheck.style.display = 'inline-flex';
+        if (btnDownload) btnDownload.style.display = 'none';
+        if (chip) { chip.textContent = UPDATE_STATE_TEXT.completed; chip.className = 'tag tag-primary'; }
+        break;
       case 'not-available':
         if (latestVer) latestVer.textContent = pageState.update.current ? `v${pageState.update.current.version}` : '—';
         if (latestDate) latestDate.textContent = '当前已是最新版本';

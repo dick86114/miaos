@@ -29,6 +29,8 @@ const { getRuntimeSecurityConfig } = require('./src/main/runtime-security');
 const { buildAipingImageRequest } = require('./src/main/services/aiping-image-adapter');
 const { buildGrsaiImageRequest } = require('./src/main/services/grsai-image-adapter');
 const { createConfigPairingServer } = require('./src/main/services/config-pairing');
+const { checkForUpdate: checkManualUpdate, downloadFile: downloadUpdateFile, buildInstallScript } = require('./src/main/services/manual-updater');
+const { spawn } = require('child_process');
 const crypto = require('crypto');
 
 let mainWindow = null;
@@ -37,6 +39,7 @@ let secretsVault = null;
 let activeConfigPairing = null;
 let diagnosticLogger = null;
 let storageManager = null;
+let updateRepository = { owner: 'dick86114', repo: 'miaos' };
 const providerTransactions = new Map();
 const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
 const imageFileAccess = createImageFileAccess({
@@ -49,7 +52,7 @@ const imageFileAccess = createImageFileAccess({
 // GitHub Release 页面地址
 const RELEASE_URL = 'https://github.com/dick86114/miaos/releases/latest';
 
-// ===== 自动更新初始化（仅检测，不自动下载/安装） =====
+// ===== 自动更新初始化：保留 electron-updater 兼容配置，实际下载和替换由自定义 DMG 安装器完成 =====
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
@@ -122,11 +125,54 @@ registerSecureHandler({
     return { ok: false, error: '开发环境不支持自动更新，请打包后使用' };
   }
   try {
-    await autoUpdater.checkForUpdates();
-    return { ok: true };
+    const update = await checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion() });
+    updateInfoCache = update;
+    if (update) sendUpdateStatus('available', update);
+    else sendUpdateStatus('not-available', { version: app.getVersion() });
+    return { ok: true, update };
   } catch (e) {
     return { ok: false, error: e.message || '检查更新失败' };
   }
+  },
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'update-install',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: async () => {
+    if (!app.isPackaged) return { ok: false, error: '开发环境不支持自动安装更新，请使用打包版本' };
+    const update = updateInfoCache;
+    if (!update?.downloadUrl || !update.version) return { ok: false, error: '当前没有可安装的更新' };
+    const dmgPath = path.join(app.getPath('temp'), `miaos-update-${Date.now()}.dmg`);
+    try {
+      sendUpdateStatus('downloading', { version: update.version, progress: 0 });
+      const download = await downloadUpdateFile(update.downloadUrl, dmgPath, {
+        expectedSha256: update.expectedSha256,
+        onProgress: (progress) => sendUpdateStatus('downloading', { version: update.version, progress }),
+      });
+      const appPath = path.resolve(process.execPath, '..', '..');
+      const scriptPath = path.join(app.getPath('temp'), `miaos-update-${Date.now()}.sh`);
+      const script = buildInstallScript({
+        dmgPath: download.path,
+        appPath,
+        pid: process.pid,
+        version: update.version,
+        scriptPath,
+      });
+      fs.writeFileSync(scriptPath, script, { encoding: 'utf8', mode: 0o700 });
+      try { fs.chmodSync(scriptPath, 0o700); } catch (_) {}
+      const installer = spawn('/bin/sh', [scriptPath], { detached: true, stdio: 'ignore' });
+      installer.unref();
+      sendUpdateStatus('installing', { version: update.version });
+      setTimeout(() => app.quit(), 80);
+      return { ok: true, scheduled: true, version: update.version };
+    } catch (error) {
+      try { fs.unlinkSync(dmgPath); } catch (_) {}
+      sendUpdateStatus('error', { message: error?.message || '更新安装失败' });
+      return { ok: false, error: error?.message || '更新安装失败' };
+    }
   },
 });
 
@@ -165,6 +211,7 @@ registerSecureHandler({
   try {
     const { owner, repo } = opts || {};
     if (owner && repo) {
+      updateRepository = { owner: String(owner).trim(), repo: String(repo).trim() };
       autoUpdater.setFeedURL({
         provider: 'github',
         owner: String(owner).trim(),
@@ -1784,7 +1831,11 @@ if (shouldStartApp) {
     // 窗口就绪后延迟自动检查更新（仅打包环境）
     if (app.isPackaged) {
       setTimeout(() => {
-        autoUpdater.checkForUpdates().catch(() => {});
+        sendUpdateStatus('checking', { info: '正在检查更新…' });
+        checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion() }).then((update) => {
+          updateInfoCache = update;
+          if (update) sendUpdateStatus('available', update);
+        }).catch(() => {});
       }, 5000);
     }
   });

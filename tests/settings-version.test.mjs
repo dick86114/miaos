@@ -10,3 +10,10 @@ test('关于页面从已加载版本状态渲染当前版本，而不是每次�
   assert.match(source, /pageState\.update\.current = info \|\| null;/u);
   assert.match(source, /if \(pageState\.tab === 'about'\) refresh\(\);/u);
 });
+
+test('关于页面使用一键下载并安装更新，而不是只打开 GitHub 页面', () => {
+  assert.match(source, /updateInstall/u);
+  assert.match(source, /下载并安装更新/u);
+  assert.match(source, /case 'downloading'/u);
+  assert.match(source, /case 'installing'/u);
+});
