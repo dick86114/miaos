@@ -782,6 +782,15 @@ export function renderGenerate(container) {
           toast('复制失败', 'error');
         }
       },
+      onExportLog: async (taskRecord) => {
+        try {
+          const result = await window.api?.exportGenerationLog?.(taskRecord);
+          if (result?.ok) toast('失败日志已导出', 'success');
+          else if (!result?.canceled) toast('导出失败：' + (result?.error || '未知错误'), 'error');
+        } catch (error) {
+          toast('导出失败：' + (error?.message || '未知错误'), 'error');
+        }
+      },
     });
   }
 

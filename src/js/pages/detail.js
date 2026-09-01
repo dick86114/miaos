@@ -44,6 +44,7 @@ function createPromptChainHtml(chain) {
         ${chain.map((node, index) => `
           <article class="detail-prompt-chain-node" data-detail-prompt-chain-node="${index}">
             <div class="detail-prompt-chain-label">${escapeHtml(node.label || '未命名节点')}</div>
+            ${node.image ? `<button type="button" class="detail-parent-image-button" data-detail-parent-image="${escapeHtml(node.image)}" data-detail-parent-image-label="${escapeHtml(node.label || '父节点参考图')}" title="点击放大查看父图"><img src="${escapeHtml(toImageSrc(node.image))}" alt="${escapeHtml(node.label || '父节点参考图')}" class="detail-parent-image-thumb" /></button>` : '<div class="detail-parent-image-missing">父图不可用</div>'}
             <textarea class="detail-textarea detail-chain-textarea" readonly spellcheck="false">${escapeHtml(node.prompt || '（无提示词）')}</textarea>
           </article>`).join('')}
       </div>
@@ -229,6 +230,14 @@ export function renderDetail(container, params, routeOptions = {}) {
   const detailImage = root.querySelector('.detail-image');
   detailImage.addEventListener('click', () => openDetailImageFullscreen(item.image, item.prompt || '生成结果'));
   detailImage.title = '点击全屏预览；滚轮缩放，拖拽平移';
+
+  root.querySelectorAll('[data-detail-parent-image]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const source = button.getAttribute('data-detail-parent-image');
+      const label = button.getAttribute('data-detail-parent-image-label') || '父节点参考图';
+      if (source) openDetailImageFullscreen(source, label);
+    });
+  });
 
   root.querySelector('#back-detail').addEventListener('click', () => navigate(backTarget.path));
 

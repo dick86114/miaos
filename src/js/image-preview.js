@@ -52,6 +52,7 @@ export function openImagePreview(record, options = {}) {
     onDownload,
     onCopyPrompt,
     onNavigateToProject,
+    onExportLog,
     copyText = (text) => navigator.clipboard.writeText(text),
   } = options;
   const imageSource = record?.image;
@@ -182,6 +183,13 @@ export function openImagePreview(record, options = {}) {
       }
     });
     actions.appendChild(copyDiagnosticButton);
+  }
+  if (isFailureDetail && typeof onExportLog === 'function') {
+    const exportButton = createElement(documentRef, 'button', 'btn btn-secondary btn-sm', '导出详细日志');
+    exportButton.type = 'button';
+    exportButton.setAttribute('data-image-preview-export-log', '');
+    exportButton.addEventListener('click', () => onExportLog(record));
+    actions.appendChild(exportButton);
   }
 
   const content = createElement(documentRef, 'div', 'image-preview-content');

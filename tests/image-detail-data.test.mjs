@@ -66,8 +66,8 @@ test('项目图片详情完整展示当前提示词，并按根到父顺序返�
   assert.equal(detail.source, 'project');
   assert.equal(detail.prompt, '当前图片完整提示词');
   assert.deepEqual(detail.promptChain, [
-    { label: '根节点', prompt: '根节点参考图提示词' },
-    { label: '父节点', prompt: '父节点参考图提示词' },
+    { label: '根节点', prompt: '根节点参考图提示词', image: project.versions[0].images[0].image, imageId: 'root-image' },
+    { label: '父节点', prompt: '父节点参考图提示词', image: project.versions[1].images[0].image, imageId: 'parent-image' },
   ]);
   assert.deepEqual(detail.backTarget, { label: '返回项目', path: '/project/project-1?version=child&image=child-image' });
   assert.equal(

@@ -43,6 +43,7 @@ test('生图失败诊断日志保留网络定位信息并脱敏密钥与 URL 查
     assert.equal(entry.error.syscall, 'read');
     assert.equal(entry.error.message.includes('sk-secret-value'), false);
     assert.equal(JSON.stringify(entry).includes('temporary-secret'), false);
+    assert.deepEqual(logger.getById('diag-test-001'), entry);
   } finally {
     fs.rmSync(directoryPath, { recursive: true, force: true });
   }

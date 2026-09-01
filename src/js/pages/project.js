@@ -387,7 +387,7 @@ export function renderProject(container, params, routeOptions = {}) {
             ${metaTags}
             <div class="gallery-item-hover-actions">
               <button type="button" class="icon-btn" data-act="zoom" data-image-id="${img.id}" title="查看大图">${icon('maximize-2', 14)}</button>
-              <button type="button" class="icon-btn" data-act="derive" data-image-id="${img.id}" title="基于此图派生分支">${icon('git-branch', 14)}</button>
+              <button type="button" class="btn btn-primary btn-sm pwb-gallery-derive-primary" data-act="derive" data-image-id="${img.id}" title="基于此图派生分支">${icon('git-branch', 14)}<span>派生</span></button>
               <button type="button" class="icon-btn" data-act="cover" data-image-id="${img.id}" title="设为项目封面">${icon('pin', 14)}</button>
               <button type="button" class="icon-btn" data-act="download" data-image-id="${img.id}" title="保存到本地">${icon('download', 14)}</button>
               <button type="button" class="icon-btn danger" data-act="delete" data-image-id="${img.id}" title="删除">${icon('trash-2', 14)}</button>
@@ -662,6 +662,15 @@ export function renderProject(container, params, routeOptions = {}) {
         onCopyPrompt: async (promptText) => {
           try { await navigator.clipboard.writeText(promptText); toast('提示词已复制', 'success'); }
           catch { toast('复制失败', 'error'); }
+        },
+        onExportLog: async (taskRecord) => {
+          try {
+            const result = await window.api?.exportGenerationLog?.(taskRecord);
+            if (result?.ok) toast('失败日志已导出', 'success');
+            else if (!result?.canceled) toast('导出失败：' + (result?.error || '未知错误'), 'error');
+          } catch (error) {
+            toast('导出失败：' + (error?.message || '未知错误'), 'error');
+          }
         },
       });
     };

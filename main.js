@@ -1493,6 +1493,10 @@ registerSecureHandler({
         endpoint,
         imageUrl: error?.diagnosticImageUrl,
         sourceImage: !!sourceImage,
+        prompt,
+        ratio,
+        quality,
+        size,
         error,
       });
       if (error instanceof AppError) {
@@ -1517,6 +1521,56 @@ registerSecureHandler({
       }
       throw error;
     }
+  },
+});
+
+// 导出失败任务的完整诊断包，主进程补充本地诊断日志并统一写入用户选择的位置。
+registerSecureHandler({
+  ipcMain,
+  channel: 'export-generation-log',
+  getMainWindow: () => mainWindow,
+  validate: (task) => {
+    validateObject(task, '失败任务');
+    validateString(task.id, { field: '任务编号', minLength: 1, maxLength: 200, trim: true });
+  },
+  handle: async (_event, task) => {
+    const diagnosticId = String(task?.errorDetails?.diagnosticId || '');
+    const payload = {
+      schema: 1,
+      exportedAt: new Date().toISOString(),
+      task: {
+        id: task.id,
+        source: task.source || '',
+        projectId: task.projectId || null,
+        versionId: task.versionId || null,
+        prompt: task.prompt || '',
+        providerId: task.providerId || '',
+        providerName: task.providerName || '',
+        modelId: task.modelId || '',
+        ratio: task.ratio || '',
+        quality: task.quality || '',
+        batchIndex: task.batchIndex || 1,
+        batchTotal: task.batchTotal || 1,
+        sourceImage: Boolean(task.sourceImage),
+        status: task.status || 'failed',
+        createdAt: task.createdAt || null,
+        startedAt: task.startedAt || null,
+        finishedAt: task.finishedAt || null,
+        generationDurationMs: task.generationDurationMs || null,
+        error: task.error || '',
+        errorDetails: task.errorDetails || {},
+      },
+      diagnostic: diagnosticLogger?.getById?.(diagnosticId) || null,
+    };
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出生图失败日志',
+      defaultPath: `miaos-generation-failure-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON 日志', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    try { fs.chmodSync(result.filePath, 0o600); } catch (_) {}
+    return { ok: true, filePath: result.filePath };
   },
 });
 

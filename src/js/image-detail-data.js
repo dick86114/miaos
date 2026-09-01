@@ -64,6 +64,8 @@ export function buildProjectPromptChain(project, version) {
     chain.unshift({
       label: parent.name || '未命名节点',
       prompt: parentImage?.prompt || parent.prompt || '',
+      image: parentImage?.image || '',
+      imageId: parentImage?.id || '',
     });
     current = parent;
   }

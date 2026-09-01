@@ -360,6 +360,30 @@ test('失败详情展示通俗原因、解决步骤和可复制的诊断信息',
   assert.match(copied, /diag-example/);
 });
 
+test('失败详情提供导出详细日志入口并传递完整任务记录', async () => {
+  const { openImagePreview } = await loadPreview();
+  const documentRef = createDocument();
+  let exported = null;
+  const task = {
+    id: 'task-export',
+    status: 'failed',
+    error: '请求失败',
+    prompt: '导出日志测试提示词',
+    providerName: '测试供应商',
+    modelId: '测试模型',
+    errorDetails: { diagnosticId: 'diag-export', stage: 'image_generation' },
+  };
+  openImagePreview(task, {
+    documentRef,
+    onExportLog: (record) => { exported = record; },
+  });
+
+  const button = findByAttribute(documentRef.body, 'data-image-preview-export-log');
+  assert.ok(button, '失败详情必须提供导出日志按钮');
+  button.dispatch('click');
+  assert.equal(exported, task, '导出日志必须收到完整失败任务记录');
+});
+
 test('失败详情将摘要、排查建议、参数和长提示词分区展示', async () => {
   const { openImagePreview } = await loadPreview();
   const documentRef = createDocument();

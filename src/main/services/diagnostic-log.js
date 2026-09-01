@@ -34,12 +34,14 @@ function errorDetails(error) {
     retryable: typeof error?.retryable === 'boolean' ? error.retryable : null,
     errno: typeof error?.errno === 'string' ? error.errno : null,
     syscall: typeof error?.syscall === 'string' ? error.syscall : null,
+    stack: redactText(String(error?.stack || '')).slice(0, 2000) || null,
     cause: cause ? {
       name: String(cause.name || 'Error'),
       code: typeof cause.code === 'string' ? cause.code : null,
       message: redactText(String(cause.message || '未知错误')),
       errno: typeof cause.errno === 'string' ? cause.errno : null,
       syscall: typeof cause.syscall === 'string' ? cause.syscall : null,
+      stack: redactText(String(cause.stack || '')).slice(0, 1000) || null,
     } : null,
   };
 }
@@ -95,6 +97,12 @@ function createDiagnosticLogger({
           endpoint: sanitizeUrl(details.endpoint),
           imageUrl: sanitizeUrl(details.imageUrl),
         },
+        request: {
+          prompt: normalizeText(details.prompt, 100000),
+          ratio: normalizeText(details.ratio, 40),
+          quality: normalizeText(details.quality, 40),
+          size: normalizeText(details.size, 40),
+        },
         error: errorDetails(details.error),
       };
       fsImpl.appendFileSync(filePath, `${JSON.stringify(entry)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -104,7 +112,24 @@ function createDiagnosticLogger({
     }
   }
 
-  return { recordFailure, filePath };
+  function getById(id) {
+    if (!filePath || typeof id !== 'string' || !id.trim()) return null;
+    let contents = '';
+    try { contents = fsImpl.readFileSync(filePath, 'utf8'); } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      return null;
+    }
+    for (const line of contents.split('\n').reverse()) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry?.id === id) return entry;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  return { recordFailure, getById, filePath };
 }
 
 module.exports = {

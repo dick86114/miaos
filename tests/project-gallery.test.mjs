@@ -166,6 +166,12 @@ test('生产项目页接入项目画廊控制器，而非保留独立卡片监�
   assert.doesNotMatch(source, /galleryGrid\.addEventListener\('click', async \(e\) =>/);
 });
 
+test('项目画廊的派生入口使用醒目的主操作样式', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../src/js/pages/project.js', import.meta.url), 'utf8');
+  assert.match(source, /class="[^"]*pwb-gallery-derive-primary[^>]*data-act="derive"/);
+});
+
 
 test('项目画廊委托失败详情操作，并把目标任务交给详情弹窗', async () => {
   const previousWindow = globalThis.window;

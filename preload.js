@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   testConnection: (provider) => ipcRenderer.invoke('test-connection', provider),
   fetchModels: (provider, category) => ipcRenderer.invoke('fetch-models', provider, category),
   generateImage: (params) => ipcRenderer.invoke('generate-image', params),
+  exportGenerationLog: (task) => ipcRenderer.invoke('export-generation-log', task),
   pickImageFile: () => ipcRenderer.invoke('pick-image-file'),
   pickTextFile: () => ipcRenderer.invoke('pick-text-file'),
   savePastedImage: (dataUrl) => ipcRenderer.invoke('save-pasted-image', dataUrl),

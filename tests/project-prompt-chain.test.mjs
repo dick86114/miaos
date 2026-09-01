@@ -44,7 +44,12 @@ test('参考图缺失 prompt 时回退到父版本提示词，且根版本不产
   };
 
   const childChain = buildProjectPromptChain(project, project.versions.find((v) => v.id === 'child'));
-  assert.deepEqual(childChain, [{ label: '根节点', prompt: '根版本提示词' }]);
+  assert.deepEqual(childChain, [{
+    label: '根节点',
+    prompt: '根版本提示词',
+    image: 'file:///root-img.png',
+    imageId: 'root-img',
+  }]);
 
   const rootChain = buildProjectPromptChain(project, project.versions.find((v) => v.id === 'root'));
   assert.deepEqual(rootChain, []);
