@@ -40,7 +40,9 @@ function fetchJson(url, { httpsImpl = https, timeoutMs = 30000 } = {}) {
           return;
         }
         if (status < 200 || status >= 300) {
-          reject(new Error(`GitHub 更新接口返回 HTTP ${status}`));
+          const error = new Error(`GitHub 更新接口返回 HTTP ${status}`);
+          error.statusCode = status;
+          reject(error);
           return;
         }
         try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
@@ -54,6 +56,60 @@ function fetchJson(url, { httpsImpl = https, timeoutMs = 30000 } = {}) {
     });
     request.on?.('error', reject);
   });
+}
+
+function fetchText(url, { httpsImpl = https, timeoutMs = 30000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const request = httpsImpl.get(url, { headers: { Accept: 'application/atom+xml', 'User-Agent': 'miaos-updater' } }, (response) => {
+      const status = Number(response.statusCode || 0);
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        if (status < 200 || status >= 300) {
+          const error = new Error(`更新订阅返回 HTTP ${status}`);
+          error.statusCode = status;
+          reject(error);
+          return;
+        }
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+      response.on('error', reject);
+    });
+    request.setTimeout?.(timeoutMs, () => {
+      request.destroy?.();
+      reject(new Error('更新订阅读取超时'));
+    });
+    request.on?.('error', reject);
+  });
+}
+
+function decodeXmlText(value) {
+  return String(value || '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+async function checkForUpdateFromAtom({ owner, repo, currentVersion, httpsImpl = https }) {
+  const feed = await fetchText(`https://github.com/${owner}/${repo}/releases.atom`, { httpsImpl });
+  const entry = feed.match(/<entry>[\s\S]*?<\/entry>/i)?.[0] || '';
+  if (!entry) throw new Error('GitHub 更新订阅中没有 Release');
+  const version = normalizeVersion(entry.match(/<id>[^<]*\/(v?[0-9][^<\s]*)<\/id>/i)?.[1] || entry.match(/<title>\s*([^<]*?)\s*<\/title>/i)?.[1]);
+  if (!version || compareVersions(version, currentVersion) <= 0) return null;
+  const releaseUrl = entry.match(/<link[^>]+href="([^"]+)"/i)?.[1] || `https://github.com/${owner}/${repo}/releases/tag/v${version}`;
+  const content = decodeXmlText(entry.match(/<content[^>]*>([\s\S]*?)<\/content>/i)?.[1] || '');
+  const assetName = content.match(/[A-Za-z0-9._-]+\.dmg/i)?.[0] || `miaos-${version}-arm64.dmg`;
+  return {
+    version,
+    releaseNotes: content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    releaseDate: entry.match(/<updated>([^<]+)<\/updated>/i)?.[1] || '',
+    releaseUrl,
+    downloadUrl: `https://github.com/${owner}/${repo}/releases/download/v${version}/${assetName}`,
+    assetName,
+    expectedSha256: '',
+  };
 }
 
 function downloadFile(url, targetPath, { httpsImpl = https, fsImpl = fs, onProgress, expectedSha256 = '', timeoutMs = 180000 } = {}) {
@@ -145,7 +201,13 @@ exit 0
 
 async function checkForUpdate({ owner, repo, currentVersion, httpsImpl = https }) {
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`;
-  const release = await fetchJson(url, { httpsImpl });
+  let release;
+  try {
+    release = await fetchJson(url, { httpsImpl });
+  } catch (error) {
+    if (error?.statusCode !== 403 && error?.statusCode !== 429) throw error;
+    return checkForUpdateFromAtom({ owner, repo, currentVersion, httpsImpl });
+  }
   const version = normalizeVersion(release.tag_name || release.name);
   if (!version || compareVersions(version, currentVersion) <= 0) return null;
   const asset = selectDmgAsset(release);

@@ -152,7 +152,7 @@ registerSecureHandler({
         expectedSha256: update.expectedSha256,
         onProgress: (progress) => sendUpdateStatus('downloading', { version: update.version, progress }),
       });
-      const appPath = path.resolve(process.execPath, '..', '..');
+      const appPath = path.dirname(path.dirname(path.dirname(process.execPath)));
       const scriptPath = path.join(app.getPath('temp'), `miaos-update-${Date.now()}.sh`);
       const script = buildInstallScript({
         dmgPath: download.path,

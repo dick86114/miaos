@@ -530,6 +530,11 @@ test('正常启动精确注册 28 个真实安全 handler（含失败日志导�
   }
 });
 
+test('未签名更新安装以应用包目录为替换目标，而不是 Contents 目录', async () => {
+  const source = fs.readFileSync(mainPath, 'utf8');
+  assert.match(source, /path\.dirname\(path\.dirname\(path\.dirname\(process\.execPath\)\)\)/u);
+});
+
 test('存储 IPC 只接受受限引用并保留删除明细', async () => {
   const homePath = createTempHome('miaos-storage-ipc-');
   try {
