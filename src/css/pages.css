@@ -2421,8 +2421,8 @@ i[data-lucide="loader"] {
 .settings-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  padding: 0 0 0 0;
+  gap: 0;
+  padding: 0;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   flex-shrink: 0;
@@ -2431,7 +2431,8 @@ i[data-lucide="loader"] {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 20px;
+  min-height: 56px;
+  padding: 0 22px;
   border: none;
   background: none;
   font-size: 13px;
@@ -2440,17 +2441,18 @@ i[data-lucide="loader"] {
   cursor: pointer;
   transition: background-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease), border-bottom-color var(--motion-fast) var(--motion-ease);
   font-family: inherit;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   margin-bottom: -1px;
   white-space: normal;
   min-width: 0;
 }
 .settings-tab:hover {
   color: var(--ink);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
 }
 .settings-tab.is-active {
   color: var(--brand);
+  background: var(--bg);
   border-bottom-color: var(--brand);
 }
 .settings-tab i {
@@ -3748,13 +3750,19 @@ i[data-lucide="loader"] {
 .history-page {
   display: flex;
   flex-direction: column;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
 }
 .history-page-tabs {
   flex: 0 0 auto;
 }
 .history-tab-content {
-  padding-top: 18px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 28px 40px;
 }
 .history-page-tabs [hidden] { display: none; }
 .history-storage-summary {
@@ -3777,14 +3785,14 @@ i[data-lucide="loader"] {
 /* ===== 筛选区域 ===== */
 .history-filter-section {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  width: 100%;
 }
 .history-filter-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  width: 100%;
 }
 .history-filter-row .search-box { flex: 1 1 240px; }
 .history-filter-row .history-source-filter {
@@ -3799,8 +3807,19 @@ i[data-lucide="loader"] {
 }
 .history-filter-actions {
   display: flex;
-  justify-content: flex-end;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
+.history-filter-actions .text-btn {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+.history-filter-actions .text-btn:hover { border-color: var(--surface-3); background: var(--surface-2); }
+.history-filter-actions .text-btn.is-active { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 35%, var(--line)); background: var(--brand-soft); }
 
 /* ===== 统计仪表盘 ===== */
 .stats-dashboard {

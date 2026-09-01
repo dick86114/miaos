@@ -417,9 +417,9 @@ export function renderHistory(container, params = [], routeOptions = {}) {
             <select class="history-source-filter" id="history-project-filter" aria-label="筛选项目" hidden>
               <option value="">全部项目</option>
             </select>
-          </div>
-          <div class="history-filter-actions">
-            <button type="button" class="text-btn" id="history-batch-toggle">${icon('check-square', 14)}<span>批量管理</span></button>
+            <div class="history-filter-actions">
+              <button type="button" class="text-btn" id="history-batch-toggle">${icon('check-square', 14)}<span>批量管理</span></button>
+            </div>
           </div>
         </div>
         <section class="history-storage-summary" data-history-storage-summary>

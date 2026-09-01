@@ -59,6 +59,7 @@ test('存储 Tab 在窄窗口允许换行或滚动，且首次进入只触发一
   assert.doesNotMatch(settings, /if \(pageState\.tab === 'storage'\) loadStorageUsage\(\);/u);
   assert.match(settings, /usageLoaded/u);
   assert.match(css, /\.settings-tabs\s*\{[^}]*flex-wrap:\s*wrap/u);
+  assert.match(css, /\.settings-content\s*\{[^}]*overflow-y:\s*auto/u);
   assert.match(css, /\.settings-tab\s*\{[^}]*white-space:\s*normal/u);
 });
 

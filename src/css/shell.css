@@ -57,35 +57,6 @@ body {
   padding: 16px 12px;
   -webkit-app-region: no-drag;
 }
-.sidebar-toggle-btn {
-  position: absolute;
-  top: 18px;
-  right: -14px;
-  z-index: 20;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--ink-3);
-  box-shadow: var(--shadow-1);
-  cursor: pointer;
-  -webkit-app-region: no-drag;
-  transition: color var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease);
-}
-.sidebar-toggle-btn:hover {
-  color: var(--brand);
-  background: var(--surface-2);
-  transform: scale(1.04);
-}
-.sidebar-toggle-btn:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
-}
 .sidebar.is-collapsed {
   width: 60px;
   padding: 16px 8px;
@@ -101,6 +72,31 @@ body {
 .sidebar.is-collapsed .sidebar-footer { display: none; }
 .sidebar.is-collapsed .sidebar-logo { justify-content: center; padding: 0 0 16px; }
 .sidebar.is-collapsed .sidebar-item { justify-content: center; padding: 10px; }
+.sidebar-resize-handle {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 6px;
+  width: 6px;
+  margin: 0 -3px;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  -webkit-app-region: no-drag;
+}
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  background: var(--line);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) var(--motion-ease);
+}
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle:focus-visible::after,
+.sidebar-resize-handle.is-dragging::after { opacity: 1; background: var(--brand); }
+.sidebar-resize-handle:focus-visible { outline: none; }
+body.is-sidebar-resizing, body.is-sidebar-resizing * { cursor: col-resize !important; user-select: none !important; }
 .sidebar-logo {
   display: flex;
   flex-direction: column;
@@ -159,6 +155,11 @@ body {
   overflow: auto;
   background: var(--bg);
   padding: 24px;
+}
+.main-content:has(.history-page),
+.main-content:has(.settings-wrap) {
+  padding: 0;
+  overflow: hidden;
 }
 .page-enter { animation: pageFade var(--motion-normal) var(--motion-ease) both; }
 @keyframes pageFade {
@@ -231,6 +232,8 @@ body {
 /* ===== 响应式：窄窗口时侧边栏收为图标栏 ===== */
 @media (max-width: 880px) {
   .main-content { padding: 16px; }
+  .main-content:has(.history-page),
+  .main-content:has(.settings-wrap) { padding: 0; }
 }
 
 /* 统一异步反馈：按钮加载时保持原有尺寸，避免文案切换造成布局抖动。 */

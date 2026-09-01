@@ -26,25 +26,29 @@ async function loadHistoryPageModule() {
   };
 }
 
-test('侧边栏折叠开关必须位于不会被路由替换的侧边栏内', async () => {
+test('侧边栏使用可拖动分割线调整宽度，不保留独立收缩按钮', async () => {
   const html = await readFile(new URL('../src/index.html', import.meta.url), 'utf8');
   const sidebar = html.match(/<aside class="sidebar"[^>]*>([\s\S]*?)<\/aside>/u)?.[1] || '';
   const main = html.match(/<main class="main-content"[^>]*>([\s\S]*?)<\/main>/u)?.[1] || '';
+  const renderer = await readFile(new URL('../src/js/renderer.js', import.meta.url), 'utf8');
+  const shellCss = await readFile(new URL('../src/css/shell.css', import.meta.url), 'utf8');
 
-  assert.match(sidebar, /id="sidebar-toggle-btn"/u);
+  assert.doesNotMatch(sidebar, /sidebar-toggle-btn/u);
   assert.doesNotMatch(main, /sidebar-(?:collapse|expand|toggle)-btn/u);
-  const icons = await readFile(new URL('../src/js/icons.js', import.meta.url), 'utf8');
-  assert.match(icons, /'panel-left-close':/u);
-  assert.match(icons, /'panel-left-open':/u);
+  assert.match(html, /id="sidebar-resize-handle"/u);
+  assert.match(renderer, /initSidebarResize\(/u);
+  assert.match(renderer, /pointerdown/u);
+  assert.match(shellCss, /\.sidebar-resize-handle\s*\{[^}]*cursor:\s*col-resize/u);
 });
 
-test('查询统计页复用系统设置的下划线 Tab，并且空态不包含去生图引导', async () => {
+test('查询统计页复用一体化 Tab，并且空态不包含去生图引导', async () => {
   const source = await readFile(new URL('../src/js/pages/history.js', import.meta.url), 'utf8');
   const css = await readFile(new URL('../src/css/pages.css', import.meta.url), 'utf8');
 
   assert.match(source, /class="settings-tabs history-page-tabs"/u);
   assert.doesNotMatch(source, /去生图|立即生图|data-history-empty-action|navigate\('\/generate'\)/u);
-  assert.doesNotMatch(css, /\.history-page-tabs\s+\.settings-tab/u);
+  assert.match(css, /\.history-tab-content\s*\{[^}]*overflow-y:\s*auto/u);
+  assert.match(css, /\.history-filter-row\s*\{[^}]*flex-wrap:\s*wrap/u);
   assert.match(css, /\.history-empty\[hidden\]\s*\{[^}]*display:\s*none\s*!important;/u);
 });
 

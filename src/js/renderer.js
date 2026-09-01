@@ -1,5 +1,5 @@
 // 渲染进程入口：初始化外壳导航 + 路由
-import { renderIcons, icon } from './icons.js';
+import { renderIcons } from './icons.js';
 import { initRouter, navigate } from './router.js';
 import { toast } from './ui.js';
 import { discardLegacyProviderSecrets, getThemeMode } from './store.js';
@@ -38,34 +38,85 @@ async function init() {
 
   initRouter(mainContent, navItems);
 
-  // 侧边栏折叠/展开：开关必须留在应用外壳中，避免被路由页面替换。
-  const toggleBtn = document.getElementById('sidebar-toggle-btn');
+  // 侧边栏宽度由整条分割线调整，避免额外的悬浮收缩按钮打断导航。
   const sidebar = document.querySelector('.sidebar');
-  const savedCollapse = localStorage.getItem('miaos.sidebar.collapsed');
-  const compactViewport = window.matchMedia?.('(max-width: 880px)').matches;
-
-  function setSidebarCollapsed(collapsed, persist = true) {
-    if (!sidebar || !toggleBtn) return;
-    sidebar.classList.toggle('is-collapsed', collapsed);
-    document.body.setAttribute('data-sidebar', collapsed ? 'collapsed' : 'expanded');
-    toggleBtn.setAttribute('aria-expanded', String(!collapsed));
-    toggleBtn.setAttribute('aria-label', collapsed ? '展开侧边栏' : '收起侧边栏');
-    toggleBtn.setAttribute('title', collapsed ? '展开侧边栏' : '收起侧边栏');
-    toggleBtn.innerHTML = icon(collapsed ? 'panel-left-open' : 'panel-left-close', 16);
-    renderIcons(toggleBtn);
-    if (persist) localStorage.setItem('miaos.sidebar.collapsed', String(collapsed));
-  }
-
-  setSidebarCollapsed(savedCollapse === null ? compactViewport : savedCollapse === 'true', false);
-  toggleBtn?.addEventListener('click', () => {
-    setSidebarCollapsed(!sidebar.classList.contains('is-collapsed'));
-  });
+  const resizeHandle = document.getElementById('sidebar-resize-handle');
+  initSidebarResize(sidebar, resizeHandle);
 
   // 填充侧边栏版本号
   fillSidebarVersion();
 
   // 监听更新事件（用于全局提示）
   bindGlobalUpdateListener();
+}
+
+export function initSidebarResize(sidebar, resizeHandle, {
+  storage = typeof localStorage === 'undefined' ? null : localStorage,
+  minWidth = 60,
+  maxWidth = 320,
+  defaultWidth = 200,
+} = {}) {
+  if (!sidebar || !resizeHandle) return () => {};
+  const savedWidth = Number.parseInt(storage?.getItem('miaos.sidebar.width') || '', 10);
+  const compactViewport = window.matchMedia?.('(max-width: 880px)').matches;
+  let width = Number.isFinite(savedWidth) ? savedWidth : (compactViewport ? 60 : defaultWidth);
+  let dragging = false;
+  let pointerId = null;
+
+  const clamp = (value) => Math.min(maxWidth, Math.max(minWidth, Math.round(value)));
+  const applyWidth = (nextWidth, persist = true) => {
+    width = clamp(nextWidth);
+    sidebar.style.width = `${width}px`;
+    sidebar.classList.toggle('is-collapsed', width <= minWidth + 12);
+    document.body.setAttribute('data-sidebar', width <= minWidth + 12 ? 'collapsed' : 'expanded');
+    resizeHandle.setAttribute('aria-valuemin', String(minWidth));
+    resizeHandle.setAttribute('aria-valuemax', String(maxWidth));
+    resizeHandle.setAttribute('aria-valuenow', String(width));
+    if (persist) storage?.setItem('miaos.sidebar.width', String(width));
+  };
+
+  const onPointerMove = (event) => {
+    if (!dragging || event.pointerId !== pointerId) return;
+    applyWidth(event.clientX);
+  };
+  const stopDragging = (event) => {
+    if (!dragging || (event?.pointerId !== undefined && event.pointerId !== pointerId)) return;
+    dragging = false;
+    pointerId = null;
+    resizeHandle.releasePointerCapture?.(event?.pointerId);
+    resizeHandle.classList.remove('is-dragging');
+    document.body.classList.remove('is-sidebar-resizing');
+  };
+  const onPointerDown = (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    dragging = true;
+    pointerId = event.pointerId;
+    resizeHandle.setPointerCapture?.(event.pointerId);
+    resizeHandle.classList.add('is-dragging');
+    document.body.classList.add('is-sidebar-resizing');
+    event.preventDefault?.();
+  };
+  const onKeydown = (event) => {
+    if (event.key === 'ArrowLeft') { event.preventDefault(); applyWidth(width - 16); }
+    if (event.key === 'ArrowRight') { event.preventDefault(); applyWidth(width + 16); }
+    if (event.key === 'Home') { event.preventDefault(); applyWidth(minWidth); }
+    if (event.key === 'End') { event.preventDefault(); applyWidth(maxWidth); }
+  };
+
+  applyWidth(width, false);
+  resizeHandle.addEventListener('pointerdown', onPointerDown);
+  resizeHandle.addEventListener('pointermove', onPointerMove);
+  resizeHandle.addEventListener('pointerup', stopDragging);
+  resizeHandle.addEventListener('pointercancel', stopDragging);
+  resizeHandle.addEventListener('keydown', onKeydown);
+  return () => {
+    stopDragging();
+    resizeHandle.removeEventListener('pointerdown', onPointerDown);
+    resizeHandle.removeEventListener('pointermove', onPointerMove);
+    resizeHandle.removeEventListener('pointerup', stopDragging);
+    resizeHandle.removeEventListener('pointercancel', stopDragging);
+    resizeHandle.removeEventListener('keydown', onKeydown);
+  };
 }
 
 function applyTheme(mode) {
