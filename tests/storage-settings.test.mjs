@@ -104,6 +104,12 @@ test('回收站和孤儿文件使用缩略图网格展示并支持图片预览',
   assert.match(css, /\.storage-thumb-image/u);
 });
 
+test('回收站卡片的恢复和永久删除按钮始终保持单行', async () => {
+  const css = await source('src/css/pages.css');
+  assert.match(css, /\.storage-trash-list\s*\{[^}]*minmax\(248px,\s*1fr\)/u);
+  assert.match(css, /\.storage-thumb-card \.storage-row-actions \.btn\s*\{[^}]*white-space:\s*nowrap/u);
+});
+
 test('无法预览的存储文件显示异常占位而不伪造缩略图', async () => {
   const settings = await source('src/js/pages/settings.js');
   assert.match(settings, /storage-thumb-placeholder/u);

@@ -2517,6 +2517,7 @@ i[data-lucide="loader"] {
 .storage-count { color: var(--ink-3); font-size: 12px; }
 .storage-file-list { display: flex; flex-direction: column; gap: 8px; }
 .storage-thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.storage-trash-list { grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); }
 .storage-thumb-card { position: relative; display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
 .storage-thumb-preview { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; padding: 0; overflow: hidden; border: 0; background: var(--surface-3); cursor: pointer; }
 .storage-thumb-preview:hover .storage-thumb-image { transform: scale(1.03); }
@@ -2528,7 +2529,7 @@ i[data-lucide="loader"] {
 .storage-thumb-body strong { color: var(--ink); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .storage-thumb-body span, .storage-thumb-body small { color: var(--ink-3); font-size: 11px; overflow-wrap: anywhere; }
 .storage-thumb-card .storage-row-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
-.storage-thumb-card .storage-row-actions .btn { flex: 1; min-width: 0; justify-content: center; }
+.storage-thumb-card .storage-row-actions .btn { flex: 1; min-width: 0; justify-content: center; white-space: nowrap; }
 .storage-thumb-select { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px 0; color: var(--ink-2); font-size: 12px; cursor: pointer; }
 .storage-thumb-card.is-unsafe { opacity: 0.72; }
 .storage-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
@@ -2548,6 +2549,7 @@ i[data-lucide="loader"] {
 }
 @media (max-width: 640px) {
   .storage-thumb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .storage-trash-list { grid-template-columns: 1fr; }
   .storage-thumb-body { padding: 8px; }
   .storage-thumb-card .storage-row-actions { padding: 0 8px 8px; flex-direction: row; }
   .storage-thumb-select { padding: 7px 8px 0; }
