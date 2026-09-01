@@ -1,6 +1,6 @@
 // 生图页：豆包风格 Composer 布局 + 全局任务队列
 import { icon, renderIcons } from '../icons.js';
-import { mountPage, htmlToElement, toast, createEventLoopGuard, createKeyedListRenderer, toImageSrc } from '../ui.js';
+import { mountPage, htmlToElement, toast, confirmDialog, createEventLoopGuard, createKeyedListRenderer, toImageSrc } from '../ui.js';
 import {
   getProviders,
   getEnabledModels,
@@ -11,6 +11,7 @@ import {
   getTextProvider,
   getDefaults,
   getHistory,
+  deleteHistory,
   formatRelativeTime,
 } from '../store.js';
 import * as queue from '../queue.js';
@@ -726,8 +727,8 @@ export function renderGenerate(container) {
         <div class="gallery-item-img-wrap">
           <img src="${escapeHtml(toImageSrc(item.image))}" alt="${escapeHtml(item.prompt || '生成结果')}" loading="lazy" />
           <div class="gallery-item-hover-actions">
-            <button type="button" class="icon-btn" data-history-act="preview" data-history-id="${escapeHtml(item.historyId)}" title="查看大图">${icon('maximize-2', 14)}</button>
             <button type="button" class="icon-btn" data-history-act="download" data-history-id="${escapeHtml(item.historyId)}" title="保存到本地">${icon('download', 14)}</button>
+            <button type="button" class="icon-btn danger" data-history-act="delete" data-history-id="${escapeHtml(item.historyId)}" title="移入回收站">${icon('trash-2', 14)}</button>
           </div>
         </div>
         <div class="gallery-item-meta">
@@ -862,8 +863,16 @@ export function renderGenerate(container) {
       const record = getQuickHistoryRecord(actionButton.getAttribute('data-history-id'));
       if (!record) return;
       const action = actionButton.getAttribute('data-history-act');
-      if (action === 'preview') openQuickHistoryPreview(record);
-      else if (action === 'download') await downloadImage(record.image, record.id);
+      if (action === 'download') await downloadImage(record.image, record.id);
+      else if (action === 'delete') {
+        if (!await confirmDialog('确定将这条快速历史移入回收站吗？文件不会立即物理删除，可在存储管理中恢复。')) return;
+        if (!deleteHistory(record.id)) {
+          toast('移入回收站失败', 'error');
+          return;
+        }
+        toast('已移入回收站', 'success');
+        renderQuickHistory();
+      }
       return;
     }
     const image = target.closest?.('.quick-history-card img');

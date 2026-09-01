@@ -378,9 +378,12 @@ test('快速与项目生图输入框自动最多十行，但手动拖拽不受�
     /function quickHistoryCardHtml\(item\) \{/u,
     '快速历史必须定义卡片模板',
   );
-  assert.match(quickHistoryCard, /data-history-act="preview"/u, '快速历史必须保留预览入口');
+  assert.doesNotMatch(quickHistoryCard, /data-history-act="preview"/u, '快速历史悬浮层不应重复提供查看详情入口');
   assert.match(quickHistoryCard, /data-history-act="download"/u, '快速历史必须保留下载入口');
+  assert.match(quickHistoryCard, /data-history-act="delete"/u, '快速历史必须提供删除入口');
   assert.doesNotMatch(quickHistoryCard, /data-history-act="detail"/u, '下载按钮右侧的重复详情入口必须移除');
+  assert.match(generatePage, /deleteHistory,/u, '快速历史删除必须复用回收站删除接口');
+  assert.match(generatePage, /confirmDialog\('确定将这条快速历史移入回收站吗？/u, '快速历史删除必须先二次确认');
 });
 
 test('所有成功图片预览统一进入详情页，失败任务仍使用失败详情弹层', () => {
