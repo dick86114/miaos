@@ -26,7 +26,7 @@ export function renderProjects(container) {
         </div>`;
 
     const root = htmlToElement(`
-      <div>
+      <div class="projects-page">
         <div class="projects-header">
           <div>
             <h1 class="projects-title">项目</h1>

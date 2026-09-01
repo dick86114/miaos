@@ -1268,6 +1268,10 @@ i[data-lucide="loader"] {
 }
 
 /* ===== 项目列表页 ===== */
+.projects-page {
+  container-type: inline-size;
+  min-height: 100%;
+}
 .projects-header {
   display: flex;
   align-items: flex-start;
@@ -1286,11 +1290,11 @@ i[data-lucide="loader"] {
   column-count: auto;
   column-gap: 16px;
 }
-@media (min-width: 1500px) { .project-grid { column-count: 5; } }
-@media (min-width: 1180px) and (max-width: 1499px) { .project-grid { column-count: 4; } }
-@media (min-width: 860px) and (max-width: 1179px) { .project-grid { column-count: 3; } }
-@media (min-width: 580px) and (max-width: 859px) { .project-grid { column-count: 2; } }
-@media (max-width: 579px) { .project-grid { column-count: 1; } }
+@container (min-width: 1600px) { .project-grid { column-count: 5; } }
+@container (min-width: 1250px) and (max-width: 1599px) { .project-grid { column-count: 4; } }
+@container (min-width: 900px) and (max-width: 1249px) { .project-grid { column-count: 3; } }
+@container (min-width: 600px) and (max-width: 899px) { .project-grid { column-count: 2; } }
+@container (max-width: 599px) { .project-grid { column-count: 1; } }
 .project-card {
   position: relative;
   display: inline-flex;
