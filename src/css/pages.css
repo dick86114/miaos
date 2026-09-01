@@ -1268,10 +1268,7 @@ i[data-lucide="loader"] {
 }
 
 /* ===== 项目列表页 ===== */
-.projects-page {
-  container-type: inline-size;
-  min-height: 100%;
-}
+.projects-page { min-height: 100%; }
 .projects-header {
   display: flex;
   align-items: flex-start;
@@ -1284,17 +1281,20 @@ i[data-lucide="loader"] {
 .projects-subtitle { font-size: 13px; color: var(--ink-2); margin: 4px 0 0; }
 .projects-toolbar { display: flex; align-items: center; gap: 12px; }
 
-.project-grid {
+.project-masonry-grid {
+  display: grid;
+  --project-columns: 1;
+  grid-template-columns: repeat(var(--project-columns), minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
   width: 100%;
-  column-width: 280px;
-  column-count: auto;
-  column-gap: 16px;
 }
-@container (min-width: 1600px) { .project-grid { column-count: 5; } }
-@container (min-width: 1250px) and (max-width: 1599px) { .project-grid { column-count: 4; } }
-@container (min-width: 900px) and (max-width: 1249px) { .project-grid { column-count: 3; } }
-@container (min-width: 600px) and (max-width: 899px) { .project-grid { column-count: 2; } }
-@container (max-width: 599px) { .project-grid { column-count: 1; } }
+.project-masonry-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+}
 .project-card {
   position: relative;
   display: inline-flex;
@@ -1307,9 +1307,7 @@ i[data-lucide="loader"] {
   color: inherit;
   cursor: pointer;
   width: 100%;
-  margin: 0 0 16px;
-  vertical-align: top;
-  break-inside: avoid;
+  margin: 0;
   transition: box-shadow var(--motion-normal) var(--motion-ease), transform var(--motion-normal) var(--motion-ease);
 }
 .project-card:hover { box-shadow: var(--shadow-2); transform: translateY(-2px); }

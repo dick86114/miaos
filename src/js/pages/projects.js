@@ -14,13 +14,38 @@ import {
 } from '../store.js';
 import { navigate } from '../router.js';
 
+export function getProjectMasonryColumnCount(width) {
+  const value = Number(width) || 0;
+  if (value >= 1600) return 5;
+  if (value >= 1250) return 4;
+  if (value >= 900) return 3;
+  if (value >= 600) return 2;
+  return 1;
+}
+
 export function renderProjects(container) {
-  renderView(container, getProjects());
+  let currentItems = getProjects();
+  let currentListEl = null;
+  let resizeObserver = null;
+  let bindCurrentCards = () => {};
+  const onResize = () => {
+    if (!currentListEl) return;
+    renderProjectMasonry(currentListEl, currentItems);
+    bindCurrentCards();
+    renderIcons(currentListEl);
+  };
+  window.addEventListener?.('resize', onResize);
+  renderView(container, currentItems);
+
+  return () => {
+    resizeObserver?.disconnect();
+    window.removeEventListener?.('resize', onResize);
+  };
 
   function renderView(container, items) {
-    const cards = items.map((p) => projectCardHtml(p)).join('');
-    const inner = cards
-      ? `<div class="project-grid">${cards}</div>`
+    currentItems = items;
+    const inner = items.length
+      ? '<div class="project-masonry-grid" data-project-masonry-grid></div>'
       : `<div class="history-empty">${icon('folder', 40)}<span>还没有项目，新建一个开始为某件事持续创作</span>
           <button class="btn btn-primary" id="go-create">${icon('plus', 16)}<span>新建项目</span></button>
         </div>`;
@@ -46,17 +71,24 @@ export function renderProjects(container) {
     mountPage(container, root);
 
     const listEl = root.querySelector('#project-list');
+    currentListEl = listEl;
     const searchInput = root.querySelector('#search-input');
+    resizeObserver?.disconnect();
+    resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(onResize) : null;
+    resizeObserver?.observe(listEl);
+    renderProjectMasonry(listEl, items);
 
     // 搜索过滤
     searchInput.addEventListener('input', () => {
       const q = searchInput.value.trim().toLowerCase();
       const all = getProjects();
       const filtered = q ? all.filter((p) => p.name.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q)) : all;
+      currentItems = filtered;
       listEl.innerHTML = filtered.length
-        ? `<div class="project-grid">${filtered.map((p) => projectCardHtml(p)).join('')}</div>`
+        ? '<div class="project-masonry-grid" data-project-masonry-grid></div>'
         : `<div class="history-empty">${icon('search', 40)}<span>没有匹配的项目</span></div>`;
-      bindCards();
+      renderProjectMasonry(listEl, filtered);
+      bindCards(listEl);
       renderIcons(listEl);
     });
 
@@ -66,8 +98,8 @@ export function renderProjects(container) {
     const goCreate = root.querySelector('#go-create');
     if (goCreate) goCreate.addEventListener('click', onCreate);
 
-    function bindCards() {
-      listEl.querySelectorAll('.project-card').forEach((card) => {
+    function bindCards(targetList = listEl) {
+      targetList.querySelectorAll('.project-card').forEach((card) => {
         card.addEventListener('click', (e) => {
           // 点击删除按钮不触发跳转
           if (e.target.closest('.project-card-delete')) return;
@@ -75,7 +107,7 @@ export function renderProjects(container) {
           navigate(`/project/${card.getAttribute('data-id')}`);
         });
       });
-      listEl.querySelectorAll('.project-card-delete').forEach((btn) => {
+      targetList.querySelectorAll('.project-card-delete').forEach((btn) => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const id = btn.getAttribute('data-id');
@@ -88,8 +120,27 @@ export function renderProjects(container) {
         });
       });
     }
-    bindCards();
+    bindCurrentCards = () => bindCards(listEl);
+    bindCards(listEl);
   }
+}
+
+function renderProjectMasonry(listEl, items) {
+  const grid = listEl?.querySelector('[data-project-masonry-grid]');
+  if (!grid) return;
+  const width = grid.clientWidth || listEl.clientWidth || 0;
+  const columnCount = getProjectMasonryColumnCount(width);
+  grid.style.setProperty('--project-columns', String(columnCount));
+  grid.replaceChildren(...Array.from({ length: columnCount }, (_, index) => {
+    const column = document.createElement('div');
+    column.className = 'project-masonry-column';
+    column.setAttribute('data-project-column', String(index));
+    return column;
+  }));
+  const columns = Array.from(grid.children);
+  items.forEach((item, index) => {
+    columns[index % columnCount].insertAdjacentHTML('beforeend', projectCardHtml(item));
+  });
 }
 
 function projectCardHtml(p) {
