@@ -481,7 +481,12 @@ export function purgeTrashEntry(trashId) {
   const refsForEntry = (item) => collectGeneratedFileRefs({ fileRefs: item?.fileRefs, payload: item?.payload });
   const remainingRefs = new Set(storage.trash.filter((_, i) => i !== index).flatMap((item) => refsForEntry(item).map((ref) => ref.path)));
   const files = refsForEntry(entry).filter((ref, refIndex, refs) => !activeRefs.has(ref.path) && !remainingRefs.has(ref.path) && refs.findIndex((candidate) => candidate.path === ref.path) === refIndex);
-  const requestedFiles = structuredClone(files);
+  const requestedFiles = files.map((ref) => {
+    const normalized = { path: ref.path };
+    if (typeof ref.size === 'number' && Number.isFinite(ref.size)) normalized.size = ref.size;
+    if (typeof ref.checksum === 'string' && /^[a-f0-9]{64}$/iu.test(ref.checksum)) normalized.checksum = ref.checksum;
+    return normalized;
+  });
   return {
     ok: true,
     trashId,

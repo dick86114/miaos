@@ -828,6 +828,7 @@ export function renderSettings(container, params = [], query = {}) {
         pageState.storage.selectedOrphans = new Set();
         refresh();
         toast('已恢复回收站条目', 'success');
+        await runScan();
       });
     });
 

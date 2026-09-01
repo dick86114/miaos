@@ -354,3 +354,20 @@ test('主进程确认文件已不存在后可完成普通 purge', async () => {
     assert.equal(store.getStorageState().trash.length, 0);
   } finally { restore(); }
 });
+
+test('回收站永久删除请求不携带旧格式校验摘要', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [{
+    id: 'trash-legacy-checksum',
+    kind: 'history',
+    payload: null,
+    fileRefs: [{ path: '/Users/me/.miaos/generated/legacy.png', checksum: 'abc' }],
+    deletedAt: 1,
+  }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.purgeTrashEntry('trash-legacy-checksum');
+    assert.equal(request.ok, true);
+    assert.equal(request.files[0].checksum, undefined);
+  } finally { restore(); }
+});

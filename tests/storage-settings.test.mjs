@@ -117,3 +117,10 @@ test('存储文件预览右侧展示文件元数据而不是提示词字段', as
   assert.match(preview, /修改时间/u);
   assert.match(preview, /storageDetails/u);
 });
+
+test('恢复回收站条目后会重新扫描，避免孤立文件列表停留为空', async () => {
+  const settings = await source('src/js/pages/settings.js');
+  const restoreBlock = settings.match(/inner\.querySelectorAll\('\[data-act="restore-trash"\]'\)[\s\S]{0,1200}/u)?.[0] || '';
+  assert.match(restoreBlock, /pageState\.storage\.scan = null/u);
+  assert.match(restoreBlock, /await runScan\(\)/u);
+});
