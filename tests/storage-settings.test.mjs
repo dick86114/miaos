@@ -21,6 +21,14 @@ test('设置页包含存储管理入口、扫描统计、回收站与孤立文�
   assert.doesNotMatch(settings, /删除 generated 目录/u);
 });
 
+test('系统设置 Tab 将存储管理紧跟在通用右侧', async () => {
+  const source = await readFile(new URL('../src/js/pages/settings.js', import.meta.url), 'utf8');
+  const generalIndex = source.indexOf('data-tab="general"');
+  const storageIndex = source.indexOf('data-tab="storage"');
+  const providersIndex = source.indexOf('data-tab="providers"');
+  assert.ok(generalIndex >= 0 && storageIndex > generalIndex && providersIndex > storageIndex);
+});
+
 test('存储管理接入扫描、恢复、清空和二次确认契约', async () => {
   const settings = await source('src/js/pages/settings.js');
   assert.match(settings, /getStorageState\(\)/u);

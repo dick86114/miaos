@@ -225,14 +225,14 @@ export function renderSettings(container, params = [], query = {}) {
         <button class="settings-tab ${tab === 'general' ? 'is-active' : ''}" data-tab="general">
           ${icon('sliders', 16)}<span>通用</span>
         </button>
+        <button class="settings-tab ${tab === 'storage' ? 'is-active' : ''}" data-tab="storage">
+          ${icon('folder', 16)}<span>存储管理</span>
+        </button>
         <button class="settings-tab ${tab === 'providers' ? 'is-active' : ''}" data-tab="providers">
           ${icon('server', 16)}<span>模型供应商</span>
         </button>
         <button class="settings-tab ${tab === 'about' ? 'is-active' : ''}" data-tab="about">
           ${icon('info', 16)}<span>关于与更新</span>
-        </button>
-        <button class="settings-tab ${tab === 'storage' ? 'is-active' : ''}" data-tab="storage">
-          ${icon('folder', 16)}<span>存储管理</span>
         </button>
       </div>
       <div class="settings-content">
