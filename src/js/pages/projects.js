@@ -48,18 +48,6 @@ export function renderProjects(container) {
     const listEl = root.querySelector('#project-list');
     const searchInput = root.querySelector('#search-input');
 
-    function syncProjectGridColumns() {
-      const grid = listEl.querySelector('.project-grid');
-      if (!grid) return;
-      const width = grid.clientWidth || 0;
-      if (!width) return;
-      grid.style.columnCount = String(Math.max(1, Math.floor(width / 280)));
-    }
-    const projectGridObserver = typeof ResizeObserver === 'function'
-      ? new ResizeObserver(syncProjectGridColumns)
-      : null;
-    projectGridObserver?.observe(listEl);
-
     // 搜索过滤
     searchInput.addEventListener('input', () => {
       const q = searchInput.value.trim().toLowerCase();
@@ -70,7 +58,6 @@ export function renderProjects(container) {
         : `<div class="history-empty">${icon('search', 40)}<span>没有匹配的项目</span></div>`;
       bindCards();
       renderIcons(listEl);
-      syncProjectGridColumns();
     });
 
     // 新建项目
@@ -102,7 +89,6 @@ export function renderProjects(container) {
       });
     }
     bindCards();
-    syncProjectGridColumns();
   }
 }
 

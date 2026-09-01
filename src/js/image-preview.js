@@ -123,6 +123,9 @@ export function openImagePreview(record, options = {}) {
     appendInfoRow(documentRef, info, '存储位置', storageDetails.storageLocation || '');
     appendInfoRow(documentRef, info, '文件类型', storageDetails.fileType || '');
     appendInfoRow(documentRef, info, '状态', storageDetails.status || '');
+    appendInfoRow(documentRef, info, '删除来源', storageDetails.deletionSource || '');
+    appendInfoRow(documentRef, info, '所属项目', storageDetails.projectName || '');
+    appendInfoRow(documentRef, info, '所属节点', storageDetails.versionName || '');
   } else {
     appendInfoRow(documentRef, info, '模型', [record.providerName, record.modelId].filter(Boolean).join(' / '));
     appendInfoRow(documentRef, info, '版本', record.versionName || record.contextLabel || '');

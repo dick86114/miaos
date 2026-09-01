@@ -596,6 +596,36 @@ export function renderSettings(container, params = [], query = {}) {
     return value.split(/[\\/]/u).pop() || value || '未知文件';
   }
 
+  function getTrashOrigin(entry) {
+    const origin = entry?.origin || {};
+    const fallbackSource = entry?.kind === 'history'
+      ? '快速生图'
+      : entry?.kind === 'image'
+        ? '项目生图'
+        : entry?.kind === 'version'
+          ? '项目节点'
+          : entry?.kind === 'project'
+            ? '项目'
+            : '历史记录';
+    return {
+      sourceLabel: origin.sourceLabel || fallbackSource,
+      projectName: origin.projectName || (entry?.kind === 'project' ? entry.payload?.name || '' : ''),
+      versionName: origin.versionName || '',
+      descendantCount: Number(origin.descendantCount) || 0,
+    };
+  }
+
+  function renderTrashOrigin(entry) {
+    const origin = getTrashOrigin(entry);
+    const details = [
+      `删除来源：${origin.sourceLabel}`,
+      origin.projectName ? `项目：${origin.projectName}` : '',
+      origin.versionName ? `节点：${origin.versionName}` : '',
+      origin.descendantCount > 0 ? `包含 ${origin.descendantCount} 个下游节点` : '',
+    ].filter(Boolean);
+    return `<div class="storage-trash-origin">${details.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>`;
+  }
+
   function findScannedFile(filePath) {
     return (pageState.storage.scan?.files || []).find((file) => file.path === filePath) || null;
   }
@@ -656,7 +686,7 @@ export function renderSettings(container, params = [], query = {}) {
             const previewRef = refs.map((ref) => scannedFiles.get(ref?.path) || ref).find((ref) => ref?.path);
             return `<article class="storage-thumb-card" data-trash-id="${escapeAttr(entry.id)}" data-storage-status="回收站" data-storage-name="${escapeAttr(String(name))}">
               ${renderStorageThumb(previewRef?.path, { alt: String(name) })}
-              <div class="storage-thumb-body"><strong title="${escapeAttr(String(name))}">${escapeHtml(String(name))}</strong><span>${label} · ${refs.length} 个文件 · ${formatStorageBytes(bytes)}</span><small>删除于 ${escapeHtml(entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('zh-CN', { hour12: false }) : '未知时间')}</small></div>
+              <div class="storage-thumb-body"><strong title="${escapeAttr(String(name))}">${escapeHtml(String(name))}</strong>${renderTrashOrigin(entry)}<span>${label} · ${refs.length} 个文件 · ${formatStorageBytes(bytes)}</span><small>删除于 ${escapeHtml(entry.deletedAt ? new Date(entry.deletedAt).toLocaleString('zh-CN', { hour12: false }) : '未知时间')}</small></div>
               <div class="storage-row-actions"><button class="btn btn-ghost btn-sm" data-act="restore-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('arrow-left', 13)}<span>恢复</span></button><button class="btn btn-ghost btn-sm danger" data-act="purge-trash" data-trash-id="${escapeAttr(entry.id)}" type="button">${icon('trash-2', 13)}<span>永久删除</span></button></div>
             </article>`;
           }).join('') : '<div class="storage-empty">回收站为空</div>'}
@@ -798,6 +828,9 @@ export function renderSettings(container, params = [], query = {}) {
         const imagePath = button.getAttribute('data-storage-preview');
         if (!imagePath) return;
         const card = button.closest('.storage-thumb-card');
+        const trashId = card?.getAttribute('data-trash-id');
+        const trashEntry = trashId ? (getStorageState()?.trash || []).find((entry) => entry.id === trashId) : null;
+        const trashOrigin = getTrashOrigin(trashEntry);
         const scannedFile = findScannedFile(imagePath);
         const fileName = scannedFile?.name || card?.getAttribute('data-storage-name') || storageFileName(imagePath);
         const modifiedAt = scannedFile?.mtimeMs
@@ -813,6 +846,9 @@ export function renderSettings(container, params = [], query = {}) {
             storageLocation: imagePath,
             fileType: fileType === '.' ? '未知' : fileType,
             status: card?.getAttribute('data-storage-status') || '本地文件',
+            deletionSource: trashEntry ? trashOrigin.sourceLabel : '',
+            projectName: trashEntry ? trashOrigin.projectName : '',
+            versionName: trashEntry ? trashOrigin.versionName : '',
           },
         }, { triggerElement: button });
       });

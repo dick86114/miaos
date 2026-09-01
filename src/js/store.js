@@ -212,13 +212,14 @@ export async function getStorageUsage() {
   return window.api.storageGetUsage();
 }
 
-export function createTrashEntry({ kind, payload, fileRefs, deletedAt }) {
+export function createTrashEntry({ kind, payload, fileRefs, deletedAt, origin = null }) {
   return {
     id: uid('trash'),
     kind,
     payload: payload == null ? null : JSON.parse(JSON.stringify(payload)),
     fileRefs: JSON.parse(JSON.stringify(Array.isArray(fileRefs) ? fileRefs : [])),
     deletedAt,
+    origin: origin == null ? null : JSON.parse(JSON.stringify(origin)),
   };
 }
 
@@ -256,7 +257,10 @@ export function moveProjectToTrash(projectId) {
   const fileRefs = collectGeneratedFileRefs(project);
   return commitStorageMutation(() => {
     const storage = ensureStorage();
-    const trashEntry = createTrashEntry({ kind: 'project', payload, fileRefs, deletedAt: Date.now() });
+    const trashEntry = createTrashEntry({
+      kind: 'project', payload, fileRefs, deletedAt: Date.now(),
+      origin: { source: 'project', sourceLabel: '项目', projectId: project.id, projectName: project.name || '', versionCount: project.versions.length },
+    });
     state.projects = state.projects.filter((item) => item.id !== projectId);
     state.failedGenerationTasks = (state.failedGenerationTasks || []).filter((task) => task.projectId !== projectId);
     storage.trash.unshift(trashEntry);
@@ -303,7 +307,13 @@ export function moveVersionToTrash(projectId, versionId) {
     }
     if (project.coverImageId && !project.versions.some((v) => v.images.some((image) => image.id === project.coverImageId))) project.coverImageId = null;
     project.updatedAt = Date.now();
-    const trashEntry = createTrashEntry({ kind: 'version', payload, fileRefs, deletedAt: Date.now() });
+    const trashEntry = createTrashEntry({
+      kind: 'version', payload, fileRefs, deletedAt: Date.now(),
+      origin: {
+        source: 'project', sourceLabel: '项目节点', projectId: project.id, projectName: project.name || '',
+        versionId: target.id, versionName: target.name || '', descendantCount: Math.max(0, toDelete.size - 1),
+      },
+    });
     storage.trash.unshift(trashEntry);
     return { ok: true, trashEntry: structuredClone(trashEntry) };
   });
@@ -328,7 +338,13 @@ export function moveImageToTrash(projectId, versionId, imageId) {
     version.images.splice(imageIndex, 1);
     if (project.coverImageId === imageId) project.coverImageId = null;
     project.updatedAt = Date.now();
-    const trashEntry = createTrashEntry({ kind: 'image', payload, fileRefs, deletedAt: Date.now() });
+    const trashEntry = createTrashEntry({
+      kind: 'image', payload, fileRefs, deletedAt: Date.now(),
+      origin: {
+        source: 'project', sourceLabel: '项目生图', projectId: project.id, projectName: project.name || '',
+        versionId: version.id, versionName: version.name || '', imageId: image.id,
+      },
+    });
     ensureStorage().trash.unshift(trashEntry);
     return { ok: true, trashEntry: structuredClone(trashEntry) };
   });
@@ -339,7 +355,10 @@ export function moveHistoryToTrash(historyId) {
   if (!item) return { ok: false, code: 'NOT_FOUND', error: '历史记录不存在' };
   return commitStorageMutation(() => {
     const storage = ensureStorage();
-    const trashEntry = createTrashEntry({ kind: 'history', payload: item, fileRefs: collectGeneratedFileRefs(item), deletedAt: Date.now() });
+    const trashEntry = createTrashEntry({
+      kind: 'history', payload: item, fileRefs: collectGeneratedFileRefs(item), deletedAt: Date.now(),
+      origin: { source: 'quick', sourceLabel: '快速生图' },
+    });
     state.history = state.history.filter((entry) => entry.id !== historyId);
     storage.trash.unshift(trashEntry);
     return { ok: true, trashEntry: structuredClone(trashEntry) };
@@ -391,9 +410,18 @@ export function moveHistoryRecordsToTrash(records) {
           imageIndex,
           previousCoverImageId: project.coverImageId,
         };
-        return createTrashEntry({ kind: 'image', payload, fileRefs: collectGeneratedFileRefs(image), deletedAt: Date.now() });
+        return createTrashEntry({
+          kind: 'image', payload, fileRefs: collectGeneratedFileRefs(image), deletedAt: Date.now(),
+          origin: {
+            source: 'project', sourceLabel: '项目生图', projectId: project.id, projectName: project.name || '',
+            versionId: version.id, versionName: version.name || '', imageId: image.id,
+          },
+        });
       }
-      return createTrashEntry({ kind: 'history', payload: operation.item, fileRefs: collectGeneratedFileRefs(operation.item), deletedAt: Date.now() });
+      return createTrashEntry({
+        kind: 'history', payload: operation.item, fileRefs: collectGeneratedFileRefs(operation.item), deletedAt: Date.now(),
+        origin: { source: 'quick', sourceLabel: '快速生图' },
+      });
     });
     const historyIds = new Set(operations.filter((operation) => operation.kind === 'history').map((operation) => operation.item.id));
     state.history = state.history.filter((entry) => !historyIds.has(entry.id));

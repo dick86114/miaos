@@ -1286,6 +1286,11 @@ i[data-lucide="loader"] {
   column-count: auto;
   column-gap: 16px;
 }
+@media (min-width: 1500px) { .project-grid { column-count: 5; } }
+@media (min-width: 1180px) and (max-width: 1499px) { .project-grid { column-count: 4; } }
+@media (min-width: 860px) and (max-width: 1179px) { .project-grid { column-count: 3; } }
+@media (min-width: 580px) and (max-width: 859px) { .project-grid { column-count: 2; } }
+@media (max-width: 579px) { .project-grid { column-count: 1; } }
 .project-card {
   position: relative;
   display: inline-flex;
@@ -2530,6 +2535,8 @@ i[data-lucide="loader"] {
 .storage-thumb-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 10px 11px 8px; }
 .storage-thumb-body strong { color: var(--ink); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .storage-thumb-body span, .storage-thumb-body small { color: var(--ink-3); font-size: 11px; overflow-wrap: anywhere; }
+.storage-trash-origin { display: flex; flex-direction: column; gap: 2px; }
+.storage-trash-origin span { color: var(--ink-2); font-size: 11px; line-height: 1.35; }
 .storage-thumb-card .storage-row-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
 .storage-thumb-card .storage-row-actions .btn { flex: 1; min-width: 0; justify-content: center; white-space: nowrap; }
 .storage-thumb-select { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px 0; color: var(--ink-2); font-size: 12px; cursor: pointer; }

@@ -125,6 +125,29 @@ test('回收站条目的空 payload 统一为 null', () => {
   assert.equal(createTrashEntry({ kind: 'history', payload: null, fileRefs: [], deletedAt: 10 }).payload, null);
 });
 
+test('删除来源元数据保留快速生图、项目和节点信息', async () => {
+  const state = createDefaultState();
+  state.projects = [projectFixture()];
+  state.history = [{ id: 'history-origin', image: '/Users/me/.miaos/generated/history-origin.png', createdAt: 1 }];
+  const { store, restore } = await loadStore(state);
+  try {
+    const quick = store.moveHistoryToTrash('history-origin');
+    assert.deepEqual(quick.trashEntry.origin, { source: 'quick', sourceLabel: '快速生图' });
+
+    const image = store.moveImageToTrash('project-1', 'child', 'image-shared');
+    assert.deepEqual(image.trashEntry.origin, {
+      source: 'project', sourceLabel: '项目生图', projectId: 'project-1', projectName: '项目',
+      versionId: 'child', versionName: '子', imageId: 'image-shared',
+    });
+
+    const version = store.moveVersionToTrash('project-1', 'child');
+    assert.deepEqual(version.trashEntry.origin, {
+      source: 'project', sourceLabel: '项目节点', projectId: 'project-1', projectName: '项目',
+      versionId: 'child', versionName: '子', descendantCount: 1,
+    });
+  } finally { restore(); }
+});
+
 test('删除版本进入回收站并保留当前节点回退语义', async () => {
   const state = createDefaultState();
   state.projects = [projectFixture()];

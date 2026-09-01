@@ -131,6 +131,11 @@ test('存储文件预览右侧展示文件元数据而不是提示词字段', as
   assert.match(preview, /文件大小/u);
   assert.match(preview, /修改时间/u);
   assert.match(preview, /storageDetails/u);
+  assert.match(settings, /删除来源/u);
+  assert.match(settings, /项目：/u);
+  assert.match(settings, /节点：/u);
+  assert.match(preview, /所属项目/u);
+  assert.match(preview, /所属节点/u);
 });
 
 test('恢复回收站条目后会重新扫描，避免孤立文件列表停留为空', async () => {
