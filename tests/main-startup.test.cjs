@@ -1005,6 +1005,45 @@ test('已保存供应商将 key 绑定到可信 metadata，不能被 renderer �
   }
 });
 
+test('Grsai 模型目录从官方模型页动态解析且不发送密钥', async () => {
+  const homePath = createTempHome('miaos-grsai-model-catalog-');
+  try {
+    const catalog = {
+      models: [
+        { name: 'gpt-image-2', type: 'image', desc: 'GPT Image 2' },
+        { name: 'gpt-image-9-test', type: 'image', desc: 'GPT Image 9 Test' },
+        { name: 'gemini-text-test', type: 'text', desc: '文本模型不应混入生图列表' },
+      ],
+      groups: [],
+    };
+    const payload = '19:' + JSON.stringify(catalog);
+    const html = `<html><body><script>self.__next_f.push([1,${JSON.stringify(payload)}]);</script></body></html>`;
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: { statusCode: 200, body: html, headers: { 'content-type': 'text/html' } },
+    });
+    const provider = {
+      providerId: 'p_grsai',
+      type: 'grsai',
+      endpoint: 'https://example.invalid/generate',
+    };
+
+    const result = await calls.ipcHandlers['fetch-models'](trustedEvent(), provider, 'image');
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.models.map((model) => model.id), [
+      'gpt-image-2',
+      'gpt-image-9-test',
+    ]);
+    assert.deepEqual(result.models[1].name, 'GPT Image 9 Test');
+    assert.equal(calls.networkRequests.length, 1);
+    assert.equal(calls.networkRequests[0].options.hostname, 'grsai.ai');
+    assert.equal(calls.networkRequests[0].options.path, '/dashboard/models');
+    assert.equal('Authorization' in calls.networkRequests[0].options.headers, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
 test('公开 provider 没有密钥时仍可使用可信 metadata 发起无 Authorization 请求', async () => {
   const homePath = createTempHome('miaos-public-provider-');
   try {

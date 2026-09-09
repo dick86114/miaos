@@ -18,6 +18,7 @@ const {
 const { registerSecureHandler } = require('./src/main/security/ipc');
 const { isAllowedExternalUrl } = require('./src/main/security/external-links');
 const { requestJson } = require('./src/main/services/http-client');
+const { GRSAI_MODEL_CATALOG_URL, parseGrsaiModelCatalog } = require('./src/main/services/grsai-model-catalog');
 const { AppError } = require('./src/main/services/app-error');
 const { createDiagnosticLogger } = require('./src/main/services/diagnostic-log');
 const { createImageFileAccess } = require('./src/main/security/image-files');
@@ -1436,9 +1437,24 @@ registerSecureHandler({
   const ptype = String(type).toLowerCase();
   const cat = String(category || 'image').toLowerCase();
 
-  // Grsai：没有 /models 端点，返回内置已知生图模型列表
+  // Grsai 没有 /models API；官方模型页内含结构化目录，解析失败时回退内置列表。
   if (ptype === 'grsai') {
-    if (cat === 'image') return { ok: true, models: KNOWN_MODELS.grsai };
+    if (cat === 'image' || cat === 'text' || cat === 'video') {
+      try {
+        const catalog = await requestJson({
+          url: GRSAI_MODEL_CATALOG_URL,
+          method: 'GET',
+          headers: { Accept: 'text/html' },
+          timeoutMs: 15000,
+          responseType: 'text',
+        });
+        const models = parseGrsaiModelCatalog(catalog.data, cat);
+        if (models) return { ok: true, models };
+      } catch (_) {
+        // 目录页不可用时继续使用随应用分发的已知模型。
+      }
+      if (cat === 'image') return { ok: true, models: KNOWN_MODELS.grsai };
+    }
     return { ok: true, models: [] };
   }
 

@@ -59,6 +59,7 @@ function requestJson(options) {
     timeoutMs: DEFAULT_TIMEOUT_MS,
     maxRedirects: DEFAULT_MAX_REDIRECTS,
     maxResponseBytes: DEFAULT_MAX_RESPONSE_BYTES,
+    responseType: 'json',
     ...options,
   };
 
@@ -70,6 +71,9 @@ function requestJson(options) {
   }
   if (!Number.isFinite(settings.maxResponseBytes) || settings.maxResponseBytes <= 0) {
     return Promise.reject(new AppError('RESPONSE_LIMIT_INVALID', '响应大小限制配置不正确', { retryable: false }));
+  }
+  if (!['json', 'text'].includes(settings.responseType)) {
+    return Promise.reject(new AppError('RESPONSE_TYPE_INVALID', '响应类型配置不正确', { retryable: false }));
   }
 
   let initialUrl;
@@ -97,6 +101,7 @@ function requestJson(options) {
     deadlineAt: Date.now() + settings.timeoutMs,
     maxRedirects: settings.maxRedirects,
     maxResponseBytes: settings.maxResponseBytes,
+    responseType: settings.responseType,
     signal: settings.signal,
     redirects: 0,
   });
@@ -225,6 +230,10 @@ function performRequest(context) {
             return;
           }
           const text = Buffer.concat(chunks).toString('utf8');
+          if (context.responseType === 'text') {
+            settle(resolve, { status, data: text });
+            return;
+          }
           let data;
           try {
             data = text ? JSON.parse(text) : null;
