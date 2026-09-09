@@ -4,7 +4,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { collectGeneratedFileRefs, createDefaultState, migrateState } from '../src/js/state-schema.js';
-import { createTrashEntry, getStorageState } from '../src/js/store.js';
+import {
+  createTrashEntry,
+  finalizeTrashPurgeAll,
+  getStorageState,
+  prepareTrashPurgeAll,
+} from '../src/js/store.js';
 import storageManagerModule from '../src/main/services/storage-manager.js';
 
 const { createStorageManager } = storageManagerModule;
@@ -392,5 +397,91 @@ test('回收站永久删除请求不携带旧格式校验摘要', async () => {
     const request = store.purgeTrashEntry('trash-legacy-checksum');
     assert.equal(request.ok, true);
     assert.equal(request.files[0].checksum, undefined);
+  } finally { restore(); }
+});
+
+test('清空回收站时空记录仅需元数据确认', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [
+    { id: 'trash-empty', kind: 'history', payload: null, fileRefs: [], deletedAt: 1 },
+  ];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.prepareTrashPurgeAll();
+    assert.equal(request.ok, true);
+    assert.equal(request.metadataOnly, true);
+    assert.deepEqual(request.fileDeletionRequest.paths, []);
+    const finalized = store.finalizeTrashPurgeAll({
+      metadataOnly: true,
+      requestedPaths: request.fileDeletionRequest.paths,
+      deletedPaths: [],
+      missingPaths: [],
+    });
+    assert.equal(finalized.ok, true);
+    assert.equal(finalized.removedCount, 1);
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});
+
+test('清空回收站会去重合并文件并保护活动引用', async () => {
+  const state = createDefaultState();
+  state.projects = [{ id: 'p1', versions: [{ id: 'v1', images: [{ id: 'i1', image: '/Users/me/.miaos/generated/active.png' }] }] }];
+  state.storage.trash = [
+    {
+      id: 'trash-shared-a', kind: 'history', payload: null, deletedAt: 1,
+      fileRefs: [
+        { path: '/Users/me/.miaos/generated/shared.png', size: 3 },
+        { path: '/Users/me/.miaos/generated/active.png', size: 4 },
+      ],
+    },
+    {
+      id: 'trash-shared-b', kind: 'history', payload: null, deletedAt: 2,
+      fileRefs: [{ path: '/Users/me/.miaos/generated/shared.png', size: 3 }],
+    },
+  ];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.prepareTrashPurgeAll();
+    assert.deepEqual(request.fileDeletionRequest.paths, ['/Users/me/.miaos/generated/shared.png']);
+    assert.deepEqual(request.files, [{ path: '/Users/me/.miaos/generated/shared.png', size: 3 }]);
+    const finalized = store.finalizeTrashPurgeAll({
+      requestedPaths: request.fileDeletionRequest.paths,
+      deletedPaths: request.fileDeletionRequest.paths,
+    });
+    assert.equal(finalized.ok, true);
+    assert.equal(finalized.removedCount, 2);
+    assert.equal(store.getStorageState().trash.length, 0);
+  } finally { restore(); }
+});
+
+test('清空回收站部分失败时成功条目移除、失败文件保留', async () => {
+  const state = createDefaultState();
+  state.storage.trash = [
+    {
+      id: 'trash-partial-ok', kind: 'history', payload: null, deletedAt: 1,
+      fileRefs: [{ path: '/Users/me/.miaos/generated/ok.png' }],
+    },
+    {
+      id: 'trash-partial-all', kind: 'history', payload: null, deletedAt: 2,
+      fileRefs: [{ path: '/Users/me/.miaos/generated/fail.png' }],
+    },
+  ];
+  const { store, restore } = await loadStore(state);
+  try {
+    const request = store.prepareTrashPurgeAll();
+    const finalized = store.finalizeTrashPurgeAll({
+      requestedPaths: request.fileDeletionRequest.paths,
+      deletedPaths: ['/Users/me/.miaos/generated/ok.png'],
+      failedPaths: [{ path: '/Users/me/.miaos/generated/fail.png', error: '占用' }],
+    });
+    assert.equal(finalized.ok, false);
+    assert.equal(finalized.code, 'PURGE_PARTIAL');
+    assert.equal(finalized.removedCount, 1);
+    assert.deepEqual(finalized.failedEntries.map((entry) => entry.trashId), ['trash-partial-all']);
+    assert.deepEqual(finalized.failedPaths, ['/Users/me/.miaos/generated/fail.png']);
+    assert.deepEqual(
+      store.getStorageState().trash.flatMap((entry) => entry.fileRefs.map((ref) => ref.path)),
+      ['/Users/me/.miaos/generated/fail.png'],
+    );
   } finally { restore(); }
 });

@@ -59,11 +59,22 @@ test('即梦、Kolors、Qwen、Wan 使用对应尺寸字段，编辑模型强制
   assert.equal(build('即梦文生图 3.1').width, 2560);
   assert.equal(build('即梦文生图 3.1').height, 1440);
   assert.equal(build('Kolors').image_size, '1280x720');
-  assert.equal(build('Qwen-Image').size, '1280*720');
+  assert.equal(build('Qwen-Image').size, '1664*928');
   assert.equal(build('Wan2.5-T2I-Preview').size, '1280*720');
 
   for (const modelId of ['Qwen-Image-Edit', 'Qwen-Image-Edit-Plus', 'Wan2.5-I2I-Preview']) {
     assert.throws(() => build(modelId), /需要先上传参考图/u);
     assert.equal(build(modelId, { sourceImage: 'data:image/png;base64,AA==' }).image, 'data:image/png;base64,AA==');
   }
+});
+
+test('Seedream 高阶模型按 UI 清晰度映射到官方分辨率档位', () => {
+  const seedream45 = build('Doubao-Seedream-4.5', { ratio: '21:9', quality: '超高清' });
+  assert.equal(seedream45.size, '4704*2016');
+
+  const seedream5 = build('Doubao-Seedream-5.0-lite', { ratio: '21:9', quality: '超高清' });
+  assert.equal(seedream5.size, '4704*2016');
+
+  const seedream4 = build('Doubao-Seedream-4.0', { ratio: '16:9', quality: '超高清' });
+  assert.equal(seedream4.size, '4096*2304');
 });

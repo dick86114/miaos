@@ -40,6 +40,17 @@ test('存储管理接入扫描、恢复、清空和二次确认契约', async ()
   assert.match(settings, /select-all-orphans/u);
 });
 
+test('清空回收站按钮使用批量安全删除并强制确认', async () => {
+  const settings = await source('src/js/pages/settings.js');
+  assert.match(settings, /btn-clear-trash/u);
+  assert.match(settings, /prepareTrashPurgeAll\(\)/u);
+  const clearBlock = settings.match(/btn-clear-trash[\s\S]{0,2200}finalizeTrashPurgeAll/u)?.[0] || '';
+  assert.match(clearBlock, /confirmDialog\(/u);
+  assert.match(clearBlock, /此操作不可撤销/u);
+  assert.match(clearBlock, /request\.fileDeletionRequest/u);
+  assert.match(clearBlock, /scannedFiles\.get\(file\.path\) \|\| file/u);
+});
+
 test('首次安装生成目录不存在时显示空扫描结果并允许重试', async () => {
   const settings = await source('src/js/pages/settings.js');
   assert.match(settings, /暂无扫描结果/u);

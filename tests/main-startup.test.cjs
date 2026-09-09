@@ -1535,7 +1535,7 @@ test('Aiping 文生图请求使用标准端点、星号尺寸与平台调度参�
           enable_image_origin_data: false,
         },
       },
-      size: '1280*720',
+      size: '1664*928',
       n: 1,
       prompt_extend: true,
       watermark: false,

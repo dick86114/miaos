@@ -29,6 +29,8 @@ import {
   restoreTrashEntry,
   purgeTrashEntry,
   finalizeTrashPurge,
+  prepareTrashPurgeAll,
+  finalizeTrashPurgeAll,
 } from '../store.js';
 
 const PROVIDER_TYPES = [
@@ -127,6 +129,7 @@ export function renderSettings(container, params = [], query = {}) {
       autoScanStarted: false,
       error: '',
       selectedOrphans: new Set(),
+      clearing: false,
     },
   };
 
@@ -679,7 +682,15 @@ export function renderSettings(container, params = [], query = {}) {
       </section>
 
       <section class="settings-card storage-management">
-        <div class="settings-section-header"><div class="settings-section-title">${icon('layers', 16)}<span>回收站</span></div><span class="storage-count">${trash.length} 项</span></div>
+        <div class="settings-section-header">
+          <div class="settings-section-title">${icon('layers', 16)}<span>回收站</span></div>
+          <div class="storage-orphan-toolbar">
+            <span class="storage-count">${trash.length} 项</span>
+            <button class="btn btn-ghost btn-sm danger" id="btn-clear-trash" type="button" ${trash.length && !pageState.storage.clearing ? '' : 'disabled'}>
+              ${pageState.storage.clearing ? icon('loader', 13) : icon('trash-2', 13)}<span>${pageState.storage.clearing ? '清空中…' : '清空回收站'}</span>
+            </button>
+          </div>
+        </div>
         <div class="storage-thumb-grid storage-trash-list">
           ${trash.length ? trash.map((entry) => {
             const refs = storageFileRefs(entry);
@@ -900,6 +911,53 @@ export function renderSettings(container, params = [], query = {}) {
           toast(`删除失败：${error?.message || '未知错误'}`, 'error');
         }
       });
+    });
+
+    inner.querySelector('#btn-clear-trash')?.addEventListener('click', async () => {
+      if (pageState.storage.clearing) return;
+      const request = prepareTrashPurgeAll();
+      if (!request?.ok || request.entries.length === 0) { toast('回收站为空', 'info'); return; }
+      const fileCount = request.fileDeletionRequest.paths.length;
+      const scannedFiles = new Map((pageState.storage.scan?.files || []).map((file) => [file.path, file]));
+      const deletionFiles = request.files.map((file) => scannedFiles.get(file.path) || file);
+      const knownSizeFiles = deletionFiles.filter((file) => Number.isFinite(Number(file.size)));
+      const totalSize = knownSizeFiles.reduce((sum, file) => sum + Number(file.size), 0);
+      const sizeLabel = knownSizeFiles.length === deletionFiles.length
+        ? formatStorageBytes(totalSize)
+        : (knownSizeFiles.length ? `至少 ${formatStorageBytes(totalSize)}` : '未知大小');
+      const scope = fileCount > 0
+        ? `将永久删除 ${fileCount} 个文件（${sizeLabel}）`
+        : '没有需要物理删除的文件';
+      if (!await confirmDialog(`确定清空回收站中的 ${request.entries.length} 项记录吗？${scope}；已被当前内容引用的文件会自动保留。此操作不可撤销。`)) return;
+      pageState.storage.clearing = true;
+      pageState.storage.error = '';
+      refresh();
+      try {
+        let deletion = { deleted: [], missing: [], failed: [] };
+        if (!request.metadataOnly) {
+          deletion = await storageDelete(deletionFiles);
+          if (!deletion || deletion.ok === false) throw new Error(deletion?.error || '主进程拒绝删除');
+        }
+        const finalized = finalizeTrashPurgeAll({
+          ...deletion,
+          metadataOnly: request.metadataOnly,
+          requestedPaths: request.fileDeletionRequest.paths,
+        });
+        if (!finalized?.ok) {
+          const retained = finalized?.failedEntries?.length || 0;
+          toast(retained ? `部分清理成功，${retained} 项回收站记录仍保留` : (finalized?.error || '清空回收站失败'), 'error');
+        } else {
+          toast('已清空回收站', 'success');
+        }
+        pageState.storage.scan = null;
+        pageState.storage.selectedOrphans = new Set();
+      } catch (error) {
+        toast(`清空失败：${error?.message || '未知错误'}`, 'error');
+      } finally {
+        pageState.storage.clearing = false;
+        refresh();
+        await runScan();
+      }
     });
 
     inner.querySelector('#select-all-orphans')?.addEventListener('change', (event) => {

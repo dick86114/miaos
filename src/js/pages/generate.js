@@ -23,6 +23,7 @@ import { createPromptOptimizationManager, createPromptFragmentOverlay } from '..
 import { getQuickQueueViewState } from '../queue-view-state.js';
 import { getGenerationErrorHelp } from '../generation-error-help.js';
 import { createRunningTaskTicker, formatGenerationDuration } from '../generation-timing.js';
+import { getImageParameterOptions, normalizeImageParameters } from '../image-model-capabilities.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -156,8 +157,6 @@ export function createPromptOptimizationPageBinding({
   };
 }
 
-const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
-const QUALITIES = ['标准', '高清', '超高清'];
 const QUANTITIES = [1, 2, 3, 4];
 const PROMPT_INPUT_MAX_LINES = 10;
 
@@ -186,10 +185,14 @@ export function renderGenerate(container) {
 
   let currentProviderId = initialProviderId;
   let currentModelId = initialModelId;
-  let currentRatio = initialRatio;
-  let currentQuality = initialQuality;
   let currentQuantity = 1;
   let sourceImagePath = '';
+  const getProviderType = (providerId) => providers.find((provider) => provider.id === providerId)?.type || '';
+  let parameterOptions = getImageParameterOptions(getProviderType(initialProviderId), initialModelId);
+  let currentRatio = parameterOptions.ratios.includes(initialRatio) ? initialRatio : parameterOptions.ratios[0];
+  let currentQuality = parameterOptions.qualities.some((item) => item.value === initialQuality)
+    ? initialQuality
+    : parameterOptions.qualities[0].value;
 
   const root = htmlToElement(`
     <div class="generate-panel">
@@ -226,7 +229,7 @@ export function renderGenerate(container) {
           </div>
           <div class="composer-chip" id="quality-chip">
             <span class="chip-icon">${icon('sparkles', 13)}</span>
-            <span class="chip-value" id="quality-chip-value">${currentQuality}</span>
+            <span class="chip-value" id="quality-chip-value">${getQualityLabel(currentQuality)}</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
           <div class="composer-chip" id="quantity-chip">
@@ -286,6 +289,22 @@ export function renderGenerate(container) {
     setModelChipLabel(model ? model.name : '选择模型');
   }
 
+  function getQualityLabel(value) {
+    return parameterOptions.qualities.find((item) => item.value === value)?.label
+      || parameterOptions.qualities[0]?.label
+      || value;
+  }
+
+  function updateParameterChips() {
+    ratioChipValue.textContent = currentRatio;
+    qualityChipValue.textContent = getQualityLabel(currentQuality);
+    const qualityLocked = parameterOptions.qualities.length === 1;
+    qualityChip.classList.toggle('is-disabled', qualityLocked);
+    qualityChip.title = qualityLocked
+      ? `${getQualityLabel(currentQuality)}由当前模型固定`
+      : '选择清晰度';
+  }
+
   function buildModelDropdownHtml() {
     const pList = providers.filter((p) => p.imageModels.some((m) => m.enabled));
     let html = '';
@@ -313,7 +332,7 @@ export function renderGenerate(container) {
   const ratioChipValue = root.querySelector('#ratio-chip-value');
 
   function buildRatioDropdownHtml() {
-    return RATIOS.map((r) => {
+    return parameterOptions.ratios.map((r) => {
       const active = r === currentRatio;
       return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-ratio="${r}">
         <span class="item-left">${r}</span>
@@ -327,10 +346,10 @@ export function renderGenerate(container) {
   const qualityChipValue = root.querySelector('#quality-chip-value');
 
   function buildQualityDropdownHtml() {
-    return QUALITIES.map((q) => {
-      const active = q === currentQuality;
-      return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-quality="${q}">
-        <span class="item-left">${q}</span>
+    return parameterOptions.qualities.map((quality) => {
+      const active = quality.value === currentQuality;
+      return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-quality="${quality.value}">
+        <span class="item-left">${quality.label}</span>
         <span class="item-right">${active ? icon('check', 14) : ''}</span>
       </div>`;
     }).join('');
@@ -348,6 +367,8 @@ export function renderGenerate(container) {
       </div>`;
     }).join('');
   }
+
+  updateParameterChips();
 
   // ===== 通用下拉控制 =====
   let openDropdown = null;
@@ -437,13 +458,18 @@ export function renderGenerate(container) {
     if (item.hasAttribute('data-model')) {
       currentProviderId = item.getAttribute('data-provider');
       currentModelId = item.getAttribute('data-model');
+      const normalized = normalizeImageParameters(getProviderType(currentProviderId), currentModelId, currentRatio, currentQuality);
+      parameterOptions = normalized.options;
+      currentRatio = normalized.ratio;
+      currentQuality = normalized.quality;
+      updateParameterChips();
       updateModelChip();
     } else if (item.hasAttribute('data-ratio')) {
       currentRatio = item.getAttribute('data-ratio');
       ratioChipValue.textContent = currentRatio;
     } else if (item.hasAttribute('data-quality')) {
       currentQuality = item.getAttribute('data-quality');
-      qualityChipValue.textContent = currentQuality;
+      qualityChipValue.textContent = getQualityLabel(currentQuality);
     } else if (item.hasAttribute('data-quantity')) {
       currentQuantity = Number(item.getAttribute('data-quantity'));
       quantityChipValue.textContent = `${currentQuantity} 张`;

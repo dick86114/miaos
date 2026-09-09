@@ -17,14 +17,58 @@ const TEXT_ONLY_MODELS = new Set([
 ]);
 
 const RATIO_MAPS = {
-  qwen: { '1:1': '1280*1280', '4:3': '1280*960', '16:9': '1280*720', '9:16': '720*1280' },
+  qwen: {
+    '1:1': '1328*1328', '4:3': '1472*1140', '3:4': '1140*1472',
+    '16:9': '1664*928', '9:16': '928*1664',
+  },
+  qwenEdit: {
+    '1:1': '1024*1024', '4:3': '1280*960', '3:4': '960*1280',
+    '3:2': '1152*768', '2:3': '768*1152', '16:9': '1280*720',
+    '9:16': '720*1280', '21:9': '1344*576',
+  },
   hunyuan: { '1:1': '1024*1024', '4:3': '1152*864', '16:9': '1344*768', '9:16': '768*1344' },
-  jimeng1k: { '1:1': [1328, 1328], '4:3': [1472, 1104], '16:9': [1664, 936], '9:16': [936, 1664] },
-  jimeng2k: { '1:1': [2048, 2048], '4:3': [2304, 1728], '16:9': [2560, 1440], '9:16': [1440, 2560] },
-  seedream4_1k: { '1:1': '1024*1024', '4:3': '1280*960', '16:9': '1600*900', '9:16': '900*1600' },
-  seedream2k: { '1:1': '2048*2048', '4:3': '2304*1728', '16:9': '2560*1440', '9:16': '1440*2560' },
-  seedream5: { '1:1': '2048*2048', '4:3': '2304*1728', '16:9': '2848*1600', '9:16': '1600*2848' },
-  glm: { '1:1': '1280x1280', '4:3': '1472x1088', '16:9': '1728x960', '9:16': '960x1728' },
+  jimeng1k: {
+    '1:1': [1328, 1328], '4:3': [1472, 1104], '3:2': [1584, 1056],
+    '16:9': [1664, 936], '9:16': [936, 1664], '21:9': [2016, 864],
+  },
+  jimeng2k: {
+    '1:1': [2048, 2048], '4:3': [2304, 1728], '3:2': [2496, 1664],
+    '16:9': [2560, 1440], '9:16': [1440, 2560], '21:9': [3024, 1296],
+  },
+  jimeng4k: {
+    '1:1': [4096, 4096], '4:3': [4096, 3072], '3:2': [4096, 2730],
+    '16:9': [4096, 2304], '9:16': [2304, 4096], '21:9': [4704, 2016],
+  },
+  seedream4_1k: {
+    '1:1': '1024*1024', '4:3': '1280*960', '3:4': '960*1280',
+    '3:2': '1280*854', '2:3': '854*1280', '16:9': '1600*900',
+    '9:16': '900*1600', '21:9': '1536*640',
+  },
+  seedream2k: {
+    '1:1': '2048*2048', '4:3': '2304*1728', '3:4': '1728*2304',
+    '3:2': '2496*1664', '2:3': '1664*2496', '16:9': '2560*1440',
+    '9:16': '1440*2560', '21:9': '3024*1296',
+  },
+  seedream4k: {
+    '1:1': '4096*4096', '4:3': '4096*3072', '3:4': '3072*4096',
+    '3:2': '4096*2730', '2:3': '2730*4096', '16:9': '4096*2304',
+    '9:16': '2304*4096', '21:9': '4704*2016',
+  },
+  seedream5_2k: {
+    '1:1': '2048*2048', '4:3': '2304*1728', '3:4': '1728*2304',
+    '3:2': '2496*1664', '2:3': '1664*2496', '16:9': '2848*1600',
+    '9:16': '1600*2848', '21:9': '3136*1344',
+  },
+  seedream5_3k: {
+    '1:1': '3072*3072', '4:3': '3456*2592', '3:4': '2592*3456',
+    '3:2': '3744*2496', '2:3': '2496*3744', '16:9': '4096*2304',
+    '9:16': '2304*4096', '21:9': '4704*2016',
+  },
+  glm: {
+    '1:1': '1280x1280', '4:3': '1472x1088', '3:4': '1088x1472',
+    '3:2': '1568x1056', '2:3': '1056x1568', '16:9': '1728x960',
+    '9:16': '960x1728',
+  },
   kolors: { '1:1': '1024x1024', '4:3': '1280x960', '16:9': '1280x720', '9:16': '720x1280' },
   wan: { '1:1': '1280*1280', '4:3': '1280*960', '16:9': '1280*720', '9:16': '720*1280' },
 };
@@ -57,15 +101,18 @@ function buildAipingImageRequest({ modelId, prompt, ratio = '1:1', quality = '�
   requireCompatibleImageMode(normalizedModel, sourceImage);
   const body = commonBody(normalizedModel, prompt, sourceImage);
   const standardQuality = quality === '标准';
+  const ultraQuality = quality === '超高清';
 
   if (normalizedModel === 'Doubao-Seedream-5.0-lite') {
-    return { ...body, size: valueForRatio(RATIO_MAPS.seedream5, ratio), output_format: 'png', watermark: false, sequential_image_generation: 'disabled' };
+    const sizes = ultraQuality ? RATIO_MAPS.seedream5_3k : RATIO_MAPS.seedream5_2k;
+    return { ...body, size: valueForRatio(sizes, ratio), output_format: 'png', watermark: false, sequential_image_generation: 'disabled' };
   }
   if (normalizedModel === 'Doubao-Seedream-4.5') {
-    return { ...body, size: valueForRatio(RATIO_MAPS.seedream2k, ratio), output_format: 'jpeg', watermark: false, force_single: true, optimize_prompt_options: { mode: 'standard' } };
+    const sizes = ultraQuality ? RATIO_MAPS.seedream4k : RATIO_MAPS.seedream2k;
+    return { ...body, size: valueForRatio(sizes, ratio), output_format: 'jpeg', watermark: false, force_single: true, optimize_prompt_options: { mode: 'standard' } };
   }
   if (normalizedModel === 'Doubao-Seedream-4.0') {
-    const sizes = standardQuality ? RATIO_MAPS.seedream4_1k : RATIO_MAPS.seedream2k;
+    const sizes = standardQuality ? RATIO_MAPS.seedream4_1k : (ultraQuality ? RATIO_MAPS.seedream4k : RATIO_MAPS.seedream2k);
     return { ...body, size: valueForRatio(sizes, ratio), watermark: false, force_single: true, optimize_prompt_options: { mode: standardQuality ? 'fast' : 'standard' } };
   }
   if (normalizedModel === 'Kling-V2.1' || normalizedModel === 'Kling-V1') {
@@ -79,7 +126,8 @@ function buildAipingImageRequest({ modelId, prompt, ratio = '1:1', quality = '�
     return { ...body, use_pre_llm: true, seed: -1, width, height };
   }
   if (normalizedModel === '即梦图片生成 4.0') {
-    const [width, height] = valueForRatio(standardQuality ? RATIO_MAPS.jimeng1k : RATIO_MAPS.jimeng2k, ratio);
+    const resolutionMap = standardQuality ? RATIO_MAPS.jimeng1k : (ultraQuality ? RATIO_MAPS.jimeng4k : RATIO_MAPS.jimeng2k);
+    const [width, height] = valueForRatio(resolutionMap, ratio);
     return { ...body, width, height, scale: sourceImage ? 0.6 : 0.5, force_single: true };
   }
   if (normalizedModel === 'Kolors') {
@@ -92,7 +140,7 @@ function buildAipingImageRequest({ modelId, prompt, ratio = '1:1', quality = '�
     return { ...body, size: valueForRatio(RATIO_MAPS.qwen, ratio), n: 1, prompt_extend: true, watermark: false };
   }
   if (normalizedModel === 'Qwen-Image-Edit' || normalizedModel === 'Qwen-Image-Edit-Plus') {
-    return { ...body, size: valueForRatio(RATIO_MAPS.qwen, ratio), n: 1, prompt_extend: true, watermark: false };
+    return { ...body, size: valueForRatio(RATIO_MAPS.qwenEdit, ratio), n: 1, prompt_extend: true, watermark: false };
   }
   if (normalizedModel === 'Wan2.5-T2I-Preview' || normalizedModel === 'Wan2.5-I2I-Preview') {
     return { ...body, size: valueForRatio(RATIO_MAPS.wan, ratio), n: 1, prompt_extend: false, watermark: false };

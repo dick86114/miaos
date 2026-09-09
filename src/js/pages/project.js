@@ -33,6 +33,7 @@ import { createPromptOptimizationManager } from '../prompt-optimization.js';
 import { createPromptOptimizationPageBinding } from './generate.js';
 import { getGenerationErrorHelp } from '../generation-error-help.js';
 import { createRunningTaskTicker, formatGenerationDuration } from '../generation-timing.js';
+import { getImageParameterOptions, normalizeImageParameters } from '../image-model-capabilities.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -40,8 +41,6 @@ const promptOptimizationManager = createPromptOptimizationManager({
 
 export { buildProjectPromptChain };
 
-const RATIOS = ['1:1', '4:3', '16:9', '9:16'];
-const QUALITIES = ['标准', '高清', '超高清'];
 const QUANTITIES = [1, 2, 3, 4];
 const PROJECT_PROMPT_MAX_LINES = 10;
 const TIMELINE_DRAG_THRESHOLD = 12;
@@ -695,10 +694,6 @@ export function renderProject(container, params, routeOptions = {}) {
     const btnGenerate = root.querySelector('#btn-generate');
     const btnNewRoot = root.querySelector('#btn-new-root');
 
-    // 初始化比例和质量
-    let currentRatio = curVer.images[0] ? curVer.images[0].ratio : '1:1';
-    let currentQuality = curVer.images[0] ? curVer.images[0].quality : '高清';
-    let currentQuantity = 1;
     // 如果当前版本已有模型选择，使用它；否则使用默认模型
     const defaults = getDefaults();
     let currentModelId = curVer.modelId || defaults.defaultImageModel || '';
@@ -712,6 +707,16 @@ export function renderProject(container, params, routeOptions = {}) {
         currentModelId = currentModelId || (firstModel ? firstModel.id : '');
       }
     }
+    // 初始化当前模型支持的比例和质量；旧版本的参数不匹配时收敛到安全值。
+    const getProviderType = (providerId) => providers.find((provider) => provider.id === providerId)?.type || '';
+    let parameterOptions = getImageParameterOptions(getProviderType(currentProviderId), currentModelId);
+    const initialRatio = curVer.images[0] ? curVer.images[0].ratio : '1:1';
+    const initialQuality = curVer.images[0] ? curVer.images[0].quality : '高清';
+    let currentRatio = parameterOptions.ratios.includes(initialRatio) ? initialRatio : parameterOptions.ratios[0];
+    let currentQuality = parameterOptions.qualities.some((item) => item.value === initialQuality)
+      ? initialQuality
+      : parameterOptions.qualities[0].value;
+    let currentQuantity = 1;
 
     // ===== Chip 下拉 =====
     const modelChip = root.querySelector('#model-chip');
@@ -736,6 +741,22 @@ export function renderProject(container, params, routeOptions = {}) {
     }
     buildModelChipValue();
 
+    function getQualityLabel(value) {
+      return parameterOptions.qualities.find((item) => item.value === value)?.label
+        || parameterOptions.qualities[0]?.label
+        || value;
+    }
+
+    function updateParameterChips() {
+      ratioChipValue.textContent = currentRatio;
+      qualityChipValue.textContent = getQualityLabel(currentQuality);
+      const qualityLocked = parameterOptions.qualities.length === 1;
+      qualityChip.classList.toggle('is-disabled', qualityLocked);
+      qualityChip.title = qualityLocked
+        ? `${getQualityLabel(currentQuality)}由当前模型固定`
+        : '选择清晰度';
+    }
+
     function buildModelDropdownHtml() {
       const pList = providers.filter((p) => p.imageModels.some((m) => m.enabled));
       let html = '';
@@ -754,7 +775,7 @@ export function renderProject(container, params, routeOptions = {}) {
     }
 
     function buildRatioDropdownHtml() {
-      return RATIOS.map((r) => {
+      return parameterOptions.ratios.map((r) => {
         const active = r === currentRatio;
         return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-ratio="${r}">
           <span class="item-left">${r}</span>
@@ -764,14 +785,16 @@ export function renderProject(container, params, routeOptions = {}) {
     }
 
     function buildQualityDropdownHtml() {
-      return QUALITIES.map((q) => {
-        const active = q === currentQuality;
-        return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-quality="${q}">
-          <span class="item-left">${q}</span>
+      return parameterOptions.qualities.map((quality) => {
+        const active = quality.value === currentQuality;
+        return `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-quality="${quality.value}">
+          <span class="item-left">${quality.label}</span>
           <span class="item-right">${active ? icon('check', 14) : ''}</span>
         </div>`;
       }).join('');
     }
+
+    updateParameterChips();
 
     function buildQuantityDropdownHtml() {
       return QUANTITIES.map((quantity) => {
@@ -847,13 +870,18 @@ export function renderProject(container, params, routeOptions = {}) {
       if (item.hasAttribute('data-model')) {
         currentProviderId = item.getAttribute('data-provider');
         currentModelId = item.getAttribute('data-model');
+        const normalized = normalizeImageParameters(getProviderType(currentProviderId), currentModelId, currentRatio, currentQuality);
+        parameterOptions = normalized.options;
+        currentRatio = normalized.ratio;
+        currentQuality = normalized.quality;
+        updateParameterChips();
         buildModelChipValue();
       } else if (item.hasAttribute('data-ratio')) {
         currentRatio = item.getAttribute('data-ratio');
         ratioChipValue.textContent = currentRatio;
       } else if (item.hasAttribute('data-quality')) {
         currentQuality = item.getAttribute('data-quality');
-        qualityChipValue.textContent = currentQuality;
+        qualityChipValue.textContent = getQualityLabel(currentQuality);
       } else if (item.hasAttribute('data-quantity')) {
         currentQuantity = Number(item.getAttribute('data-quantity'));
         quantityChipValue.textContent = `${currentQuantity} 张`;

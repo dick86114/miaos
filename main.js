@@ -623,6 +623,12 @@ function validateSecretEntries(entries) {
   });
 }
 
+// 各内置图像模型能力表中会出现的比例；具体模型仍由前端能力表收敛。
+const SUPPORTED_IMAGE_RATIOS = [
+  '1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '5:4', '4:5',
+  '21:9', '9:21', '1:2', '2:1', '1:4', '4:1', '1:8', '8:1',
+];
+
 function validateOptionalCategory(category) {
   if (category === undefined || category === null || category === '') return;
   validateString(category, { field: '模型分类', allowedValues: ['image', 'text', 'video'], trim: true });
@@ -633,8 +639,8 @@ async function validateGenerateParams(params) {
   validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
   validateProviderId(params.providerId);
   validateString(params.modelName, { field: '模型', minLength: 1, maxLength: 200, trim: true });
-  validateString(params.ratio, { field: '比例', allowedValues: ['1:1', '4:3', '16:9', '9:16'] });
-  validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
+  validateString(params.ratio, { field: '比例', allowedValues: SUPPORTED_IMAGE_RATIOS });
+  validateString(params.quality, { field: '质量', allowedValues: ['自动', '标准', '高清', '超高清'] });
   validateString(params.size, { field: '图片尺寸', minLength: 1, maxLength: 200, trim: true });
   if (params.endpoint !== undefined) validateHttpUrl(params.endpoint);
   if (params.provider !== undefined) validateOptionalString(params.provider, '供应商类型', { maxLength: 200, trim: true });
@@ -649,8 +655,8 @@ function validateTextPromptParams(params) {
   validateString(params.model, { field: '文本模型', minLength: 1, maxLength: 200, trim: true });
   validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
   validateOptionalString(params.imageModel, '生图模型', { maxLength: 200, trim: true });
-  if (params.ratio !== undefined && params.ratio !== null && params.ratio !== '') validateString(params.ratio, { field: '比例', allowedValues: ['1:1', '4:3', '16:9', '9:16'] });
-  if (params.quality !== undefined && params.quality !== null && params.quality !== '') validateString(params.quality, { field: '质量', allowedValues: ['标准', '高清', '超高清'] });
+  if (params.ratio !== undefined && params.ratio !== null && params.ratio !== '') validateString(params.ratio, { field: '比例', allowedValues: SUPPORTED_IMAGE_RATIOS });
+  if (params.quality !== undefined && params.quality !== null && params.quality !== '') validateString(params.quality, { field: '质量', allowedValues: ['自动', '标准', '高清', '超高清'] });
   if (params.language !== undefined && params.language !== null && params.language !== '') validateString(params.language, { field: '语言', allowedValues: ['zh', 'en'] });
   if (params.endpoint !== undefined) validateHttpUrl(params.endpoint);
   if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) throw new Error('文本请求不允许传递 API Key');

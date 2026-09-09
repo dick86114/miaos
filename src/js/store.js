@@ -567,6 +567,90 @@ export function finalizeTrashPurge(trashId, result = {}) {
   });
 }
 
+export function prepareTrashPurgeAll() {
+  const storage = ensureStorage();
+  const activeRefs = new Set(collectGeneratedFileRefs({ ...state, storage: undefined }).map((ref) => ref.path));
+  const selectedFiles = new Map();
+  const entries = storage.trash.map((entry) => {
+    const refs = collectGeneratedFileRefs({ fileRefs: entry.fileRefs, payload: entry.payload });
+    const requestedPaths = [];
+    refs.forEach((ref, index) => {
+      if (activeRefs.has(ref.path)) return;
+      if (refs.findIndex((candidate) => candidate.path === ref.path) !== index) return;
+      requestedPaths.push(ref.path);
+      if (!selectedFiles.has(ref.path)) selectedFiles.set(ref.path, ref);
+    });
+    return { trashId: entry.id, requestedPaths };
+  });
+  const files = [...selectedFiles.values()].map((ref) => {
+    const normalized = { path: ref.path };
+    if (typeof ref.size === 'number' && Number.isFinite(ref.size)) normalized.size = ref.size;
+    if (typeof ref.checksum === 'string' && /^[a-f0-9]{64}$/iu.test(ref.checksum)) normalized.checksum = ref.checksum;
+    return normalized;
+  });
+  return {
+    ok: true,
+    entries,
+    files,
+    fileDeletionRequest: { paths: files.map((file) => file.path) },
+    metadataOnly: files.length === 0,
+    requiresMainProcessConfirmation: files.length > 0,
+  };
+}
+
+export function finalizeTrashPurgeAll(result = {}) {
+  const request = prepareTrashPurgeAll();
+  if (!request?.ok) return request;
+  if (request.metadataOnly && result.metadataOnly !== true) {
+    return { ok: false, code: 'PURGE_CONFIRMATION_REQUIRED', error: '清空回收站需要明确的元数据清理确认' };
+  }
+  const hasDeletedConfirmation = Array.isArray(result.deletedPaths) || Array.isArray(result.deleted);
+  const hasMissingConfirmation = Array.isArray(result.missingPaths) || Array.isArray(result.missing);
+  if (!request.metadataOnly && !hasDeletedConfirmation && !hasMissingConfirmation) {
+    return { ok: false, code: 'PURGE_CONFIRMATION_REQUIRED', error: '需要主进程提供明确的 deleted/missing 确认结果' };
+  }
+
+  const resultPaths = (values = []) => values
+    .map((item) => typeof item === 'string' ? item : item?.path)
+    .filter(Boolean);
+  const deletedResults = resultPaths(result.deletedPaths || result.deleted);
+  const missingResults = resultPaths(result.missingPaths || result.missing);
+  const failedResults = resultPaths(result.failedPaths || result.failed);
+  const outcomes = request.entries.map((entry) => {
+    if (entry.requestedPaths.length === 0) {
+      return finalizeTrashPurge(entry.trashId, { metadataOnly: true });
+    }
+    const requested = new Set(entry.requestedPaths);
+    return finalizeTrashPurge(entry.trashId, {
+      deletedPaths: deletedResults.filter((path) => requested.has(path)),
+      missingPaths: missingResults.filter((path) => requested.has(path)),
+      failedPaths: failedResults.filter((path) => requested.has(path)),
+      requestedPaths: entry.requestedPaths,
+    });
+  });
+  const removedCount = outcomes.filter((outcome) => outcome?.ok).length;
+  const failedEntries = request.entries.flatMap((entry, index) => {
+    const outcome = outcomes[index];
+    if (outcome?.ok) return [];
+    return [{
+      trashId: entry.trashId,
+      code: outcome?.code || 'PURGE_FAILED',
+      error: outcome?.error || '清理回收站条目失败',
+    }];
+  });
+  const failedPaths = [...new Set(failedResults)];
+  if (failedEntries.length > 0) {
+    return {
+      ok: false,
+      code: 'PURGE_PARTIAL',
+      removedCount,
+      failedEntries,
+      failedPaths,
+    };
+  }
+  return { ok: true, removedCount, removedEntries: request.entries.map((entry) => entry.trashId) };
+}
+
 export function getProvider(id) {
   const p = state.providers.find((p) => p.id === id);
   return p ? cloneProvider(p) : null;
