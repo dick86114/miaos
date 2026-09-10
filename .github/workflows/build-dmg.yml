@@ -130,6 +130,6 @@ jobs:
             release/*-mac.zip
           draft: false
           prerelease: ${{ inputs.prerelease }}
-          make_latest: true
+          make_latest: ${{ !inputs.prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -33,6 +33,8 @@ import {
   finalizeTrashPurgeAll,
   getUpdateCdn,
   saveUpdateCdn,
+  getUpdateChannel,
+  saveUpdateChannel,
 } from '../store.js';
 
 const PROVIDER_TYPES = [
@@ -736,6 +738,7 @@ export function renderSettings(container, params = [], query = {}) {
     const currentVersion = u.current?.version || '—';
     const modeTag = u.current?.isPackaged === false ? ' <span class="tag tag-soft">开发模式</span>' : '';
     const currentCdn = getUpdateCdn();
+    const currentChannel = getUpdateChannel();
     return `
       <div class="page-header">
         <h1 class="page-title">关于与更新</h1>
@@ -768,6 +771,14 @@ export function renderSettings(container, params = [], query = {}) {
               ${CDN_OPTIONS.map((opt) => `<option value="${escapeAttr(opt.value)}" ${currentCdn === opt.value ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
             </select>
             <span id="update-cdn-hint" class="update-cdn-hint">${escapeHtml(CDN_OPTIONS.find((opt) => opt.value === currentCdn)?.hint || '')}</span>
+          </div>
+          <div class="update-cdn-row">
+            <span class="update-cdn-label">版本通道</span>
+            <div class="segmented-control update-channel-control" id="update-channel" role="group" aria-label="版本通道">
+              <button type="button" class="segmented-item ${currentChannel === 'stable' ? 'is-active' : ''}" data-channel="stable" aria-pressed="${currentChannel === 'stable'}"><span>正式版</span></button>
+              <button type="button" class="segmented-item ${currentChannel === 'prerelease' ? 'is-active' : ''}" data-channel="prerelease" aria-pressed="${currentChannel === 'prerelease'}"><span>预览版</span></button>
+            </div>
+            <span class="update-cdn-hint">${currentChannel === 'prerelease' ? '包含预览版本，可能不稳定' : '仅接收正式版本更新'}</span>
           </div>
           <div class="update-row">
             <div class="update-latest-info">
@@ -1614,6 +1625,22 @@ export function renderSettings(container, params = [], query = {}) {
 
   function bindAboutEvents() {
     const inner = getInner();
+    const channelControl = inner.querySelector('#update-channel');
+    if (channelControl) {
+      channelControl.addEventListener('click', (e) => {
+        const btn = e.target.closest('.segmented-item');
+        if (!btn) return;
+        const channel = btn.dataset.channel === 'prerelease' ? 'prerelease' : 'stable';
+        saveUpdateChannel(channel);
+        for (const item of channelControl.querySelectorAll('.segmented-item')) {
+          const active = item.dataset.channel === channel;
+          item.classList.toggle('is-active', active);
+          item.setAttribute('aria-pressed', String(active));
+        }
+        const hint = channelControl.parentElement?.querySelector('.update-cdn-hint');
+        if (hint) hint.textContent = channel === 'prerelease' ? '包含预览版本，可能不稳定' : '仅接收正式版本更新';
+      });
+    }
     const cdnSelect = inner.querySelector('#update-cdn-select');
     const cdnHint = inner.querySelector('#update-cdn-hint');
     if (cdnSelect) {
@@ -1629,7 +1656,10 @@ export function renderSettings(container, params = [], query = {}) {
       btnCheck.addEventListener('click', async () => {
         if (!window.api || !window.api.updateCheck) { toast('运行环境异常', 'error'); return; }
         try {
-          const res = await window.api.updateCheck({ cdnPrefix: getUpdateCdn() === 'direct' ? '' : getUpdateCdn() });
+          const res = await window.api.updateCheck({
+            cdnPrefix: getUpdateCdn() === 'direct' ? '' : getUpdateCdn(),
+            channel: getUpdateChannel(),
+          });
           if (res && res.ok === false) handleUpdateEvent({ state: 'error', message: res.error });
         } catch (error) {
           handleUpdateEvent({ state: 'error', message: error.message || '检查失败' });

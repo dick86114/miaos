@@ -3166,6 +3166,9 @@ i[data-lucide="loader"] {
   width: auto;
   min-width: 160px;
 }
+.update-channel-control {
+  display: inline-flex;
+}
 .update-row {
   display: flex;
   align-items: center;

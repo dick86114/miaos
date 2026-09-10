@@ -1454,6 +1454,9 @@ export function saveUpdateRepo(repo) { state.updateRepo = String(repo || '').tri
 
 export function getUpdateCdn() { return state.updateCdn || 'direct'; }
 export function saveUpdateCdn(cdn) { state.updateCdn = String(cdn || 'direct').trim(); save(); }
+
+export function getUpdateChannel() { return state.updateChannel === 'prerelease' ? 'prerelease' : 'stable'; }
+export function saveUpdateChannel(channel) { state.updateChannel = channel === 'prerelease' ? 'prerelease' : 'stable'; save(); }
 export function getSettings() {
   return {
     isPackaged: (window.api && window.api.updateGetCurrentVersion) ? undefined : false,

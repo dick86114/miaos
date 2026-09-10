@@ -126,6 +126,9 @@ registerSecureHandler({
     if (opts.cdnPrefix !== undefined && opts.cdnPrefix !== null && typeof opts.cdnPrefix !== 'string') {
       throw new Error('CDN 地址格式不正确');
     }
+    if (opts.channel !== undefined && opts.channel !== null && opts.channel !== 'stable' && opts.channel !== 'prerelease') {
+      throw new Error('更新通道参数不正确');
+    }
   },
   handle: async (_event, opts) => {
   if (!app.isPackaged) {
@@ -133,7 +136,8 @@ registerSecureHandler({
   }
   try {
     const cdnPrefix = opts?.cdnPrefix || '';
-    const update = await checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion(), cdnPrefix });
+    const channel = opts?.channel === 'prerelease' ? 'prerelease' : 'stable';
+    const update = await checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion(), cdnPrefix, channel });
     updateInfoCache = update;
     if (update) sendUpdateStatus('available', update);
     else sendUpdateStatus('not-available', { version: app.getVersion() });

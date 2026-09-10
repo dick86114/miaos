@@ -184,6 +184,7 @@ export function createDefaultState() {
     themeMode: 'system',
     updateRepo: 'dick86114/miaos',
     updateCdn: 'direct',
+    updateChannel: 'stable',
     storage: createEmptyStorageState(),
   };
 }
@@ -321,6 +322,7 @@ export function migrateState(parsed) {
     },
     updateRepo: typeof source.updateRepo === 'string' ? source.updateRepo : 'dick86114/miaos',
     updateCdn: typeof source.updateCdn === 'string' ? source.updateCdn : 'direct',
+    updateChannel: source.updateChannel === 'prerelease' ? 'prerelease' : 'stable',
     themeMode: source.themeMode || 'system',
     storage: normalizeStorageState(source.storage),
   };

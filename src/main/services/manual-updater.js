@@ -285,12 +285,26 @@ exit 0
 `;
 }
 
-async function checkForUpdate({ owner, repo, currentVersion, httpsImpl = https, cdnPrefix = '' }) {
+async function checkForUpdate({ owner, repo, currentVersion, httpsImpl = https, cdnPrefix = '', channel = 'stable' }) {
   const cdn = normalizeCdnPrefix(cdnPrefix);
-  const url = applyCdnPrefix(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`, cdn);
+  const isPrerelease = channel === 'prerelease';
+  // 正式版走 releases/latest（不含预发布）；预发布走 /releases 列表（包含预发布）
+  const url = applyCdnPrefix(
+    isPrerelease
+      ? `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases?per_page=5`
+      : `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/latest`,
+    cdn,
+  );
   let release;
   try {
-    release = await fetchJson(url, { httpsImpl });
+    const result = await fetchJson(url, { httpsImpl });
+    if (isPrerelease && Array.isArray(result)) {
+      // /releases 返回数组，取第一条（GitHub 按创建时间倒序，已包含预发布）
+      release = result[0] || null;
+      if (!release) return null;
+    } else {
+      release = result;
+    }
   } catch (error) {
     if (error?.statusCode !== 403 && error?.statusCode !== 429) throw error;
     return checkForUpdateFromAtom({ owner, repo, currentVersion, httpsImpl, cdnPrefix: cdn });
@@ -307,6 +321,7 @@ async function checkForUpdate({ owner, repo, currentVersion, httpsImpl = https, 
     downloadUrl: applyCdnPrefix(asset.browser_download_url, cdn),
     assetName: asset.name,
     expectedSha256: typeof asset.digest === 'string' && asset.digest.startsWith('sha256:') ? asset.digest.slice(7) : '',
+    isPrerelease: Boolean(release.prerelease),
   };
 }
 
