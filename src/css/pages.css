@@ -3145,6 +3145,27 @@ i[data-lucide="loader"] {
   flex-direction: column;
   gap: 14px;
 }
+.update-cdn-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.update-cdn-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  white-space: nowrap;
+}
+.update-cdn-hint {
+  font-size: 12px;
+  color: var(--text-tertiary, #9ca3af);
+  white-space: nowrap;
+}
+.update-cdn-select {
+  width: auto;
+  min-width: 160px;
+}
 .update-row {
   display: flex;
   align-items: center;

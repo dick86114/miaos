@@ -1451,6 +1451,9 @@ export function getProjectImagesFlat(project) {
 // ===== 设置相关 =====
 export function getUpdateRepo() { return state.updateRepo || ''; }
 export function saveUpdateRepo(repo) { state.updateRepo = String(repo || '').trim(); save(); }
+
+export function getUpdateCdn() { return state.updateCdn || 'direct'; }
+export function saveUpdateCdn(cdn) { state.updateCdn = String(cdn || 'direct').trim(); save(); }
 export function getSettings() {
   return {
     isPackaged: (window.api && window.api.updateGetCurrentVersion) ? undefined : false,

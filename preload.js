@@ -36,7 +36,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ===== 自动更新（支持下载、替换与重启） =====
   updateGetCurrentVersion: () => ipcRenderer.invoke('update-get-current-version'),
-  updateCheck: () => ipcRenderer.invoke('update-check'),
+  updateCheck: (opts) => ipcRenderer.invoke('update-check', opts),
   updateInstall: () => ipcRenderer.invoke('update-install'),
   openReleasePage: () => ipcRenderer.invoke('update-open-release-page'),
   onUpdateStatus: (callback) => {

@@ -183,6 +183,7 @@ export function createDefaultState() {
     },
     themeMode: 'system',
     updateRepo: 'dick86114/miaos',
+    updateCdn: 'direct',
     storage: createEmptyStorageState(),
   };
 }
@@ -319,6 +320,7 @@ export function migrateState(parsed) {
       defaultVideoModel,
     },
     updateRepo: typeof source.updateRepo === 'string' ? source.updateRepo : 'dick86114/miaos',
+    updateCdn: typeof source.updateCdn === 'string' ? source.updateCdn : 'direct',
     themeMode: source.themeMode || 'system',
     storage: normalizeStorageState(source.storage),
   };

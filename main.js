@@ -120,13 +120,20 @@ registerSecureHandler({
   ipcMain,
   channel: 'update-check',
   getMainWindow: () => mainWindow,
-  validate: () => {},
-  handle: async () => {
+  validate: (_event, opts) => {
+    if (opts === undefined || opts === null) return;
+    if (!opts || typeof opts !== 'object' || Array.isArray(opts)) throw new Error('更新检查参数格式不正确');
+    if (opts.cdnPrefix !== undefined && opts.cdnPrefix !== null && typeof opts.cdnPrefix !== 'string') {
+      throw new Error('CDN 地址格式不正确');
+    }
+  },
+  handle: async (_event, opts) => {
   if (!app.isPackaged) {
     return { ok: false, error: '开发环境不支持自动更新，请打包后使用' };
   }
   try {
-    const update = await checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion() });
+    const cdnPrefix = opts?.cdnPrefix || '';
+    const update = await checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion(), cdnPrefix });
     updateInfoCache = update;
     if (update) sendUpdateStatus('available', update);
     else sendUpdateStatus('not-available', { version: app.getVersion() });

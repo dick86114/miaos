@@ -31,6 +31,8 @@ import {
   finalizeTrashPurge,
   prepareTrashPurgeAll,
   finalizeTrashPurgeAll,
+  getUpdateCdn,
+  saveUpdateCdn,
 } from '../store.js';
 
 const PROVIDER_TYPES = [
@@ -40,6 +42,13 @@ const PROVIDER_TYPES = [
   { value: 'deepseek', label: 'DeepSeek', defaultEndpoint: 'https://api.deepseek.com/v1', defaultCaps: ['text'] },
   { value: 'openai', label: 'OpenAI 兼容', defaultEndpoint: '', defaultCaps: ['image', 'text'] },
   { value: 'custom', label: '自定义', defaultEndpoint: '', defaultCaps: ['image'] },
+];
+
+const CDN_OPTIONS = [
+  { value: 'direct', label: '直连 GitHub', hint: '不使用代理，适合可正常访问 GitHub 的网络' },
+  { value: 'https://ghfast.top/', label: 'ghfast.top 加速', hint: 'GitHub 镜像代理，适合中国大陆网络' },
+  { value: 'https://ghproxy.net/', label: 'ghproxy.net 加速', hint: 'GitHub 镜像代理，适合中国大陆网络' },
+  { value: 'https://gh-proxy.com/', label: 'gh-proxy.com 加速', hint: 'GitHub 镜像代理，适合中国大陆网络' },
 ];
 
 const CATEGORIES = [
@@ -726,6 +735,7 @@ export function renderSettings(container, params = [], query = {}) {
     const u = pageState.update;
     const currentVersion = u.current?.version || '—';
     const modeTag = u.current?.isPackaged === false ? ' <span class="tag tag-soft">开发模式</span>' : '';
+    const currentCdn = getUpdateCdn();
     return `
       <div class="page-header">
         <h1 class="page-title">关于与更新</h1>
@@ -752,6 +762,13 @@ export function renderSettings(container, params = [], query = {}) {
           <div id="update-state-chip" class="tag tag-soft">${UPDATE_STATE_TEXT[u.state]}</div>
         </div>
         <div class="update-panel">
+          <div class="update-cdn-row">
+            <label class="update-cdn-label" for="update-cdn-select">下载加速</label>
+            <select id="update-cdn-select" class="form-select update-cdn-select">
+              ${CDN_OPTIONS.map((opt) => `<option value="${escapeAttr(opt.value)}" ${currentCdn === opt.value ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
+            </select>
+            <span id="update-cdn-hint" class="update-cdn-hint">${escapeHtml(CDN_OPTIONS.find((opt) => opt.value === currentCdn)?.hint || '')}</span>
+          </div>
           <div class="update-row">
             <div class="update-latest-info">
               <div class="update-label">最新版本</div>
@@ -1597,12 +1614,22 @@ export function renderSettings(container, params = [], query = {}) {
 
   function bindAboutEvents() {
     const inner = getInner();
+    const cdnSelect = inner.querySelector('#update-cdn-select');
+    const cdnHint = inner.querySelector('#update-cdn-hint');
+    if (cdnSelect) {
+      cdnSelect.value = getUpdateCdn();
+      cdnSelect.addEventListener('change', () => {
+        const selected = CDN_OPTIONS.find((opt) => opt.value === cdnSelect.value);
+        saveUpdateCdn(cdnSelect.value);
+        if (cdnHint) cdnHint.textContent = selected?.hint || '';
+      });
+    }
     const btnCheck = inner.querySelector('#btn-check');
     if (btnCheck) {
       btnCheck.addEventListener('click', async () => {
         if (!window.api || !window.api.updateCheck) { toast('运行环境异常', 'error'); return; }
         try {
-          const res = await window.api.updateCheck();
+          const res = await window.api.updateCheck({ cdnPrefix: getUpdateCdn() === 'direct' ? '' : getUpdateCdn() });
           if (res && res.ok === false) handleUpdateEvent({ state: 'error', message: res.error });
         } catch (error) {
           handleUpdateEvent({ state: 'error', message: error.message || '检查失败' });
