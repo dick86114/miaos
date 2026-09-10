@@ -13,7 +13,7 @@ function assertUnsupportedOrInvalid(results, name) {
   assert.deepEqual(results[name], { empty: true, width: 0, height: 0 }, name);
 }
 
-test('Electron 43.2.0 nativeImage 真实解码支持矩阵固定且拒绝语义伪容器', () => {
+test('Electron 44.3.0 nativeImage 真实解码支持矩阵固定且拒绝语义伪容器', () => {
   const result = spawnSync('pnpm', ['exec', 'electron', entryPath], {
     cwd: path.resolve(__dirname, '..'),
     encoding: 'utf8',

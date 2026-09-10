@@ -45,7 +45,7 @@
 
 ### 环境要求
 
-- macOS 12+（Apple Silicon，arm64）
+- macOS 13+（Apple Silicon，arm64）
 - Node.js 18+
 - pnpm 10.33.3+
 

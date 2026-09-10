@@ -24,17 +24,17 @@ test('pnpm 安装允许官方 Electron 构建脚本', () => {
 });
 
 test('Electron 使用受支持稳定版本且不使用自定义 postinstall 兜底', () => {
-  assert.equal(pkg.devDependencies.electron, '43.2.0');
+  assert.equal(pkg.devDependencies.electron, '44.3.0');
   assert.equal('postinstall' in pkg.scripts, false);
   assert.equal(existsSync(new URL('../scripts/ensure-electron-ready.mjs', import.meta.url)), false);
 });
 
 
-test('发布配置仅面向 macOS 12+ Apple Silicon，且构建会严格验证签名与架构', () => {
-  assert.equal(pkg.build?.mac?.minimumSystemVersion, '12.0.0');
+test('发布配置仅面向 macOS 13+ Apple Silicon，且构建会严格验证签名与架构', () => {
+  assert.equal(pkg.build?.mac?.minimumSystemVersion, '13.0.0');
   const targetArchitectures = pkg.build.mac.target.flatMap((target) => target.arch);
   assert.deepEqual([...new Set(targetArchitectures)], ['arm64']);
-  assert.match(readme, /macOS 12[+＋]（Apple Silicon(?:，arm64)?）/);
+  assert.match(readme, /macOS 13[+＋]（Apple Silicon(?:，arm64)?）/);
   assert.doesNotMatch(readme, /Intel/i);
 
   assert.doesNotMatch(mainProcess, /verifyUpdateCodeSignature\s*=\s*false/);
