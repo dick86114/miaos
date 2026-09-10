@@ -28,7 +28,11 @@ const { createSecretsVault } = require('./src/main/secrets-vault');
 const { assertProviderId } = require('./src/main/provider-id');
 const { getRuntimeSecurityConfig } = require('./src/main/runtime-security');
 const { buildAipingImageRequest } = require('./src/main/services/aiping-image-adapter');
-const { buildGrsaiImageRequest } = require('./src/main/services/grsai-image-adapter');
+const {
+  buildGrsaiImageRequest,
+  resolveGrsaiEndpoints,
+  parseGrsaiPayload,
+} = require('./src/main/services/grsai-image-adapter');
 const { createConfigPairingServer } = require('./src/main/services/config-pairing');
 const { checkForUpdate: checkManualUpdate, downloadFile: downloadUpdateFile, buildInstallScript } = require('./src/main/services/manual-updater');
 const { spawn } = require('child_process');
@@ -1008,15 +1012,22 @@ registerSecureHandler({
     }
 
     if (String(trustedProvider.type).toLowerCase() === 'grsai') {
+      const { generateUrl } = resolveGrsaiEndpoints(trustedProvider.endpoint, 'gpt-image-2');
       const result = await requestJson({
-        url: trustedProvider.endpoint,
+        url: generateUrl,
         method: 'POST',
         headers,
         body: { model: 'gpt-image-2', prompt: 'test' },
         timeoutMs: 10000,
       });
-      if (result.data && ['failed', 'violation'].includes(result.data.status)) {
-        throw new Error(result.data.status === 'violation' ? '供应商拒绝了测试请求' : '供应商未能完成测试请求');
+      const payload = parseGrsaiPayload(result.data);
+      if (payload && typeof payload === 'object') {
+        if (payload.code !== undefined && payload.code !== 0) {
+          throw new Error(payload.msg || 'Grsai 连接测试失败');
+        }
+        if (['failed', 'violation'].includes(payload.status)) {
+          throw new Error(payload.status === 'violation' ? '供应商拒绝了测试请求' : '供应商未能完成测试请求');
+        }
       }
       return { ok: true, status: result.status };
     }
@@ -1139,16 +1150,7 @@ function buildAipingBalanceUrl(endpoint) {
 
 // ===== Grsai 异步结果轮询 =====
 async function pollGrsaiResult({ model, id }) {
-  // 从 generate 端点推导出 result 端点：/v1/api/generate → /v1/api/result
-  let resultUrl;
-  try {
-    const u = new URL(model.endpoint);
-    u.pathname = u.pathname.replace(/generate\/?$/, 'result');
-    u.search = '';
-    resultUrl = u.toString();
-  } catch (e) {
-    resultUrl = model.endpoint.replace(/generate(\?.*)?$/, 'result');
-  }
+  const { resultUrl } = resolveGrsaiEndpoints(model.endpoint, model.model);
 
   const headers = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
@@ -1159,17 +1161,28 @@ async function pollGrsaiResult({ model, id }) {
     let result;
     try {
       result = await requestJson({
-        url: `${resultUrl}?id=${encodeURIComponent(id)}`,
-        method: 'GET',
+        url: resultUrl,
+        method: 'POST',
         headers,
+        body: { id },
         timeoutMs: 30000,
       });
     } catch (e) {
       // 单次网络错误不中断，继续重试
       continue;
     }
-    const data = result && result.data;
+    const rawBody = result && result.data;
+    // API 层错误（如 apikey 无效）直接终止，不要空轮询到超时
+    if (rawBody && typeof rawBody.code === 'number' && rawBody.code !== 0) {
+      throw new Error(`Grsai 查询结果失败：${rawBody.msg || '未知错误'}`);
+    }
+    const data = parseGrsaiPayload(rawBody);
     if (!data) continue;
+
+    // API 层错误（如 apikey 无效）直接终止，不要空轮询到超时
+    if (typeof data.code === 'number' && data.code !== 0) {
+      throw new Error(`Grsai 查询结果失败：${data.msg || '未知错误'}`);
+    }
 
     if (data.status === 'succeeded') {
       const url = data.results && data.results[0] && data.results[0].url;
@@ -1178,7 +1191,10 @@ async function pollGrsaiResult({ model, id }) {
       return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
     }
     if (data.status === 'failed' || data.status === 'violation') {
-      throw new Error(data.status === 'violation' ? '供应商拒绝了生成任务' : '供应商任务执行失败');
+      const reason = data.failure_reason === 'output_moderation' || data.failure_reason === 'input_moderation'
+        ? '供应商拒绝了生成任务（内容违规）'
+        : `供应商任务执行失败${data.error ? `：${data.error}` : ''}`;
+      throw new Error(reason);
     }
     // running / 其它状态继续轮询
   }
@@ -1187,6 +1203,7 @@ async function pollGrsaiResult({ model, id }) {
 
 // ===== Grsai 生图 =====
 async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage }) {
+  const { generateUrl } = resolveGrsaiEndpoints(model.endpoint, model.model);
   const headers = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
 
@@ -1199,15 +1216,20 @@ async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage })
   });
 
   const result = await requestJson({
-    url: model.endpoint,
+    url: generateUrl,
     method: 'POST',
     headers,
     body,
     timeoutMs: 180000,
   });
 
-  const data = result && result.data;
+  const data = parseGrsaiPayload(result && result.data);
   if (!data) throw new Error('Grsai 返回数据为空');
+
+  // API 层错误（如 apikey 无效）
+  if (typeof data.code === 'number' && data.code !== 0) {
+    throw new Error(`Grsai 返回错误：${data.msg || '未知错误'}`);
+  }
 
   // 同步成功
   if (data.status === 'succeeded') {
@@ -1218,13 +1240,19 @@ async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage })
     return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
   }
 
-  // 异步任务，进入轮询
-  if (data.status === 'running' && data.id) {
+  // 异步任务：旧端点 webHook:'-1' 只返回 {id}，新端点返回 {status:'running', id}
+  if (data.id) {
     return await pollGrsaiResult({ model, id: data.id });
   }
 
   // 失败 / 违规
-  throw new Error(data && data.status === 'violation' ? '供应商拒绝了生成任务' : '供应商任务执行失败');
+  if (data && (data.status === 'violation' || data.failure_reason === 'output_moderation' || data.failure_reason === 'input_moderation')) {
+    throw new Error('供应商拒绝了生成任务（内容违规）');
+  }
+  if (data.status === 'failed') {
+    throw new Error(`供应商任务执行失败${data.error ? `：${data.error}` : data.failure_reason ? `（${data.failure_reason}）` : ''}`);
+  }
+  throw new Error(`供应商任务执行失败${data && data.error ? `：${data.error}` : ''}`);
 }
 
 // ===== OpenAI 兼容生图 =====
@@ -1598,6 +1626,10 @@ registerSecureHandler({
           stage: error?.diagnosticStage || stage,
           reasonCode: error?.code || null,
         });
+      }
+      // 将诊断编号附加到错误对象上，IPC 层会透传给渲染层。
+      if (diagnostic?.id && !error.diagnosticId) {
+        error.diagnosticId = diagnostic.id;
       }
       throw error;
     }

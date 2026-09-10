@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 
 const {
   buildGrsaiImageRequest,
+  resolveGrsaiEndpoints,
+  parseGrsaiPayload,
 } = require('../src/main/services/grsai-image-adapter');
 
 test('GRSai gpt-image-2 将三档质量映射为 low、medium、high，并保留比例参数', () => {
@@ -22,15 +24,16 @@ test('GRSai gpt-image-2 将三档质量映射为 low、medium、high，并保留
 
     assert.equal(body.quality, apiQuality);
     assert.equal(body.aspectRatio, '1:1');
-    assert.equal(body.replyType, 'json');
-    assert.deepEqual(body.images, []);
+    assert.equal(body.webHook, '-1');
+    assert.equal(body.shutProgress, true);
+    assert.deepEqual(body.urls, []);
   }
 });
 
 test('GRSai gpt-image-2-vip 按三档质量将比例转换为 1K、2K、4K 像素值', () => {
   assert.deepEqual(
     buildGrsaiImageRequest({ model: 'gpt-image-2-vip', prompt: '风景', ratio: '16:9', quality: '标准' }),
-    { model: 'gpt-image-2-vip', prompt: '风景', images: [], aspectRatio: '1280x720', quality: 'low', replyType: 'json' },
+    { model: 'gpt-image-2-vip', prompt: '风景', urls: [], aspectRatio: '1280x720', quality: 'low', webHook: '-1', shutProgress: true },
   );
   assert.equal(buildGrsaiImageRequest({ model: 'gpt-image-2-vip', prompt: '风景', ratio: '16:9', quality: '高清' }).aspectRatio, '2048x1152');
   const high = buildGrsaiImageRequest({ model: 'gpt-image-2-vip', prompt: '人物', ratio: '9:16', quality: '超高清' });
@@ -88,7 +91,42 @@ test('GRSai 非 gpt-image-2 模型保持原有请求结构', () => {
   });
 
   assert.equal(body.aspectRatio, '4:3');
-  assert.deepEqual(body.images, ['data:image/png;base64,abc']);
+  assert.deepEqual(body.urls, ['data:image/png;base64,abc']);
   assert.equal(body.quality, undefined);
   assert.equal(body.size, undefined);
+});
+
+test('GRSai nano-banana 模型路由到 /v1/draw/nano-banana 端点', () => {
+  const { generateUrl, resultUrl } = resolveGrsaiEndpoints(
+    'https://grsai.dakka.com.cn/v1/api/generate', 'nano-banana-2-4k-cl',
+  );
+  assert.equal(generateUrl, 'https://grsai.dakka.com.cn/v1/draw/nano-banana');
+  assert.equal(resultUrl, 'https://grsai.dakka.com.cn/v1/draw/result');
+});
+
+test('GRSai gpt-image 模型路由到 /v1/draw/completions 端点', () => {
+  const { generateUrl, resultUrl } = resolveGrsaiEndpoints(
+    'https://grsaiapi.com/v1/api/generate', 'gpt-image-2.5-flare',
+  );
+  assert.equal(generateUrl, 'https://grsaiapi.com/v1/draw/completions');
+  assert.equal(resultUrl, 'https://grsaiapi.com/v1/draw/result');
+});
+
+test('GRSai 已配置正确路径时仍然使用原始 origin 推导', () => {
+  const { generateUrl, resultUrl } = resolveGrsaiEndpoints(
+    'https://grsaiapi.com/v1/draw/nano-banana', 'nano-banana-2',
+  );
+  assert.equal(generateUrl, 'https://grsaiapi.com/v1/draw/nano-banana');
+  assert.equal(resultUrl, 'https://grsaiapi.com/v1/draw/result');
+});
+
+test('GRSai 新端点 {code, data, msg} 包装格式正确解包', () => {
+  const payload = parseGrsaiPayload({ code: 0, data: { status: 'running', id: 'abc' }, msg: 'success' });
+  assert.deepEqual(payload, { status: 'running', id: 'abc' });
+});
+
+test('GRSai 旧端点扁平格式直接返回', () => {
+  const payload = parseGrsaiPayload({ id: 'abc', status: 'succeeded', results: [{ url: 'https://x/y.png' }] });
+  assert.equal(payload.status, 'succeeded');
+  assert.equal(payload.results[0].url, 'https://x/y.png');
 });

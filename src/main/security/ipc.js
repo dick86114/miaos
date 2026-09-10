@@ -11,6 +11,7 @@ function createPublicError(error, fallbackCode) {
     ok: false,
     error: message,
     code: error && typeof error.code === 'string' ? error.code : fallbackCode,
+    ...(error && typeof error.diagnosticId === 'string' && error.diagnosticId ? { diagnosticId: error.diagnosticId } : {}),
   };
 }
 

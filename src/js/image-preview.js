@@ -172,9 +172,9 @@ export function openImagePreview(record, options = {}) {
     copyButton.addEventListener('click', () => onCopyPrompt(record.prompt, record));
     actions.appendChild(copyButton);
   }
-  if (isFailureDetail && record.errorDetails?.diagnosticId) {
+  if (isFailureDetail && (record.error || record.errorDetails?.diagnosticId)) {
     const help = getGenerationErrorHelp({ ...record.errorDetails, message: record.error });
-    const copyDiagnosticButton = createElement(documentRef, 'button', 'btn btn-ghost btn-sm', '复制诊断信息');
+    const copyDiagnosticButton = createElement(documentRef, 'button', 'btn btn-ghost btn-sm', '复制报错信息');
     copyDiagnosticButton.type = 'button';
     copyDiagnosticButton.setAttribute('data-image-preview-copy-diagnostic', '');
     copyDiagnosticButton.addEventListener('click', async () => {

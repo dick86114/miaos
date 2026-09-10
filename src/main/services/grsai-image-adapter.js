@@ -21,6 +21,11 @@ const NANO_4K_ONLY = new Set(['nano-banana-2-4k-cl', 'nano-banana-pro-4k-vip']);
 const NANO_1K_2K = new Set(['nano-banana-pro-vip']);
 const NANO_RESOLUTIONS = { 标准: '1K', 高清: '2K', 超高清: '4K' };
 
+// Grsai 按模型族路由到不同端点；用户只需配置主机地址，路径由模型类型自动推导。
+const NANO_BANANA_PATH = '/v1/draw/nano-banana';
+const GPT_IMAGE_PATH = '/v1/draw/completions';
+const DRAW_RESULT_PATH = '/v1/draw/result';
+
 // GRSai 的 vip 模型将像素尺寸放在 aspectRatio，且 4K 正方形最大为 2880x2880。
 const GPT_IMAGE_VIP_SIZES = {
   标准: { '1:1': '1024x1024', '4:3': '1152x864', '16:9': '1280x720', '9:16': '720x1280' },
@@ -52,10 +57,11 @@ function buildGrsaiImageRequest({ model, prompt, ratio = '1:1', quality = '高�
     const body = {
       model,
       prompt,
-      images,
+      urls: images,
       aspectRatio: ratio,
       quality: GPT_IMAGE_QUALITY[normalizedQuality],
-      replyType: 'json',
+      webHook: '-1',
+      shutProgress: true,
     };
     if (GPT_IMAGE_PIXEL_SIZE_MODELS.has(model)) {
       body.aspectRatio = GPT_IMAGE_VIP_SIZES[normalizedQuality][ratio] || GPT_IMAGE_VIP_SIZES[normalizedQuality]['1:1'];
@@ -67,18 +73,20 @@ function buildGrsaiImageRequest({ model, prompt, ratio = '1:1', quality = '高�
     return {
       model,
       prompt,
-      images,
+      urls: images,
       aspectRatio: ratio,
-      replyType: 'json',
+      webHook: '-1',
+      shutProgress: true,
     };
   }
   {
     const body = {
       model,
       prompt,
-      images,
+      urls: images,
       aspectRatio: ratio,
-      replyType: 'json',
+      webHook: '-1',
+      shutProgress: true,
     };
     let imageSize;
     if (NANO_ALL_RESOLUTIONS.has(model)) imageSize = NANO_RESOLUTIONS[quality] || '2K';
@@ -92,8 +100,36 @@ function buildGrsaiImageRequest({ model, prompt, ratio = '1:1', quality = '高�
 
 }
 
+// 从用户配置的端点中提取 origin，再按模型类型拼接正确的 Grsai API 路径。
+function resolveGrsaiEndpoints(endpoint, model) {
+  let origin;
+  try {
+    origin = new URL(endpoint).origin;
+  } catch (_) {
+    origin = '';
+  }
+  if (!origin) {
+    return { generateUrl: endpoint, resultUrl: endpoint.replace(/generate(\?.*)?$/, 'result') };
+  }
+
+  const generateUrl = model.startsWith('nano-banana')
+    ? origin + NANO_BANANA_PATH
+    : origin + GPT_IMAGE_PATH;
+  return { generateUrl, resultUrl: origin + DRAW_RESULT_PATH };
+}
+
+// Grsai 新端点返回 {code, data, msg} 包装格式；旧端点直接返回 {id, status, ...}。
+function parseGrsaiPayload(body) {
+  if (body && typeof body === 'object' && 'code' in body && 'data' in body) {
+    return body.data;
+  }
+  return body;
+}
+
 module.exports = {
   GPT_IMAGE_QUALITY,
   GPT_IMAGE_VIP_SIZES,
   buildGrsaiImageRequest,
+  resolveGrsaiEndpoints,
+  parseGrsaiPayload,
 };

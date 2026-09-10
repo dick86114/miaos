@@ -99,9 +99,13 @@ export function formatDiagnosticText(record, help) {
   const parts = [
     `问题：${help.title}`,
     `说明：${help.summary}`,
+    record?.error ? `错误：${record.error}` : '',
     record?.errorDetails?.diagnosticId ? `诊断编号：${record.errorDetails.diagnosticId}` : '',
     record?.providerName ? `供应商：${record.providerName}` : '',
     record?.modelId ? `模型：${record.modelId}` : '',
+    record?.ratio ? `比例：${record.ratio}` : '',
+    record?.quality ? `质量：${record.quality}` : '',
+    record?.prompt ? `提示词：${record.prompt}` : '',
   ].filter(Boolean);
   return parts.join('\n');
 }

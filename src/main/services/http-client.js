@@ -7,17 +7,19 @@ const DEFAULT_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 
-function createHttpStatusError(status) {
+function createHttpStatusError(status, bodyText) {
+  const retryable = status === 429 || status >= 500;
+  const detail = bodyText ? { status, body: bodyText.slice(0, 2000), retryable } : { status, retryable };
   if (status === 401 || status === 403) {
-    return new AppError('AUTH_FAILED', '认证失败，请检查 API Key 是否有效', { status, retryable: false });
+    return new AppError('AUTH_FAILED', '认证失败，请检查 API Key 是否有效', detail);
   }
   if (status === 429) {
-    return new AppError('RATE_LIMITED', '请求过于频繁，请稍后再试', { status, retryable: true });
+    return new AppError('RATE_LIMITED', '请求过于频繁，请稍后再试', detail);
   }
   if (status >= 500) {
-    return new AppError('UPSTREAM_ERROR', '上游服务暂时不可用，请稍后重试', { status, retryable: true });
+    return new AppError('UPSTREAM_ERROR', '上游服务暂时不可用，请稍后重试', detail);
   }
-  return new AppError('UPSTREAM_REJECTED', '请求被服务拒绝，请检查 API 地址和请求参数', { status, retryable: false });
+  return new AppError('UPSTREAM_REJECTED', '请求被服务拒绝，请检查 API 地址和请求参数', detail);
 }
 
 function createNetworkError(error) {
@@ -226,7 +228,8 @@ function performRequest(context) {
         res.on('end', () => {
           if (settled) return;
           if (status < 200 || status >= 300) {
-            settle(reject, createHttpStatusError(status));
+            const bodyText = Buffer.concat(chunks).toString('utf8');
+            settle(reject, createHttpStatusError(status, bodyText));
             return;
           }
           const text = Buffer.concat(chunks).toString('utf8');

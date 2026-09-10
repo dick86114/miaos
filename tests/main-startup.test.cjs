@@ -413,7 +413,7 @@ function getRequestBody(calls, index = -1) {
 }
 
 function assertPngSourceImage(calls, index = -1) {
-  const sourceImage = getRequestBody(calls, index).images[0];
+  const sourceImage = getRequestBody(calls, index).urls[0];
   assert.match(sourceImage, /^data:image\/png;base64,/);
   assert.equal(Buffer.from(sourceImage.split(',')[1], 'base64').subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
 }
@@ -998,7 +998,7 @@ test('已保存供应商将 key 绑定到可信 metadata，不能被 renderer �
     assert.equal(result.ok, false);
     assert.equal(calls.networkRequests.length, 1);
     assert.equal(calls.networkRequests[0].options.hostname, 'trusted.invalid');
-    assert.equal(calls.networkRequests[0].options.path, '/v1/api/generate');
+    assert.equal(calls.networkRequests[0].options.path, '/v1/draw/completions');
     assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer test-key');
   } finally {
     cleanupTempHome(homePath);
@@ -1061,7 +1061,7 @@ test('公开 provider 没有密钥时仍可使用可信 metadata 发起无 Autho
     const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
     await calls.ipcHandlers['test-connection'](trustedEvent(), { providerId: 'p_public' });
     assert.equal(calls.networkRequests.at(-1).options.hostname, 'public.invalid');
-    assert.equal(calls.networkRequests.at(-1).options.path, '/generate');
+    assert.equal(calls.networkRequests.at(-1).options.path, '/v1/draw/completions');
     assert.equal('Authorization' in calls.networkRequests.at(-1).options.headers, false);
   } finally {
     cleanupTempHome(homePath);
@@ -1249,39 +1249,39 @@ test('真实 generate handler 允许 generated、选择器授权、粘贴授权�
 
     const generatedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(generatedImage));
     assert.equal(generatedResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
 
     const picked = await calls.ipcHandlers['pick-image-file'](trustedEvent());
     assert.equal(picked.canceled, false);
     assert.ok(picked.filePath.startsWith(fs.realpathSync(generatedDir) + path.sep));
     const pickedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(picked.filePath));
     assert.equal(pickedResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
 
     const pasted = await calls.ipcHandlers['save-pasted-image'](trustedEvent(), PNG_DATA_URL);
     assert.equal(pasted.ok, true);
     const pastedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(pasted.filePath));
     assert.equal(pastedResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
 
     const dataUrlResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(PNG_DATA_URL));
     assert.equal(dataUrlResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
 
     const baselineJpegDataUrl = dataUrl('image/jpeg', JPEG_BYTES);
     const baselineJpegResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(baselineJpegDataUrl));
     assert.equal(baselineJpegResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [baselineJpegDataUrl]);
+    assert.deepEqual(getRequestBody(calls).urls, [baselineJpegDataUrl]);
 
     const progressiveDataUrl = dataUrl('image/jpeg', PROGRESSIVE_JPEG_BYTES);
     const progressiveResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(progressiveDataUrl));
     assert.equal(progressiveResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [progressiveDataUrl]);
+    assert.deepEqual(getRequestBody(calls).urls, [progressiveDataUrl]);
 
     const adam7DataUrl = dataUrl('image/png', ADAM7_PNG_BYTES);
     const adam7Result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(adam7DataUrl));
     assert.equal(adam7Result.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).images, [adam7DataUrl]);
+    assert.deepEqual(getRequestBody(calls).urls, [adam7DataUrl]);
 
     const bmpImage = path.join(generatedDir, 'generated.bmp');
     fs.writeFileSync(bmpImage, BMP_BYTES);
