@@ -33,3 +33,36 @@ test('认证、限流与未知错误均提供不会泄露密钥的可执行说�
   assert.doesNotMatch(unknown.summary, /secret-value/);
   assert.match(unknown.summary, /未能完成/);
 });
+
+test('图片下载的 HTTP 状态会映射为具体的用户可读原因', async () => {
+  const { getGenerationErrorHelp } = await loadHelp();
+  const expired = getGenerationErrorHelp({
+    stage: 'image_download',
+    reasonCode: 'HTTP_404',
+  });
+  assert.equal(expired.title, '图片已生成，但结果图链接不可用');
+  assert.match(expired.summary, /HTTP 404/);
+  assert.match(expired.summary, /已过期|不可访问/);
+  assert.equal(expired.retryable, false);
+
+  const rateLimited = getGenerationErrorHelp({
+    stage: 'image_download',
+    reasonCode: 'HTTP_429',
+  });
+  assert.equal(rateLimited.title, '图片已生成，但下载结果被限流');
+  assert.match(rateLimited.summary, /HTTP 429/);
+
+  const upstream = getGenerationErrorHelp({
+    stage: 'image_download',
+    reasonCode: 'HTTP_503',
+  });
+  assert.equal(upstream.title, '图片已生成，但图片服务暂时异常');
+  assert.match(upstream.summary, /HTTP 503/);
+
+  const timeout = getGenerationErrorHelp({
+    stage: 'image_download',
+    reasonCode: 'ETIMEDOUT',
+  });
+  assert.equal(timeout.title, '图片已生成，但下载结果超时');
+  assert.match(timeout.summary, /超时/);
+});

@@ -18,6 +18,44 @@ export function getGenerationErrorHelp(input) {
 
   if (error.stage === 'image_download') {
     const reset = error.reasonCode === 'ECONNRESET';
+    const statusMatch = /^HTTP_(\d{3})$/u.exec(error.reasonCode);
+    const httpStatus = statusMatch ? Number(statusMatch[1]) : 0;
+    if (httpStatus === 404 || httpStatus === 410) {
+      return createHelp({
+        title: '图片已生成，但结果图链接不可用',
+        summary: `供应商已返回图片结果，但结果图地址返回 HTTP ${httpStatus}，链接可能已过期或不可访问。`,
+        reasons: ['供应商的结果图链接有过期时间', '图片 CDN 已移除该文件', '供应商地址或资源策略异常'],
+        steps: ['点击“再次生成”重新生成一张', '若多次出现，在生成后立即保存并观察是否仍失败', '复制诊断信息并联系供应商确认链接有效期'],
+        retryable: false,
+      });
+    }
+    if (httpStatus === 429) {
+      return createHelp({
+        title: '图片已生成，但下载结果被限流',
+        summary: '供应商已返回图片结果，但下载结果图时收到 HTTP 429，当前下载请求过多或超过频率限制。',
+        reasons: ['短时间批量生成触发了图片服务限流', '当前账户或 IP 的下载额度受限'],
+        steps: ['等待一两分钟后点击“再次生成”', '减少同时批量生成的数量', '若持续出现，复制诊断信息并联系供应商'],
+        retryable: true,
+      });
+    }
+    if (httpStatus >= 500) {
+      return createHelp({
+        title: '图片已生成，但图片服务暂时异常',
+        summary: `供应商已返回图片结果，但下载结果图时收到 HTTP ${httpStatus}，图片服务当前处理异常。`,
+        reasons: ['图片 CDN 或供应商服务临时故障', '图片服务正在维护或过载'],
+        steps: ['等待几分钟后点击“再次生成”', '尝试供应商或网络可用时的其他生成任务', '持续出现时复制诊断信息并联系供应商'],
+        retryable: true,
+      });
+    }
+    if (error.reasonCode === 'ETIMEDOUT') {
+      return createHelp({
+        title: '图片已生成，但下载结果超时',
+        summary: '供应商已返回图片结果，但连接图片地址或读取图片内容超时。',
+        reasons: ['当前网络到图片服务的延迟过高', '图片文件较大且网络不稳定', 'VPN、代理或防火墙拖慢了连接'],
+        steps: ['检查网络后点击“再次生成”', '关闭 VPN 或代理后重试', '切换手机热点或其他网络后重试'],
+        retryable: true,
+      });
+    }
     return createHelp({
       title: reset ? '图片已生成，但下载结果时连接中断' : '图片已生成，但下载结果失败',
       summary: reset

@@ -35,6 +35,7 @@ const {
 } = require('./src/main/services/grsai-image-adapter');
 const { createConfigPairingServer } = require('./src/main/services/config-pairing');
 const { checkForUpdate: checkManualUpdate, downloadFile: downloadUpdateFile, buildInstallScript } = require('./src/main/services/manual-updater');
+const { downloadImageToFile, isRetryableImageDownloadError } = require('./src/main/services/image-downloader');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
 
@@ -1063,32 +1064,7 @@ function saveGeneratedImage(input, id) {
 
   // 2) HTTP(S) URL → 下载
   if (typeof input === 'string' && /^https?:\/\//i.test(input)) {
-    return new Promise((resolve, reject) => {
-      const parsedUrl = new URL(input);
-      const lib = parsedUrl.protocol === 'https:' ? https : http;
-      const req = lib.get(input, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          // 简单重定向
-          saveGeneratedImage(res.headers.location, id).then(resolve).catch(reject);
-          req.destroy();
-          return;
-        }
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(`下载图片失败：HTTP ${res.statusCode}`));
-          return;
-        }
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('error', reject);
-        res.on('end', () => {
-          fs.writeFileSync(filePath, Buffer.concat(chunks));
-          resolve(filePath);
-        });
-      });
-      req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('下载图片超时')); });
-      req.setTimeout(30000);
-    }).catch((error) => {
+    return downloadImageToFile(input, filePath).then((result) => result.path).catch((error) => {
       error.diagnosticStage = 'image_download';
       error.diagnosticImageUrl = input;
       throw error;
@@ -1096,6 +1072,30 @@ function saveGeneratedImage(input, id) {
   }
 
   throw new Error('无法识别的图片返回格式');
+}
+
+function describeImageDownloadFailure(error) {
+  const status = Number(error?.status || 0);
+  if (status === 404 || status === 410) {
+    return `图片服务返回 HTTP ${status}，结果图可能已过期或不可访问`;
+  }
+  if (status === 429) return '图片服务返回 HTTP 429，下载请求被限流';
+  if (status >= 500) return `图片服务返回 HTTP ${status}，图片服务暂时异常`;
+  if (status) return `图片服务返回 HTTP ${status}`;
+  if (error?.code === 'ECONNRESET') return '与图片服务的连接被对端中断（ECONNRESET）';
+  if (error?.code === 'ETIMEDOUT') return '连接图片服务或读取图片内容超时（ETIMEDOUT）';
+  if (error?.code === 'ENOTFOUND') return '图片地址域名无法解析（ENOTFOUND）';
+  if (error?.code === 'ECONNREFUSED') return '图片服务拒绝了连接（ECONNREFUSED）';
+  if (error?.code === 'EHOSTUNREACH' || error?.code === 'ENETUNREACH') {
+    return '当前网络无法访问图片服务';
+  }
+  return error?.message ? `下载过程出现意外错误：${error.message}` : '下载过程出现未知网络错误';
+}
+
+function buildImageDownloadFailureMessage(error) {
+  const reason = describeImageDownloadFailure(error);
+  const retryNote = isRetryableImageDownloadError(error) ? '自动重试后仍未成功' : '未执行网络重试';
+  return `图片已生成，但保存结果失败：${reason}，${retryNote}。`;
 }
 
 function redactProviderSecret(value, apiKey) {
@@ -1615,6 +1615,17 @@ registerSecureHandler({
           error.userMessage = `${error.userMessage}（诊断编号：${diagnostic.id}）`;
         }
         throw error;
+      }
+      if (error?.diagnosticStage === 'image_download') {
+        const reasonCode = error?.status ? `HTTP_${error.status}` : (error?.code || null);
+        const diagnosticSuffix = diagnostic?.id ? `（诊断编号：${diagnostic.id}）` : '';
+        throw new AppError('GENERATION_FAILED', `${buildImageDownloadFailureMessage(error)}${diagnosticSuffix}`, {
+          cause: error,
+          retryable: isRetryableImageDownloadError(error),
+          diagnosticId: diagnostic?.id,
+          stage: 'image_download',
+          reasonCode,
+        });
       }
       const networkCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT', 'ENOTFOUND']);
       if (error?.diagnosticStage === 'image_download' || networkCodes.has(error?.code)) {

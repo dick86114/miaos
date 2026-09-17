@@ -9,6 +9,7 @@ const { EventEmitter } = require('node:events');
 
 const mainPath = path.resolve(__dirname, '..', 'main.js');
 const httpClientPath = path.resolve(__dirname, '..', 'src/main/services/http-client.js');
+const imageDownloaderPath = path.resolve(__dirname, '..', 'src/main/services/image-downloader.js');
 const {
   REAL_IMAGE_BYTES,
   FAKE_IMAGE_BYTES,
@@ -252,6 +253,7 @@ async function runMainWithMock(options = {}) {
   process.exitCode = undefined;
   delete require.cache[mainPath];
   delete require.cache[httpClientPath];
+  delete require.cache[imageDownloaderPath];
 
   Module._load = function patchedLoad(request, parent, isMain) {
     if (request === 'electron') return electronMock;
@@ -288,6 +290,7 @@ async function runMainWithMock(options = {}) {
     Module._load = originalLoad;
     delete require.cache[mainPath];
     delete require.cache[httpClientPath];
+    delete require.cache[imageDownloaderPath];
     process.exitCode = originalExitCode;
     if (hadLegacyRenderer) process.env.MIAOS_LEGACY_RENDERER = originalLegacyRenderer;
     else delete process.env.MIAOS_LEGACY_RENDERER;
@@ -1596,6 +1599,80 @@ test('Aiping 标准 URL 响应会下载到本地生成目录', async () => {
     assert.equal(fs.existsSync(result.imagePath), true);
     assert.deepEqual(fs.readFileSync(result.imagePath), PNG_BYTES);
     assert.match(result.fileUrl, /^file:\/\//u);
+    assert.equal(calls.networkRequests.length, 2);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('结果图下载临时失败只重试下载，不重新调用生图接口', async () => {
+  const homePath = createTempHome('miaos-image-download-retry-scope-');
+  let downloadAttempts = 0;
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse(request) {
+        if (request.options.path === '/api/v1/images/generations') {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              data: [{ url: 'https://cdn.aiping.test/retry.png' }],
+            }),
+          };
+        }
+        if (request.url === 'https://cdn.aiping.test/retry.png') {
+          downloadAttempts += 1;
+          if (downloadAttempts === 1) return { statusCode: 503, body: 'temporary' };
+          return { statusCode: 200, body: PNG_BYTES };
+        }
+        return { statusCode: 500, body: 'unexpected request' };
+      },
+    });
+    await seedProvider(calls, createAipingMetadata());
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createAipingGenerateParams());
+    assert.equal(result.ok, true);
+    assert.equal(downloadAttempts, 2);
+    assert.equal(calls.networkRequests.filter((request) => (
+      request.options.path === '/api/v1/images/generations'
+    )).length, 1);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('结果图下载失败会生成明确区分阶段的用户可读错误', async () => {
+  const homePath = createTempHome('miaos-image-download-message-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse(request) {
+        if (request.options.path === '/api/v1/images/generations') {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              data: [{ url: 'https://cdn.aiping.test/expired.png' }],
+            }),
+          };
+        }
+        if (request.url === 'https://cdn.aiping.test/expired.png') {
+          return { statusCode: 404, body: 'missing' };
+        }
+        return { statusCode: 500, body: 'unexpected request' };
+      },
+    });
+    await seedProvider(calls, createAipingMetadata());
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createAipingGenerateParams());
+    assert.equal(result.ok, false);
+    assert.equal(result.code, 'GENERATION_FAILED');
+    assert.equal(result.stage, 'image_download');
+    assert.equal(result.reasonCode, 'HTTP_404');
+    assert.equal(result.retryable, false);
+    assert.match(result.error, /图片已生成/);
+    assert.match(result.error, /保存结果失败/);
+    assert.match(result.error, /HTTP 404/);
+    assert.match(result.error, /结果图可能已过期或不可访问/);
     assert.equal(calls.networkRequests.length, 2);
   } finally {
     cleanupTempHome(homePath);
