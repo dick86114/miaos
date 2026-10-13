@@ -66,3 +66,56 @@ test('图片下载的 HTTP 状态会映射为具体的用户可读原因', async
   assert.equal(timeout.title, '图片已生成，但下载结果超时');
   assert.match(timeout.summary, /超时/);
 });
+
+test('供应商维护错误会显示模型状态和其他模型切换步骤', async () => {
+  const { getGenerationErrorHelp } = await loadHelp();
+  const help = getGenerationErrorHelp({
+    message: '供应商任务执行失败：维护中，模型正在修复',
+    code: 'IPC_HANDLER_FAILED',
+  });
+
+  assert.equal(help.title, '模型正在维护，暂时不可调用');
+  assert.match(help.summary, /维护中，模型正在修复/);
+  assert.ok(help.reasons.some((reason) => reason.includes('维护')));
+  assert.ok(help.steps.some((step) => step.includes('其他可用生图模型')));
+  assert.equal(help.retryable, true);
+});
+
+test('供应商异步任务失败会保留已脱敏的供应商原因', async () => {
+  const { getGenerationErrorHelp } = await loadHelp();
+  const help = getGenerationErrorHelp({
+    message: '供应商任务执行失败：供应商上游容量不足（诊断编号：diag-example）',
+    code: 'IPC_HANDLER_FAILED',
+  });
+
+  assert.equal(help.title, '供应商模型执行失败');
+  assert.match(help.summary, /供应商上游容量不足/);
+  assert.doesNotMatch(help.summary, /diag-example/);
+  assert.ok(help.steps.some((step) => step.includes('其他模型')));
+});
+
+test('内容违规、查询失败和轮询超时都有明确的处理建议', async () => {
+  const { getGenerationErrorHelp } = await loadHelp();
+
+  const violation = getGenerationErrorHelp({
+    message: '供应商拒绝了生成任务（内容违规）',
+    code: 'IPC_HANDLER_FAILED',
+  });
+  assert.equal(violation.title, '生成内容被供应商拦截');
+  assert.ok(violation.steps.some((step) => step.includes('提示词')));
+
+  const query = getGenerationErrorHelp({
+    message: 'Grsai 查询结果失败：任务已过期（诊断编号：diag-example）',
+    code: 'IPC_HANDLER_FAILED',
+  });
+  assert.equal(query.title, '供应商结果查询失败');
+  assert.match(query.summary, /任务已过期/);
+  assert.doesNotMatch(query.summary, /diag-example/);
+
+  const timeout = getGenerationErrorHelp({
+    message: '轮询超时，任务仍未完成',
+    code: 'IPC_HANDLER_FAILED',
+  });
+  assert.equal(timeout.title, '供应商任务执行超时');
+  assert.equal(timeout.retryable, true);
+});

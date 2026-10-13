@@ -6,11 +6,46 @@ function normalize(input = {}) {
     stage: String(input.stage || ''),
     reasonCode: String(input.reasonCode || ''),
     diagnosticId: String(input.diagnosticId || ''),
+    message: String(input.message || ''),
   };
 }
 
 function createHelp({ title, summary, reasons, steps, retryable = false }) {
   return { title, summary, reasons, steps, retryable };
+}
+
+// 只解析应用自身生成的错误前缀；未知消息不回显，避免把敏感日志展示到帮助区。
+function extractKnownReason(message, prefix) {
+  if (!message.startsWith(prefix)) return '';
+  return message
+    .slice(prefix.length)
+    .replace(/（诊断编号：[^）]*）/u, '')
+    .replace(/[\u0000-\u001f\u007f]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 240);
+}
+
+function createProviderTaskHelp(reason) {
+  if (/维护中|正在修复/u.test(reason)) {
+    return createHelp({
+      title: '模型正在维护，暂时不可调用',
+      summary: `供应商在执行任务时返回：${reason}。该模型当前不可调用。`,
+      reasons: ['供应商已将模型置为维护状态', '模型服务暂时关闭或正在修复'],
+      steps: ['切换到同一供应商的其他可用生图模型', '等待供应商恢复后再点击“再次生成”', '若长期未恢复，在供应商后台确认模型状态'],
+      retryable: true,
+    });
+  }
+
+  return createHelp({
+    title: '供应商模型执行失败',
+    summary: reason
+      ? `供应商已受理生图任务，但执行阶段返回失败：${reason}。`
+      : '供应商已受理生图任务，但执行阶段未成功完成。',
+    reasons: ['供应商模型或上游算力执行异常', '供应商返回了应用未分类的业务错误'],
+    steps: ['查看下方错误和诊断编号确认供应商原因', '尝试同一供应商的其他模型', '稍后点击“再次生成”，或联系供应商确认模型状态'],
+    retryable: true,
+  });
 }
 
 export function getGenerationErrorHelp(input) {
@@ -63,6 +98,38 @@ export function getGenerationErrorHelp(input) {
         : '供应商已返回图片结果，但客户端下载图片到本机时未能完成。',
       reasons: ['图片 CDN 临时异常', '当前网络、VPN 或代理拦截了图片地址', '网络出口与图片服务的连接不稳定'],
       steps: ['点击“再次生成”重试一次', '关闭 VPN 或代理后重试', '切换手机热点或其他网络后重试', '若持续失败，复制诊断信息并联系供应商'],
+      retryable: true,
+    });
+  }
+
+  const taskReason = extractKnownReason(error.message, '供应商任务执行失败：');
+  if (taskReason) return createProviderTaskHelp(taskReason);
+
+  if (error.message === '供应商拒绝了生成任务（内容违规）') {
+    return createHelp({
+      title: '生成内容被供应商拦截',
+      summary: '供应商内容审核拒绝了本次提示词或参考图，任务没有生成结果。',
+      reasons: ['提示词触发了供应商内容策略', '参考图内容触发了供应商内容策略'],
+      steps: ['调整或简化提示词后重试', '移除参考图或更换参考图后重试', '确认内容符合供应商使用政策'],
+    });
+  }
+
+  const queryReason = extractKnownReason(error.message, 'Grsai 查询结果失败：');
+  if (queryReason) {
+    return createHelp({
+      title: '供应商结果查询失败',
+      summary: `供应商在查询生成结果时返回：${queryReason}。`,
+      reasons: ['异步任务已被供应商移除或过期', '供应商结果服务返回业务错误'],
+      steps: ['点击“再次生成”创建新任务', '尝试同一供应商的其他模型', '持续失败时复制诊断信息联系供应商'],
+    });
+  }
+
+  if (error.message === '轮询超时，任务仍未完成') {
+    return createHelp({
+      title: '供应商任务执行超时',
+      summary: '供应商已受理任务，但长时间未返回最终结果，应用已停止等待。',
+      reasons: ['供应商算力繁忙或任务排队过长', '模型服务响应缓慢'],
+      steps: ['稍后点击“再次生成”', '减少同时提交的生成数量', '尝试同一供应商的其他模型'],
       retryable: true,
     });
   }
