@@ -65,6 +65,8 @@ function parseGrsaiModelCatalog(html, category = 'image') {
     for (const item of remoteModels) {
       const id = typeof item?.name === 'string' ? item.name.trim() : '';
       if (!id || item.type !== category || seen.has(id)) continue;
+      if (item.closeModel === true) continue;
+      if (typeof item.maintenance === 'string' && item.maintenance.trim()) continue;
       seen.add(id);
       const description = typeof item.desc === 'string' ? item.desc.trim() : '';
       models.push({ id, name: description || id });
