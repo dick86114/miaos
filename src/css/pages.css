@@ -1286,14 +1286,14 @@ i[data-lucide="loader"] {
   --project-columns: 1;
   grid-template-columns: repeat(var(--project-columns), minmax(0, 1fr));
   align-items: start;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
 }
 .project-masonry-column {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 .project-card {
   position: relative;
@@ -1320,7 +1320,7 @@ i[data-lucide="loader"] {
   background: var(--surface-2);
 }
 .project-cover-placeholder {
-  min-height: 180px;
+  min-height: 120px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1346,8 +1346,8 @@ i[data-lucide="loader"] {
 }
 .project-card:hover .project-card-delete { opacity: 1; }
 .project-card-delete:hover { background: var(--state-error); color: #fff; }
-.project-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
-.project-name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.project-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; }
+.project-name { display: block; font-size: 18px; font-weight: 700; line-height: 1.25; color: var(--ink); }
 .project-desc {
   font-size: 13px;
   color: var(--ink-2);

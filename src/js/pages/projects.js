@@ -16,10 +16,11 @@ import { navigate } from '../router.js';
 
 export function getProjectMasonryColumnCount(width) {
   const value = Number(width) || 0;
-  if (value >= 1600) return 5;
-  if (value >= 1250) return 4;
-  if (value >= 900) return 3;
-  if (value >= 600) return 2;
+  if (value >= 1400) return 6;
+  if (value >= 1150) return 5;
+  if (value >= 900) return 4;
+  if (value >= 650) return 3;
+  if (value >= 480) return 2;
   return 1;
 }
 
@@ -152,7 +153,6 @@ function projectCardHtml(p) {
     : `<div class="project-cover project-cover-placeholder">${icon('folder', 36)}</div>`;
   return `
     <a class="project-card" data-id="${p.id}" href="#/project/${p.id}">
-      ${coverHtml}
       <button type="button" class="project-card-delete" data-id="${p.id}" title="删除项目">${icon('trash-2', 14)}</button>
       <div class="project-body">
         <span class="project-name">${escapeHtml(p.name)}</span>
@@ -164,6 +164,7 @@ function projectCardHtml(p) {
           <span class="meta-time">${formatRelativeTime(p.updatedAt)}</span>
         </div>
       </div>
+      ${coverHtml}
     </a>`;
 }
 
