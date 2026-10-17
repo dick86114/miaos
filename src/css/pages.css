@@ -38,13 +38,20 @@
 /* 参考图预览卡片（输入框内部上方） */
 .composer-source-preview {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 10px 12px;
   background: var(--brand-soft);
   border: 1px solid rgba(79, 70, 229, 0.15);
   border-radius: var(--r-md);
   margin-bottom: 4px;
+}
+.composer-source-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 .composer-source-preview-img-wrap {
   width: 48px;
@@ -80,8 +87,86 @@
   flex-shrink: 0;
 }
 .composer-source-preview-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--ink-3);
+}
+.composer-source-grid {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 5px 3px 3px;
+  scrollbar-width: thin;
+}
+.composer-source-item {
+  position: relative;
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+}
+.composer-source-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  cursor: zoom-in;
+  transition: border-color var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease);
+}
+.composer-source-thumb:hover {
+  border-color: var(--brand);
+  transform: translateY(-1px);
+}
+.composer-source-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.composer-source-index {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(17, 24, 39, 0.72);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.composer-source-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+  z-index: 2;
+}
+.composer-source-remove:hover {
+  border-color: var(--state-error);
+  background: var(--state-error);
+  color: #fff;
 }
 .composer-source-preview .icon-btn {
   width: 28px;

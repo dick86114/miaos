@@ -354,7 +354,7 @@ test('快速任务复用项目画廊占位卡片、显示批次并提供失败�
 test('快速与项目生图输入框自动最多十行，但手动拖拽不受十行高度限制，历史不再保留重复详情按钮', () => {
   assert.match(generatePage, /const PROMPT_INPUT_MAX_LINES = 10;/u, '快速生图页必须声明十行上限');
   assert.match(generatePage, /function syncPromptInputHeight\(textarea\)/u, '快速生图页必须提供输入框高度同步函数');
-  assert.match(generatePage, /promptInput\.addEventListener\('input', \(\) => syncPromptInputHeight\(promptInput\)\)/u, '输入时必须同步高度');
+  assert.match(generatePage, /promptInput\.addEventListener\('input', \(\) => \{[\s\S]*?syncPromptInputHeight\(promptInput\);[\s\S]*?saveComposerDraft\(\);/u, '输入时必须同步高度并写入草稿');
   assert.match(generatePage, /syncPromptInputHeight\(promptInput\);/u, '页面初始化与提示词回填后必须同步高度');
   const optimizationFinalize = getEnclosedBlock(generatePage, /function finalizeState\(state\) \{/u, '优化绑定必须定义完成处理');
   assert.match(optimizationFinalize, /textarea\.dispatchEvent\?\.\(new Event\('input'/u, '优化结果回填后必须触发输入框高度同步');
@@ -486,4 +486,57 @@ test('统一详情页支持点击全屏、滚轮缩放与拖拽平移', () => {
   assert.match(detailPage, /overlay\.addEventListener\('wheel'/u, '全屏预览必须支持滚轮缩放');
   assert.match(detailPage, /pointerdown/u, '全屏预览必须支持拖拽平移');
   assert.match(pagesCss, /\.detail-fullscreen-image/u, '详情页全屏图片必须具有独立样式');
+});
+
+
+test('快速与项目输入框使用可点击的多图缩略图，并按模型能力限制上传数量', () => {
+  const pageContracts = [
+    ['生成页', generatePage],
+    ['项目页', projectPage],
+  ];
+  for (const [pageName, page] of pageContracts) {
+    assert.match(page, /getReferenceImageOptions/u, `${pageName}必须使用模型参考图能力表`);
+    assert.match(page, /mergeReferenceImages/u, `${pageName}必须通过统一工具追加参考图`);
+    assert.match(page, /id="source-grid"/u, `${pageName}必须提供多图缩略图容器`);
+    assert.match(page, /id="source-hint"/u, `${pageName}必须展示当前模型参考图上限`);
+    assert.match(page, /data-source-open=/u, `${pageName}参考图缩略图必须可点击`);
+    assert.match(page, /sourcePreview\.addEventListener\('click'/u, `${pageName}必须委托参考图预览和删除操作`);
+    assert.match(page, /openImagePreview\(\{\s*image: toImageSrc/u, `${pageName}点击参考图必须复用统一大图预览`);
+    assert.match(page, /pickImageFile\(/u, `${pageName}必须调用多图选择接口`);
+    assert.match(page, /Array\.isArray\(res\.filePaths\)/u, `${pageName}必须兼容多图选择结果`);
+    assert.match(page, /sourceImages/u, `${pageName}生成任务必须提交 sourceImages 数组`);
+  }
+});
+
+test('多图参考图在输入框内横向排列，缩略图与上限提示不会挤压输入框', () => {
+  const gridRule = getExactCssRuleBody(pagesCss, '.composer-source-grid');
+  const thumbRule = getExactCssRuleBody(pagesCss, '.composer-source-thumb');
+  const hintRule = getExactCssRuleBody(pagesCss, '.composer-source-preview-hint');
+
+  assert.notEqual(gridRule, '', '多图缩略图容器必须有独立样式');
+  assert.equal(hasCssDeclaration(gridRule, 'display', 'flex'), true);
+  assert.equal(hasCssDeclaration(gridRule, 'overflow-x', 'auto'), true);
+  assert.notEqual(thumbRule, '', '参考图缩略图必须具有独立按钮样式');
+  assert.equal(hasCssDeclaration(thumbRule, 'flex', '0 0 auto'), true);
+  assert.notEqual(hintRule, '', '参考图上限提示必须有独立样式');
+  assert.equal(hasCssDeclaration(hintRule, 'min-width', '0'), true);
+});
+
+
+test('快速页与项目页在路由卸载后保留参考图和输入区草稿', () => {
+  const pageContracts = [
+    ['生成页', generatePage],
+    ['项目页', projectPage],
+  ];
+  for (const [pageName, page] of pageContracts) {
+    assert.match(page, /createComposerDraftStore/u, `${pageName}必须使用会话级输入区草稿`);
+    assert.match(page, /composerDrafts\.read\(/u, `${pageName}重新挂载时必须优先恢复草稿`);
+    assert.match(page, /composerDrafts\.write\(/u, `${pageName}输入或参考图变化时必须更新草稿`);
+    assert.match(page, /sourceImages/u, `${pageName}草稿必须包含参考图数组`);
+  }
+
+  const quickCleanup = getEnclosedBlock(generatePage, /return \(\) => \{/u, '生成页必须返回路由清理函数');
+  const projectCleanup = getEnclosedBlock(projectPage, /const cleanup = \(\) => \{/u, '项目页必须定义路由清理函数');
+  assert.match(quickCleanup, /saveComposerDraft\(\)/u, '快速页离开时必须写入最终草稿');
+  assert.match(projectCleanup, /saveComposerDraft\(\)/u, '项目页离开时必须写入最终草稿');
 });

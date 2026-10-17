@@ -92,3 +92,56 @@ test('项目生图优先保存返回结果中的绝对 imagePath，并被存储�
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+
+test('快速生图把 sourceImages 原样交给主进程，并继续发送旧 sourceImage 首图', async () => {
+  const state = generationState();
+  const imagePath = '/Users/test/.miaos/generated/quick-multi.png';
+  let received = null;
+  const { store, restore } = await loadStore(state, {
+    generateImage: async (params) => {
+      received = params;
+      return { ok: true, fileUrl: `file://${imagePath}`, imagePath };
+    },
+  });
+  try {
+    await store.generateImage({
+      prompt: '融合两张参考图',
+      providerId: 'p_grsai',
+      modelId: state.providers[0].imageModels.find((m) => m.enabled).id,
+      ratio: '1:1',
+      quality: '高清',
+      sourceImages: ['/tmp/a.png', '/tmp/b.png'],
+      sourceImage: '/tmp/a.png',
+    });
+    assert.deepEqual(received.sourceImages, ['/tmp/a.png', '/tmp/b.png']);
+    assert.equal(received.sourceImage, '/tmp/a.png');
+  } finally {
+    restore();
+  }
+});
+
+test('项目根版本持久化 sourceImages，并在生图时发送完整数组', async () => {
+  const state = generationState();
+  const modelId = state.providers[0].imageModels.find((m) => m.enabled).id;
+  let received = null;
+  const { store, restore } = await loadStore(state, {
+    generateImage: async (params) => {
+      received = params;
+      return { ok: true, imagePath: '/Users/test/.miaos/generated/project-multi.png' };
+    },
+  });
+  try {
+    const sourceImages = ['/tmp/a.png', '/tmp/b.png', '/tmp/c.png'];
+    await store.generateSmart('project-1', 'version-1', {
+      prompt: '融合三张参考图', providerId: 'p_grsai', modelId, ratio: '1:1', quality: '高清', sourceImages,
+    });
+    const version = store.getProject('project-1').versions[0];
+    assert.deepEqual(version.sourceImages, sourceImages);
+    assert.equal(version.sourceImage, sourceImages[0]);
+    assert.deepEqual(received.sourceImages, sourceImages);
+    assert.equal(received.sourceImage, sourceImages[0]);
+  } finally {
+    restore();
+  }
+});

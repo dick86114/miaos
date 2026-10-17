@@ -398,7 +398,7 @@ function createGenerateParams(sourceImage) {
   };
 }
 
-function createAipingGenerateParams({ sourceImage = null, modelName = 'Qwen-Image' } = {}) {
+function createAipingGenerateParams({ sourceImage = null, sourceImages, modelName = 'Qwen-Image' } = {}) {
   return {
     prompt: '测试提示词',
     modelName,
@@ -407,6 +407,7 @@ function createAipingGenerateParams({ sourceImage = null, modelName = 'Qwen-Imag
     size: '1024x576',
     providerId: 'p_aiping',
     sourceImage,
+    ...(sourceImages ? { sourceImages } : {}),
   };
 }
 
@@ -416,7 +417,7 @@ function getRequestBody(calls, index = -1) {
 }
 
 function assertPngSourceImage(calls, index = -1) {
-  const sourceImage = getRequestBody(calls, index).urls[0];
+  const sourceImage = getRequestBody(calls, index).images[0];
   assert.match(sourceImage, /^data:image\/png;base64,/);
   assert.equal(Buffer.from(sourceImage.split(',')[1], 'base64').subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
 }
@@ -1001,7 +1002,7 @@ test('已保存供应商将 key 绑定到可信 metadata，不能被 renderer �
     assert.equal(result.ok, false);
     assert.equal(calls.networkRequests.length, 1);
     assert.equal(calls.networkRequests[0].options.hostname, 'trusted.invalid');
-    assert.equal(calls.networkRequests[0].options.path, '/v1/draw/completions');
+    assert.equal(calls.networkRequests[0].options.path, '/v1/api/generate');
     assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer test-key');
   } finally {
     cleanupTempHome(homePath);
@@ -1064,7 +1065,7 @@ test('公开 provider 没有密钥时仍可使用可信 metadata 发起无 Autho
     const { calls } = await runMainWithMock({ homePath, seedProviderSecret: false });
     await calls.ipcHandlers['test-connection'](trustedEvent(), { providerId: 'p_public' });
     assert.equal(calls.networkRequests.at(-1).options.hostname, 'public.invalid');
-    assert.equal(calls.networkRequests.at(-1).options.path, '/v1/draw/completions');
+    assert.equal(calls.networkRequests.at(-1).options.path, '/v1/api/generate');
     assert.equal('Authorization' in calls.networkRequests.at(-1).options.headers, false);
   } finally {
     cleanupTempHome(homePath);
@@ -1252,39 +1253,39 @@ test('真实 generate handler 允许 generated、选择器授权、粘贴授权�
 
     const generatedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(generatedImage));
     assert.equal(generatedResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
 
     const picked = await calls.ipcHandlers['pick-image-file'](trustedEvent());
     assert.equal(picked.canceled, false);
     assert.ok(picked.filePath.startsWith(fs.realpathSync(generatedDir) + path.sep));
     const pickedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(picked.filePath));
     assert.equal(pickedResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
 
     const pasted = await calls.ipcHandlers['save-pasted-image'](trustedEvent(), PNG_DATA_URL);
     assert.equal(pasted.ok, true);
     const pastedResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(pasted.filePath));
     assert.equal(pastedResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
 
     const dataUrlResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(PNG_DATA_URL));
     assert.equal(dataUrlResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).urls, [PNG_DATA_URL]);
+    assert.deepEqual(getRequestBody(calls).images, [PNG_DATA_URL]);
 
     const baselineJpegDataUrl = dataUrl('image/jpeg', JPEG_BYTES);
     const baselineJpegResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(baselineJpegDataUrl));
     assert.equal(baselineJpegResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).urls, [baselineJpegDataUrl]);
+    assert.deepEqual(getRequestBody(calls).images, [baselineJpegDataUrl]);
 
     const progressiveDataUrl = dataUrl('image/jpeg', PROGRESSIVE_JPEG_BYTES);
     const progressiveResult = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(progressiveDataUrl));
     assert.equal(progressiveResult.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).urls, [progressiveDataUrl]);
+    assert.deepEqual(getRequestBody(calls).images, [progressiveDataUrl]);
 
     const adam7DataUrl = dataUrl('image/png', ADAM7_PNG_BYTES);
     const adam7Result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(adam7DataUrl));
     assert.equal(adam7Result.code, 'IPC_HANDLER_FAILED');
-    assert.deepEqual(getRequestBody(calls).urls, [adam7DataUrl]);
+    assert.deepEqual(getRequestBody(calls).images, [adam7DataUrl]);
 
     const bmpImage = path.join(generatedDir, 'generated.bmp');
     fs.writeFileSync(bmpImage, BMP_BYTES);
@@ -1729,6 +1730,180 @@ test('Aiping 随机 Key 即使公开模型接口可访问也必须认证失败',
     assert.equal(calls.networkRequests.length, 1);
     assert.equal(calls.networkRequests[0].options.path, '/api/v1/user/remain/points');
     assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer random-invalid-key');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+
+test('真实 generate handler 按顺序读取多张参考图并一次性写入 Grsai images', async () => {
+  const homePath = createTempHome('miaos-multi-source-grsai-');
+  try {
+    const generatedDir = path.join(homePath, '.miaos', 'generated');
+    fs.mkdirSync(generatedDir, { recursive: true });
+    const first = path.join(generatedDir, 'first.png');
+    const second = path.join(generatedDir, 'second.jpg');
+    fs.writeFileSync(first, PNG_BYTES);
+    fs.writeFileSync(second, JPEG_BYTES);
+
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), {
+      ...createGenerateParams(null),
+      sourceImages: [first, second],
+    });
+
+    assert.equal(result.ok, false);
+    const images = getRequestBody(calls).images;
+    assert.equal(images.length, 2);
+    assert.match(images[0], /^data:image\/png;base64,/u);
+    assert.equal(Buffer.from(images[0].split(',')[1], 'base64').subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+    assert.match(images[1], /^data:image\/jpeg;base64,/u);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('多参考图中任意一张无效时不会发起上游请求', async () => {
+  const homePath = createTempHome('miaos-multi-source-invalid-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), {
+      ...createGenerateParams(null),
+      sourceImages: [PNG_DATA_URL, 'data:image/png;base64,not-an-image'],
+    });
+    assert.equal(result.code, 'IPC_VALIDATION_FAILED');
+    assert.equal(calls.networkRequests.length, 0);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('多参考图硬上限为 10 张，超过时不读取文件也不请求网络', async () => {
+  const homePath = createTempHome('miaos-multi-source-limit-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), {
+      ...createGenerateParams(null),
+      sourceImages: Array.from({ length: 11 }, (_, index) => `/tmp/missing-reference-${index}.png`),
+    });
+    assert.equal(result.ok, false);
+    assert.equal(calls.networkRequests.length, 0);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('选择参考图支持多选，并按剩余容量导入且报告溢出数量', async () => {
+  const homePath = createTempHome('miaos-pick-multiple-');
+  const first = path.join(homePath, 'first.png');
+  const second = path.join(homePath, 'second.jpg');
+  fs.writeFileSync(first, PNG_BYTES);
+  fs.writeFileSync(second, JPEG_BYTES);
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      openDialogResult: { canceled: false, filePaths: [first, second] },
+    });
+    const picked = await calls.ipcHandlers['pick-image-file'](trustedEvent(), 1);
+    assert.equal(picked.canceled, false);
+    assert.equal(picked.filePaths.length, 1);
+    assert.equal(picked.discardedCount, 1);
+    assert.equal(calls.openDialogOptions[0].properties.includes('multiSelections'), true);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Aiping 编辑模型将多张参考图作为 image 数组发送', async () => {
+  const homePath = createTempHome('miaos-multi-source-aiping-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    await seedProvider(calls, createAipingMetadata());
+    const secondDataUrl = dataUrl('image/jpeg', JPEG_BYTES);
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createAipingGenerateParams({
+      modelName: 'Qwen-Image-Edit',
+      sourceImages: [PNG_DATA_URL, secondDataUrl],
+    }));
+    assert.equal(result.ok, false);
+    const body = getRequestBody(calls);
+    assert.deepEqual(body.image, [PNG_DATA_URL, secondDataUrl]);
+    assert.equal('images' in body, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+
+test('多图上限按去重后的图片数计算，10 张加旧首图字段仍可正常请求', async () => {
+  const homePath = createTempHome('miaos-multi-source-dedupe-limit-');
+  try {
+    const generatedDir = path.join(homePath, '.miaos', 'generated');
+    fs.mkdirSync(generatedDir, { recursive: true });
+    const sourceImages = Array.from({ length: 10 }, (_, index) => {
+      const filePath = path.join(generatedDir, `reference-${index}.png`);
+      fs.writeFileSync(filePath, PNG_BYTES);
+      return filePath;
+    });
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), {
+      ...createGenerateParams(sourceImages[0]),
+      sourceImages,
+    });
+    assert.equal(result.ok, false);
+    assert.notEqual(result.code, 'IPC_VALIDATION_FAILED');
+    assert.equal(calls.networkRequests.length, 1);
+    assert.ok(getRequestBody(calls).images.length >= 1);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+
+test('Grsai 新版异步任务使用 GET 查询结果并下载图片', async () => {
+  const homePath = createTempHome('miaos-grsai-async-v2-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse(request) {
+        if (request.options.path === '/v1/api/generate') {
+          return { statusCode: 200, body: JSON.stringify({ id: 'job-1', status: 'running' }) };
+        }
+        if (request.options.path?.startsWith('/v1/api/result')) {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              id: 'job-1',
+              status: 'succeeded',
+              results: [{ url: 'https://cdn.grsai.test/result.png' }],
+            }),
+          };
+        }
+        if (request.url === 'https://cdn.grsai.test/result.png') {
+          return { statusCode: 200, body: PNG_BYTES };
+        }
+        return { statusCode: 500, body: JSON.stringify({ error: 'unexpected request' }) };
+      },
+    });
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createGenerateParams(null));
+    assert.equal(result.ok, true);
+    assert.match(result.imagePath, /\.png$/u);
+
+    assert.equal(calls.networkRequests[0].options.path, '/v1/api/generate');
+    assert.deepEqual(getRequestBody(calls, 0), {
+      model: 'gpt-image-2',
+      prompt: '测试提示词',
+      images: [],
+      aspectRatio: '1:1',
+      quality: 'medium',
+      replyType: 'async',
+    });
+
+    const resultRequest = calls.networkRequests.find((request) => request.options.path.startsWith('/v1/api/result'));
+    assert.ok(resultRequest);
+    assert.equal(resultRequest.options.method, 'GET');
+    assert.equal(resultRequest.options.path, '/v1/api/result?id=job-1');
+    assert.equal(calls.networkRequests.some((request) => request.options.path === '/v1/draw/result'), false);
   } finally {
     cleanupTempHome(homePath);
   }

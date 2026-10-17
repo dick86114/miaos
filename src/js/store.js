@@ -10,6 +10,7 @@ import {
   migrateLegacyProviderSecrets as migrateLegacyProviderSecretsInState,
   discardLegacyProviderSecrets as discardLegacyProviderSecretsInState,
 } from './state-schema.js';
+import { normalizeReferenceImages } from './reference-images.js';
 
 const RANDOM_PROMPTS = [
   '清晨的湖边，薄雾缭绕，极简风格，远山倒影在水面上',
@@ -889,6 +890,7 @@ export function getFailedGenerationTasks() {
 
 export function saveFailedGenerationTask(task) {
   if (!task?.id) return false;
+  const sourceImages = normalizeReferenceImages(task.sourceImages, task.sourceImage);
   const record = {
     id: String(task.id),
     source: task.source === 'project' ? 'project' : 'quick',
@@ -901,7 +903,8 @@ export function saveFailedGenerationTask(task) {
     ratio: String(task.ratio || '1:1'),
     quality: String(task.quality || '高清'),
     isImageToImage: !!task.isImageToImage,
-    sourceImage: String(task.sourceImage || ''),
+    sourceImage: sourceImages[0] || '',
+    sourceImages,
     batchIndex: Number(task.batchIndex) || 1,
     batchTotal: Number(task.batchTotal) || 1,
     status: 'failed',
@@ -960,7 +963,7 @@ export function recordGenerationDuration({ source, projectId, versionId, imageId
 }
 
 // ===== 生图 =====
-export async function generateImage({ prompt, providerId, modelId, ratio, quality, sourceImage }) {
+export async function generateImage({ prompt, providerId, modelId, ratio, quality, sourceImage, sourceImages }) {
   if (!prompt || !prompt.trim()) throw new Error('请输入提示词');
   const provider = state.providers.find((p) => p.id === providerId);
   if (!provider) throw new Error('请选择供应商');
@@ -969,13 +972,15 @@ export async function generateImage({ prompt, providerId, modelId, ratio, qualit
   if (!model) throw new Error('请选择模型');
   const size = ratioToSize(ratio);
   if (!window.api || !window.api.generateImage) throw new Error('运行环境异常：无法调用主进程生图接口');
+  const normalizedSourceImages = normalizeReferenceImages(sourceImages, sourceImage);
 
   const result = await window.api.generateImage({
     prompt: prompt.trim(),
     providerId: provider.id,
     modelName: model.id,
     ratio, quality, size,
-    sourceImage: sourceImage || null,
+    sourceImages: normalizedSourceImages,
+    sourceImage: normalizedSourceImages[0] || null,
   });
   if (!result || !result.ok) throw createGenerationFailure(result);
 
@@ -1210,9 +1215,10 @@ export function getVersionLabels(project) {
   return labels;
 }
 
-export function createRootVersion(projectId, { name, prompt, providerId, providerName, modelId, sourceImage }) {
+export function createRootVersion(projectId, { name, prompt, providerId, providerName, modelId, sourceImage, sourceImages }) {
   const p = state.projects.find((p) => p.id === projectId);
   if (!p) return null;
+  const normalizedSourceImages = normalizeReferenceImages(sourceImages, sourceImage);
   const version = {
     id: uid('ver'),
     parentId: null,
@@ -1222,7 +1228,8 @@ export function createRootVersion(projectId, { name, prompt, providerId, provide
     providerId: providerId || '',
     providerName: providerName || '',
     modelId: modelId || '',
-    sourceImage: sourceImage || '',
+    sourceImage: normalizedSourceImages[0] || '',
+    sourceImages: normalizedSourceImages,
     createdAt: Date.now(),
     images: [],
   };
@@ -1260,7 +1267,7 @@ export function createVersion(projectId, parentId, parentImageId, { name, prompt
   return cloneProject(p);
 }
 
-export function updateVersionFields(versionId, { name, prompt, modelId, providerId, providerName, sourceImage, autoNameDone }) {
+export function updateVersionFields(versionId, { name, prompt, modelId, providerId, providerName, sourceImage, sourceImages, autoNameDone }) {
   const p = state.projects.find((proj) => proj.versions.some((v) => v.id === versionId));
   if (!p) return null;
   const v = p.versions.find((x) => x.id === versionId);
@@ -1270,7 +1277,11 @@ export function updateVersionFields(versionId, { name, prompt, modelId, provider
   if (modelId !== undefined) v.modelId = modelId;
   if (providerId !== undefined) v.providerId = providerId;
   if (providerName !== undefined) v.providerName = providerName;
-  if (sourceImage !== undefined) v.sourceImage = sourceImage || '';
+  if (sourceImage !== undefined || sourceImages !== undefined) {
+    const normalizedSourceImages = normalizeReferenceImages(sourceImages, sourceImage);
+    v.sourceImages = normalizedSourceImages;
+    v.sourceImage = normalizedSourceImages[0] || '';
+  }
   if (autoNameDone !== undefined) v.autoNameDone = !!autoNameDone;
   p.updatedAt = Date.now();
   save();
@@ -1281,7 +1292,7 @@ export function deleteVersion(projectId, versionId) {
   return moveVersionToTrash(projectId, versionId).ok;
 }
 
-export async function generateSmart(projectId, versionId, { prompt, providerId, modelId, ratio, quality, sourceImage }) {
+export async function generateSmart(projectId, versionId, { prompt, providerId, modelId, ratio, quality, sourceImage, sourceImages }) {
   const p = state.projects.find((proj) => proj.id === projectId);
   if (!p) throw new Error('项目不存在');
   const v = p.versions.find((x) => x.id === versionId);
@@ -1290,6 +1301,7 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
   if (!trimmedPrompt) throw new Error('请输入提示词');
   if (!modelId) throw new Error('请选择模型');
   if (!providerId) throw new Error('请选择供应商');
+  const normalizedSourceImages = normalizeReferenceImages(sourceImages, sourceImage);
 
   // 供应商以用户当前选择为准；禁止按模型 ID 在全部供应商里首匹配，
   // 否则跨供应商存在同 ID 模型时会静默串到其他供应商（如默认 GPT）。
@@ -1303,8 +1315,10 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
 
   let targetVersionId = versionId;
   if (v.parentId === null) {
-    const curSourceImg = v.sourceImage || '';
-    const changed = trimmedPrompt !== v.prompt.trim() || modelId !== v.modelId || (sourceImage || '') !== curSourceImg;
+    const currentSourceImages = normalizeReferenceImages(v.sourceImages, v.sourceImage);
+    const changed = trimmedPrompt !== v.prompt.trim()
+      || modelId !== v.modelId
+      || normalizedSourceImages.join('\u0000') !== currentSourceImages.join('\u0000');
     // 仅当主线已有图片时，修改提示词/模型/参考图才自动新建主线（保护历史）；
     // 空白主线（手动新建的）直接在原地更新并生成第一张图
     if (changed && v.images.length > 0) {
@@ -1320,7 +1334,8 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
         modelId,
         createdAt: Date.now(),
         images: [],
-        sourceImage: sourceImage || '',
+        sourceImage: normalizedSourceImages[0] || '',
+        sourceImages: normalizedSourceImages,
       };
       p.versions.push(newVer);
       targetVersionId = newVer.id;
@@ -1331,7 +1346,8 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
       v.modelId = modelId;
       v.providerId = provider.id;
       v.providerName = provider.name;
-      v.sourceImage = sourceImage || '';
+      v.sourceImage = normalizedSourceImages[0] || '';
+      v.sourceImages = normalizedSourceImages;
     }
   } else {
     const provider = resolveProviderForModel(providerId);
@@ -1351,14 +1367,14 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
   const model0 = provider0.imageModels.find((m) => m.id === target.modelId && m.enabled);
   if (!model0) throw new Error('该版本所用模型不可用，请重新选择');
 
-  let finalSourceImage = null;
+  let finalSourceImages = [];
   if (target.parentId && target.parentImageId) {
     const parent = p.versions.find((pv) => pv.id === target.parentId);
     const parentImg = parent && parent.images.find((i) => i.id === target.parentImageId);
     if (!parentImg) throw new Error('父版本的参考图已被删除，无法进行图生图');
-    finalSourceImage = parentImg.image;
-  } else if (target.sourceImage) {
-    finalSourceImage = target.sourceImage;
+    finalSourceImages = [parentImg.image];
+  } else {
+    finalSourceImages = normalizeReferenceImages(target.sourceImages, target.sourceImage);
   }
 
   const size = ratioToSize(ratio);
@@ -1368,7 +1384,8 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
     providerId: provider0.id,
     modelName: model0.id,
     ratio, quality, size,
-    sourceImage: finalSourceImage,
+    sourceImages: finalSourceImages,
+    sourceImage: finalSourceImages[0] || null,
   });
   if (!result || !result.ok) throw createGenerationFailure(result);
   const img = {
@@ -1380,7 +1397,7 @@ export async function generateSmart(projectId, versionId, { prompt, providerId, 
     providerId: target.providerId,
     providerName: target.providerName,
     modelId: target.modelId,
-    isImageToImage: !!(target.parentId && target.parentImageId) || !!target.sourceImage,
+    isImageToImage: !!(target.parentId && target.parentImageId) || finalSourceImages.length > 0,
     createdAt: Date.now(),
   };
   target.images.unshift(img);

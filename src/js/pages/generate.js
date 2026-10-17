@@ -23,11 +23,14 @@ import { createPromptOptimizationManager, createPromptFragmentOverlay } from '..
 import { getQuickQueueViewState } from '../queue-view-state.js';
 import { getGenerationErrorHelp } from '../generation-error-help.js';
 import { createRunningTaskTicker, formatGenerationDuration } from '../generation-timing.js';
-import { getImageParameterOptions, normalizeImageParameters } from '../image-model-capabilities.js';
+import { getImageParameterOptions, getReferenceImageOptions, normalizeImageParameters } from '../image-model-capabilities.js';
+import { mergeReferenceImages, normalizeReferenceImages } from '../reference-images.js';
+import { createComposerDraftStore } from '../composer-drafts.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
 });
+const composerDrafts = createComposerDraftStore();
 
 export function createPromptOptimizationPageBinding({
   manager,
@@ -176,8 +179,12 @@ export function renderGenerate(container) {
   const providers = getProviders();
   const defaults = getDefaults();
   const last = getLastSettings();
+  const composerDraft = composerDrafts.read('quick', {
+    prompt: (last && last.prompt) || '',
+    sourceImages: [],
+  });
 
-  const initialPrompt = (last && last.prompt) || '';
+  const initialPrompt = composerDraft.prompt;
   const initialProviderId = (last && last.providerId) || defaults.defaultImageProvider || (providers[0] && providers[0].id) || '';
   const initialModelId = (last && last.modelId) || defaults.defaultImageModel || '';
   const initialRatio = (last && last.ratio) || '1:1';
@@ -186,7 +193,7 @@ export function renderGenerate(container) {
   let currentProviderId = initialProviderId;
   let currentModelId = initialModelId;
   let currentQuantity = 1;
-  let sourceImagePath = '';
+  let sourceImages = normalizeReferenceImages(composerDraft.sourceImages);
   const getProviderType = (providerId) => providers.find((provider) => provider.id === providerId)?.type || '';
   let parameterOptions = getImageParameterOptions(getProviderType(initialProviderId), initialModelId);
   let currentRatio = parameterOptions.ratios.includes(initialRatio) ? initialRatio : parameterOptions.ratios[0];
@@ -203,14 +210,11 @@ export function renderGenerate(container) {
       <div class="composer-card" id="composer">
         <div class="composer-textarea-wrap">
           <div class="composer-source-preview" id="source-preview" style="display:none;">
-            <div class="composer-source-preview-img-wrap">
-              <img id="source-thumb" alt="参考图" />
-            </div>
-            <div class="composer-source-preview-info">
+            <div class="composer-source-preview-header">
               <span class="composer-source-preview-label">${icon('git-branch', 14)} 参考图</span>
-              <span class="composer-source-preview-hint">图生图模式，基于此图迭代生成</span>
+              <span class="composer-source-preview-hint" id="source-hint"></span>
             </div>
-            <button class="icon-btn" type="button" id="btn-remove-source" title="移除参考图">${icon('x', 14)}</button>
+            <div class="composer-source-grid" id="source-grid"></div>
           </div>
           <textarea class="composer-textarea" id="prompt-input" placeholder="描述你想生成的画面，例如：清晨的湖边，薄雾缭绕，极简风格…">${escapeHtml(initialPrompt)}</textarea>
         </div>
@@ -254,10 +258,22 @@ export function renderGenerate(container) {
   const btnRandom = root.querySelector('#btn-random');
   const resultArea = root.querySelector('#result-area');
   const sourcePreview = root.querySelector('#source-preview');
-  const sourceThumb = root.querySelector('#source-thumb');
+  const sourceGrid = root.querySelector('#source-grid');
+  const sourceHint = root.querySelector('#source-hint');
+  const btnUploadImage = root.querySelector('#btn-upload-image');
   const composerCard = root.querySelector('#composer');
+  function saveComposerDraft() {
+    composerDrafts.write('quick', {
+      prompt: promptInput.value,
+      sourceImages,
+    });
+  }
+
   syncPromptInputHeight(promptInput);
-  promptInput.addEventListener('input', () => syncPromptInputHeight(promptInput));
+  promptInput.addEventListener('input', () => {
+    syncPromptInputHeight(promptInput);
+    saveComposerDraft();
+  });
 
   // ===== 模型下拉 =====
   const modelChip = root.querySelector('#model-chip');
@@ -287,6 +303,71 @@ export function renderGenerate(container) {
     currentModelId = defModelId;
     const model = models.find((item) => item.id === defModelId);
     setModelChipLabel(model ? model.name : '选择模型');
+    updateReferenceControls();
+  }
+
+  function getCurrentReferenceOptions(providerId = currentProviderId, modelId = currentModelId) {
+    return getReferenceImageOptions(getProviderType(providerId), modelId);
+  }
+
+  function referenceLimitBadge(options) {
+    if (options.maxImages === 0) return '无参考图';
+    if (options.maxImages === 1) return '单图';
+    return `≤${options.maxImages} 图`;
+  }
+
+  function renderSourcePreviews() {
+    sourcePreview.style.display = sourceImages.length ? 'flex' : 'none';
+    sourceGrid.innerHTML = sourceImages.map((image, index) => `
+      <div class="composer-source-item">
+        <button type="button" class="composer-source-thumb" data-source-open="${index}" title="查看参考图 ${index + 1}">
+          <img src="${escapeHtml(toImageSrc(image))}" alt="参考图 ${index + 1}" />
+          <span class="composer-source-index">${index + 1}</span>
+        </button>
+        <button type="button" class="composer-source-remove" data-source-remove="${index}" title="移除参考图 ${index + 1}" aria-label="移除参考图 ${index + 1}">${icon('x', 12)}</button>
+      </div>
+    `).join('');
+    renderIcons(sourceGrid);
+    updateReferenceControls();
+    saveComposerDraft();
+  }
+
+  function updateReferenceControls() {
+    const options = getCurrentReferenceOptions();
+    const canAdd = options.supported && sourceImages.length < options.maxImages;
+    if (btnUploadImage) {
+      btnUploadImage.disabled = !canAdd;
+      btnUploadImage.title = !options.supported
+        ? options.message
+        : canAdd
+          ? `上传参考图（${sourceImages.length}/${options.maxImages}）`
+          : `已达到当前模型上限（${options.maxImages} 张）`;
+    }
+    if (sourceHint) {
+      const promptHint = options.maxImages > 1 && sourceImages.length > 1
+        ? '；可用「图1」「图2」指代'
+        : '';
+      sourceHint.textContent = options.supported
+        ? `${sourceImages.length}/${options.maxImages} · ${options.message}${promptHint}`
+        : options.message;
+    }
+  }
+
+  function addSourcePaths(paths) {
+    const options = getCurrentReferenceOptions();
+    const merged = mergeReferenceImages(sourceImages, paths, options.maxImages);
+    sourceImages = merged.images;
+    renderSourcePreviews();
+    return merged;
+  }
+
+  function readImageFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('读取剪贴板图片失败'));
+      reader.readAsDataURL(file);
+    });
   }
 
   function getQualityLabel(value) {
@@ -313,8 +394,9 @@ export function renderGenerate(container) {
       html += `<div style="font-size:11px;color:var(--ink-3);padding:4px 10px 2px;">${escapeHtml(p.name)}</div>`;
       for (const m of models) {
         const active = m.id === currentModelId && p.id === currentProviderId;
-        html += `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-provider="${p.id}" data-model="${m.id}">
-          <span class="item-left">${escapeHtml(m.name)}</span>
+        const referenceOptions = getReferenceImageOptions(p.type, m.id);
+        html += `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-provider="${p.id}" data-model="${m.id}" data-reference-limit="${referenceOptions.maxImages}">
+          <span class="item-left"><span>${escapeHtml(m.name)}</span><span class="item-provider">${referenceLimitBadge(referenceOptions)}</span></span>
           <span class="item-right">${active ? icon('check', 14) : ''}</span>
         </div>`;
       }
@@ -456,8 +538,16 @@ export function renderGenerate(container) {
     if (!item) return;
 
     if (item.hasAttribute('data-model')) {
-      currentProviderId = item.getAttribute('data-provider');
-      currentModelId = item.getAttribute('data-model');
+      const nextProviderId = item.getAttribute('data-provider');
+      const nextModelId = item.getAttribute('data-model');
+      const nextReferenceOptions = getCurrentReferenceOptions(nextProviderId, nextModelId);
+      if (sourceImages.length > nextReferenceOptions.maxImages) {
+        toast(`当前已选择 ${sourceImages.length} 张参考图，目标模型${nextReferenceOptions.message.replace('当前模型', '')}，请先移除多余图片`, 'error');
+        closeDropdown();
+        return;
+      }
+      currentProviderId = nextProviderId;
+      currentModelId = nextModelId;
       const normalized = normalizeImageParameters(getProviderType(currentProviderId), currentModelId, currentRatio, currentQuality);
       parameterOptions = normalized.options;
       currentRatio = normalized.ratio;
@@ -477,26 +567,56 @@ export function renderGenerate(container) {
     closeDropdown();
   });
 
-  // ===== 上传图片 =====
-  const btnUploadImage = root.querySelector('#btn-upload-image');
+  // ===== 参考图预览与多图上传 =====
+  sourcePreview.addEventListener('click', (event) => {
+    const openButton = event.target.closest('[data-source-open]');
+    if (openButton) {
+      const index = Number(openButton.getAttribute('data-source-open'));
+      const image = sourceImages[index];
+      if (image) {
+        openImagePreview({
+          image: toImageSrc(image),
+          alt: `参考图 ${index + 1}`,
+          contextLabel: '参考图',
+        }, { triggerElement: openButton });
+      }
+      return;
+    }
+    const removeButton = event.target.closest('[data-source-remove]');
+    if (!removeButton) return;
+    const index = Number(removeButton.getAttribute('data-source-remove'));
+    if (!Number.isInteger(index) || index < 0 || index >= sourceImages.length) return;
+    sourceImages.splice(index, 1);
+    renderSourcePreviews();
+  });
+
   btnUploadImage.addEventListener('click', async () => {
     if (!window.api || !window.api.pickImageFile) { toast('运行环境异常', 'error'); return; }
+    const options = getCurrentReferenceOptions();
+    if (!options.supported) {
+      toast(options.message, 'error');
+      return;
+    }
+    const remaining = options.maxImages - sourceImages.length;
+    if (remaining <= 0) {
+      toast(`当前模型最多支持 ${options.maxImages} 张参考图`, 'error');
+      return;
+    }
     try {
-      const res = await window.api.pickImageFile();
+      const res = await window.api.pickImageFile(remaining);
       if (res.canceled) return;
-      sourceImagePath = res.filePath;
-      sourceThumb.src = 'file://' + encodeURI(res.filePath);
-      sourcePreview.style.display = 'flex';
-      toast('参考图已添加，将使用图生图模式', 'success');
+      const paths = Array.isArray(res.filePaths) ? res.filePaths : (res.filePath ? [res.filePath] : []);
+      if (paths.length === 0) return;
+      const merged = addSourcePaths(paths);
+      const overflow = merged.overflowCount + (Number(res.discardedCount) || 0);
+      if (overflow > 0) {
+        toast(`已添加 ${merged.accepted.length} 张，${overflow} 张超过当前模型上限未添加`, 'info');
+      } else {
+        toast(`参考图已添加，将使用图生图模式`, 'success');
+      }
     } catch (e) {
       toast('选择图片失败：' + e.message, 'error');
     }
-  });
-
-  root.querySelector('#btn-remove-source').addEventListener('click', () => {
-    sourceImagePath = '';
-    sourcePreview.style.display = 'none';
-    sourceThumb.src = '';
   });
 
   // ===== 上传文件 =====
@@ -508,6 +628,7 @@ export function renderGenerate(container) {
       if (res.canceled) return;
       promptInput.value = res.content;
       syncPromptInputHeight(promptInput);
+      saveComposerDraft();
       promptInput.focus();
       toast(`已导入文件「${res.fileName}」`, 'success');
     } catch (e) {
@@ -520,28 +641,39 @@ export function renderGenerate(container) {
     if (!window.api || !window.api.savePastedImage) return;
     const items = e.clipboardData?.items;
     if (!items) return;
-    const imgItem = Array.from(items).find((i) => i.type.startsWith('image/'));
-    if (!imgItem) return;
+    const imageItems = Array.from(items).filter((item) => item.type.startsWith('image/'));
+    if (imageItems.length === 0) return;
     e.preventDefault();
-    const file = imgItem.getAsFile();
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const res = await window.api.savePastedImage(reader.result);
-        if (res.ok) {
-          sourceImagePath = res.filePath;
-          sourceThumb.src = 'file://' + encodeURI(res.filePath);
-          sourcePreview.style.display = 'flex';
-          toast('参考图已粘贴，将使用图生图模式', 'success');
-        } else {
-          toast('粘贴失败：' + res.error, 'error');
-        }
-      } catch (err) {
-        toast('粘贴图片失败', 'error');
+    const options = getCurrentReferenceOptions();
+    if (!options.supported) {
+      toast(options.message, 'error');
+      return;
+    }
+    const remaining = options.maxImages - sourceImages.length;
+    if (remaining <= 0) {
+      toast(`当前模型最多支持 ${options.maxImages} 张参考图`, 'error');
+      return;
+    }
+    const acceptedItems = imageItems.slice(0, remaining);
+    try {
+      const files = acceptedItems.map((item) => item.getAsFile()).filter(Boolean);
+      const dataUrls = await Promise.all(files.map(readImageFileAsDataUrl));
+      const paths = [];
+      for (const dataUrl of dataUrls) {
+        const res = await window.api.savePastedImage(dataUrl);
+        if (!res.ok) throw new Error(res.error || '保存粘贴图片失败');
+        paths.push(res.filePath);
       }
-    };
-    reader.readAsDataURL(file);
+      const merged = addSourcePaths(paths);
+      const overflow = merged.overflowCount + Math.max(0, imageItems.length - acceptedItems.length);
+      if (overflow > 0) {
+        toast(`已粘贴 ${merged.accepted.length} 张，${overflow} 张超过当前模型上限未添加`, 'info');
+      } else {
+        toast('参考图已粘贴，将使用图生图模式', 'success');
+      }
+    } catch (err) {
+      toast('粘贴失败：' + (err.message || '未知错误'), 'error');
+    }
   });
 
   // ===== 优化提示词 =====
@@ -578,6 +710,7 @@ export function renderGenerate(container) {
   btnRandom.addEventListener('click', () => {
     promptInput.value = getRandomPrompt();
     syncPromptInputHeight(promptInput);
+    saveComposerDraft();
     promptInput.focus();
   });
 
@@ -609,6 +742,11 @@ export function renderGenerate(container) {
       toast('请选择模型', 'error');
       return;
     }
+    const referenceOptions = getCurrentReferenceOptions();
+    if (sourceImages.length > referenceOptions.maxImages) {
+      toast(`当前模型最多支持 ${referenceOptions.maxImages} 张参考图，请先移除多余图片`, 'error');
+      return;
+    }
 
     saveLastSettings({
       prompt,
@@ -627,17 +765,19 @@ export function renderGenerate(container) {
       modelId: currentModelId,
       ratio: currentRatio,
       quality: currentQuality,
-      sourceImage: sourceImagePath || null,
-      isImageToImage: !!sourceImagePath,
+      sourceImage: sourceImages[0] || null,
+      sourceImages,
+      isImageToImage: sourceImages.length > 0,
     }, currentQuantity);
     const batchLabel = currentQuantity > 1 ? `（${currentQuantity} 张）` : '';
-    toast(sourceImagePath ? `已加入生成队列（图生图）${batchLabel}` : `已加入生成队列${batchLabel}`, 'info', { key: 'quick-generate-enqueue' });
+    toast(sourceImages.length > 0 ? `已加入生成队列（图生图）${batchLabel}` : `已加入生成队列${batchLabel}`, 'info', { key: 'quick-generate-enqueue' });
   }
 
   btnGenerate.addEventListener('click', () => runGenerateOnce(doGenerate));
 
   // 初始化
   updateModelChip();
+  renderSourcePreviews();
 
   // ===== 活跃队列与持久化快速历史 =====
   // 队列只承载尚未结束的任务；成功结果由 store.generateImage 持久化后进入快速历史。
@@ -922,6 +1062,7 @@ export function renderGenerate(container) {
   renderTasks(queue.getTasks());
 
   return () => {
+    saveComposerDraft();
     closeDropdown();
     closeImagePreview?.();
     promptOptimizationBinding.destroy();

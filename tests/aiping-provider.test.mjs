@@ -19,7 +19,8 @@ test('主进程包含 Aiping 专用生图适配，不复用 Agnes 图生图参�
   assert.match(source, /ptype === 'aiping'/u);
   assert.match(source, /buildAipingImageRequest/u);
   assert.match(adapter, /enable_image_base64:\s*false/u);
-  assert.match(adapter, /image:\s*sourceImage/u);
+  assert.match(adapter, /normalizedSourceImages/u);
+  assert.match(adapter, /image:\s*images\.length === 1 \? images\[0\] : images/u);
 });
 
 test('已有供应商输入新 Key 时优先做一次性验证，未输入时才使用已保存密钥', async () => {

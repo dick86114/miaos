@@ -110,6 +110,76 @@ function getAipingOptions(modelId) {
   return { ratios, qualities: AUTO_QUALITY };
 }
 
+
+const AIPING_REFERENCE_IMAGE_LIMITS = new Map([
+  ['Qwen-Image', 0],
+  ['Qwen-Image-Plus', 0],
+  ['Qwen-Image-Edit', 3],
+  ['Qwen-Image-Edit-Plus', 3],
+  ['HunyuanImage-3.0', 3],
+  ['Doubao-Seedream-4.0', 10],
+  ['Doubao-Seedream-4.5', 10],
+  ['Doubao-Seedream-5.0-lite', 10],
+  ['即梦图片生成 4.0', 10],
+  ['即梦文生图 3.0', 0],
+  ['即梦文生图 3.1', 0],
+  ['Kling-V1', 10],
+  ['Kling-V2.1', 10],
+  ['Kolors', 0],
+  ['glm-image', 0],
+  ['Wan2.5-T2I-Preview', 0],
+  ['Wan2.5-I2I-Preview', 3],
+]);
+
+const AIPING_APPLICATION_LIMIT_MODELS = new Set(['Kling-V1', 'Kling-V2.1']);
+
+function referenceImageResult(maxImages, limitKind) {
+  if (maxImages <= 0) {
+    return { supported: false, maxImages: 0, limitKind: 'unsupported', message: '当前模型不支持参考图' };
+  }
+  if (limitKind === 'application') {
+    return {
+      supported: true,
+      maxImages,
+      limitKind,
+      message: `当前模型支持多图，应用最多允许 ${maxImages} 张`,
+    };
+  }
+  if (limitKind === 'documented') {
+    return {
+      supported: true,
+      maxImages,
+      limitKind,
+      message: `当前模型最多支持 ${maxImages} 张参考图`,
+    };
+  }
+  return {
+    supported: true,
+    maxImages,
+    limitKind: 'unknown',
+    message: '当前模型未声明多图能力，仅支持 1 张参考图',
+  };
+}
+
+// 参考图上限来自供应商公开文档；文档未给数字时使用应用级安全上限，避免发出不可控的大请求。
+export function getReferenceImageOptions(providerType, modelId) {
+  const type = String(providerType || '').toLowerCase();
+  const model = String(modelId || '').trim();
+
+  if (type === 'grsai' || type === 'agnes-ai') {
+    return referenceImageResult(10, 'application');
+  }
+
+  if (type === 'aiping') {
+    if (!AIPING_REFERENCE_IMAGE_LIMITS.has(model)) return referenceImageResult(1, 'unknown');
+    const maxImages = AIPING_REFERENCE_IMAGE_LIMITS.get(model);
+    if (maxImages === 0) return referenceImageResult(0, 'unsupported');
+    return referenceImageResult(maxImages, AIPING_APPLICATION_LIMIT_MODELS.has(model) ? 'application' : 'documented');
+  }
+
+  return referenceImageResult(1, 'unknown');
+}
+
 export function getImageParameterOptions(providerType, modelId) {
   const type = String(providerType || '').toLowerCase();
   const model = String(modelId || '').trim();

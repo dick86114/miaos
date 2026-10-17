@@ -650,6 +650,26 @@ function validateOptionalCategory(category) {
   validateString(category, { field: '模型分类', allowedValues: ['image', 'text', 'video'], trim: true });
 }
 
+const MAX_GENERATE_SOURCE_IMAGES = 10;
+
+function normalizeGenerateSourceImages(params) {
+  const images = [];
+  const add = (value) => {
+    if (value === undefined || value === null || value === '') return;
+    if (typeof value !== 'string') throw new Error('参考图路径必须是文本');
+    const normalized = value.trim();
+    if (!normalized) return;
+    if (!images.includes(normalized)) images.push(normalized);
+  };
+  if (params.sourceImages !== undefined && params.sourceImages !== null) {
+    if (!Array.isArray(params.sourceImages)) throw new Error('多张参考图必须是数组');
+    params.sourceImages.forEach(add);
+  }
+  add(params.sourceImage);
+  if (images.length > MAX_GENERATE_SOURCE_IMAGES) throw new Error(`参考图最多支持 ${MAX_GENERATE_SOURCE_IMAGES} 张`);
+  return images;
+}
+
 async function validateGenerateParams(params) {
   validateObject(params, '生图参数');
   validateString(params.prompt, { field: '提示词', minLength: 1, maxLength: 100000, trim: true });
@@ -661,8 +681,10 @@ async function validateGenerateParams(params) {
   if (params.endpoint !== undefined) validateHttpUrl(params.endpoint);
   if (params.provider !== undefined) validateOptionalString(params.provider, '供应商类型', { maxLength: 200, trim: true });
   if (params.apiKey !== undefined || params.apiKeyOverride !== undefined) throw new Error('生图请求不允许传递 API Key');
-  if (params.sourceImage !== undefined && params.sourceImage !== null && typeof params.sourceImage !== 'string') throw new Error('参考图路径必须是文本');
-  if (typeof params.sourceImage === 'string' && params.sourceImage.startsWith('data:')) await validateDataUrl(params.sourceImage, { decodeImageBuffer });
+  const sourceImages = normalizeGenerateSourceImages(params);
+  for (const sourceImage of sourceImages) {
+    if (sourceImage.startsWith('data:')) await validateDataUrl(sourceImage, { decodeImageBuffer });
+  }
 }
 
 function validateTextPromptParams(params) {
@@ -1013,12 +1035,17 @@ registerSecureHandler({
     }
 
     if (String(trustedProvider.type).toLowerCase() === 'grsai') {
-      const { generateUrl } = resolveGrsaiEndpoints(trustedProvider.endpoint, 'gpt-image-2');
+      const { generateUrl } = resolveGrsaiEndpoints(trustedProvider.endpoint);
       const result = await requestJson({
         url: generateUrl,
         method: 'POST',
         headers,
-        body: { model: 'gpt-image-2', prompt: 'test' },
+        body: buildGrsaiImageRequest({
+          model: 'gpt-image-2',
+          prompt: 'test',
+          ratio: '1:1',
+          quality: '标准',
+        }),
         timeoutMs: 10000,
       });
       const payload = parseGrsaiPayload(result.data);
@@ -1150,21 +1177,22 @@ function buildAipingBalanceUrl(endpoint) {
 
 // ===== Grsai 异步结果轮询 =====
 async function pollGrsaiResult({ model, id }) {
-  const { resultUrl } = resolveGrsaiEndpoints(model.endpoint, model.model);
+  const { resultUrl } = resolveGrsaiEndpoints(model.endpoint);
+  const pollUrl = new URL(resultUrl);
+  pollUrl.searchParams.set('id', id);
 
   const headers = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
 
   const maxAttempts = 80; // 最多轮询约 4 分钟
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
+    if (i > 0) await new Promise((r) => setTimeout(r, 3000));
     let result;
     try {
       result = await requestJson({
-        url: resultUrl,
-        method: 'POST',
+        url: pollUrl.toString(),
+        method: 'GET',
         headers,
-        body: { id },
         timeoutMs: 30000,
       });
     } catch (e) {
@@ -1202,8 +1230,8 @@ async function pollGrsaiResult({ model, id }) {
 }
 
 // ===== Grsai 生图 =====
-async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage }) {
-  const { generateUrl } = resolveGrsaiEndpoints(model.endpoint, model.model);
+async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage, sourceImages }) {
+  const { generateUrl } = resolveGrsaiEndpoints(model.endpoint);
   const headers = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
 
@@ -1213,6 +1241,7 @@ async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage })
     ratio: ratio || '1:1',
     quality,
     sourceImage,
+    sourceImages,
   });
 
   const result = await requestJson({
@@ -1240,18 +1269,17 @@ async function generateWithGrsai({ prompt, model, ratio, quality, sourceImage })
     return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
   }
 
-  // 异步任务：旧端点 webHook:'-1' 只返回 {id}，新端点返回 {status:'running', id}
-  if (data.id) {
-    return await pollGrsaiResult({ model, id: data.id });
-  }
-
-  // 失败 / 违规
-  if (data && (data.status === 'violation' || data.failure_reason === 'output_moderation' || data.failure_reason === 'input_moderation')) {
+  // 新版统一接口通过 replyType=async 返回任务 ID，再用 GET 查询结果。
+  if (data.status === 'violation' || data.failure_reason === 'output_moderation' || data.failure_reason === 'input_moderation') {
     throw new Error('供应商拒绝了生成任务（内容违规）');
   }
   if (data.status === 'failed') {
     throw new Error(`供应商任务执行失败${data.error ? `：${data.error}` : data.failure_reason ? `（${data.failure_reason}）` : ''}`);
   }
+  if (data.id) {
+    return await pollGrsaiResult({ model, id: data.id });
+  }
+
   throw new Error(`供应商任务执行失败${data && data.error ? `：${data.error}` : ''}`);
 }
 
@@ -1323,7 +1351,7 @@ async function generateWithOpenAI({ prompt, model, size, providerType }) {
 }
 
 // ===== Aiping 生图：使用 OpenAI 标准端点，但按平台文档传递调度参数与顶层参考图。 =====
-async function generateWithAiping({ prompt, model, size, ratio, quality, sourceImage }) {
+async function generateWithAiping({ prompt, model, size, ratio, quality, sourceImage, sourceImages }) {
   const headers = {};
   if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
 
@@ -1334,6 +1362,7 @@ async function generateWithAiping({ prompt, model, size, ratio, quality, sourceI
     ratio,
     quality,
     sourceImage,
+    sourceImages,
   });
 
   const result = await requestJson({
@@ -1363,7 +1392,8 @@ async function generateWithAiping({ prompt, model, size, ratio, quality, sourceI
 }
 
 // ===== Agnes-ai 图生图 =====
-async function generateWithAgnesImage({ prompt, model, size, sourceImage }) {
+async function generateWithAgnesImage({ prompt, model, size, sourceImage, sourceImages }) {
+  const images = Array.isArray(sourceImages) ? sourceImages.filter(Boolean) : (sourceImage ? [sourceImage] : []);
   const headers = {};
   if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
 
@@ -1372,7 +1402,7 @@ async function generateWithAgnesImage({ prompt, model, size, sourceImage }) {
     prompt,
     size: size || '1024x1024',
     extra_body: {
-      image: [sourceImage],
+      image: images,
       response_format: 'b64_json',
     },
   };
@@ -1552,10 +1582,11 @@ registerSecureHandler({
   getMainWindow: () => mainWindow,
   validate: async (params) => { await validateGenerateParams(params); },
   handle: async (_event, params) => {
-    const { prompt, modelName, ratio, quality, size, sourceImage } = params;
+    const { prompt, modelName, ratio, quality, size } = params;
     let endpoint = '';
     let provider = '';
     let stage = 'provider_configuration';
+    let sourceImageCount = 0;
     try {
       const trustedProvider = getTrustedProvider(params.providerId, params, { category: 'image', modelName });
       ({ endpoint, type: provider } = trustedProvider);
@@ -1566,13 +1597,16 @@ registerSecureHandler({
 
       const ptype = String(provider || '').toLowerCase();
       stage = 'source_image_read';
-      let sourceImageDataUrl = null;
-      if (sourceImage) sourceImageDataUrl = await readLocalImageAsDataUrl(sourceImage);
+      const sourceImageRefs = normalizeGenerateSourceImages(params);
+      const sourceImages = sourceImageRefs.length > 0
+        ? await Promise.all(sourceImageRefs.map((sourceImage) => readLocalImageAsDataUrl(sourceImage)))
+        : [];
+      sourceImageCount = sourceImages.length;
 
       stage = 'image_generation';
       if (ptype === 'grsai') {
         const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
-        return await generateWithGrsai({ prompt, model, ratio, quality, sourceImage: sourceImageDataUrl });
+        return await generateWithGrsai({ prompt, model, ratio, quality, sourceImages });
       }
 
       let imageEndpoint = endpoint;
@@ -1589,8 +1623,8 @@ registerSecureHandler({
       }
 
       const model = { endpoint: imageEndpoint, apiKey, model: modelName, provider: provider || '' };
-      if (ptype === 'aiping') return await generateWithAiping({ prompt, model, size, ratio, quality, sourceImage: sourceImageDataUrl });
-      if (sourceImageDataUrl && ptype !== 'grsai') return await generateWithAgnesImage({ prompt, model, size, sourceImage: sourceImageDataUrl });
+      if (ptype === 'aiping') return await generateWithAiping({ prompt, model, size, ratio, quality, sourceImages });
+      if (sourceImages.length > 0 && ptype !== 'grsai') return await generateWithAgnesImage({ prompt, model, size, sourceImages });
       return await generateWithOpenAI({ prompt, model, size, providerType: ptype });
     } catch (error) {
       const diagnostic = diagnosticLogger?.recordFailure({
@@ -1600,7 +1634,8 @@ registerSecureHandler({
         modelName,
         endpoint,
         imageUrl: error?.diagnosticImageUrl,
-        sourceImage: !!sourceImage,
+        sourceImage: sourceImageCount > 0,
+        sourceImageCount,
         prompt,
         ratio,
         quality,
@@ -1728,16 +1763,32 @@ registerSecureHandler({
   ipcMain,
   channel: 'pick-image-file',
   getMainWindow: () => mainWindow,
-  validate: () => {},
-  handle: async () => {
+  validate: (maxCount) => {
+    if (maxCount === undefined || maxCount === null) return;
+    if (!Number.isInteger(maxCount) || maxCount < 1 || maxCount > MAX_GENERATE_SOURCE_IMAGES) {
+      throw new Error(`参考图单次数量必须位于 1 到 ${MAX_GENERATE_SOURCE_IMAGES} 之间`);
+    }
+  },
+  handle: async (_event, maxCount) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: '选择参考图片',
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'],
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
   });
   if (result.canceled || !result.filePaths.length) return { canceled: true };
-  const filePath = await imageFileAccess.importPickedImage(result.filePaths[0]);
-  return { canceled: false, filePath };
+  const selectedPaths = Number.isInteger(maxCount)
+    ? result.filePaths.slice(0, maxCount)
+    : result.filePaths.slice(0, MAX_GENERATE_SOURCE_IMAGES);
+  const filePaths = [];
+  for (const selectedPath of selectedPaths) {
+    filePaths.push(await imageFileAccess.importPickedImage(selectedPath));
+  }
+  return {
+    canceled: false,
+    filePaths,
+    filePath: filePaths[0],
+    discardedCount: Math.max(0, result.filePaths.length - filePaths.length),
+  };
   },
 });
 

@@ -12,7 +12,7 @@ const PROVIDER_OPTIONS = {
 
 const EDIT_ONLY_MODELS = new Set(['Qwen-Image-Edit', 'Qwen-Image-Edit-Plus', 'Wan2.5-I2I-Preview']);
 const TEXT_ONLY_MODELS = new Set([
-  'Qwen-Image', 'HunyuanImage-3.0', '即梦文生图 3.0', '即梦文生图 3.1',
+  'Qwen-Image', '即梦文生图 3.0', '即梦文生图 3.1',
   'glm-image', 'Kolors', 'Qwen-Image-Plus', 'Wan2.5-T2I-Preview',
 ]);
 
@@ -77,29 +77,48 @@ function valueForRatio(map, ratio) {
   return map[ratio] || map['1:1'];
 }
 
-function commonBody(modelId, prompt, sourceImage) {
+function normalizeSourceImages(sourceImages, sourceImage) {
+  const normalized = [];
+  const add = (value) => {
+    const image = typeof value === 'string' ? value.trim() : '';
+    if (image && !normalized.includes(image)) normalized.push(image);
+  };
+  if (Array.isArray(sourceImages)) sourceImages.forEach(add);
+  add(sourceImage);
+  return normalized;
+}
+
+function commonBody(modelId, prompt, sourceImages) {
+  const images = normalizeSourceImages(sourceImages);
+  const imageFields = images.length === 0
+    ? {}
+    : modelId === 'HunyuanImage-3.0'
+      ? { images }
+      : { image: images.length === 1 ? images[0] : images };
   return {
     model: modelId,
     prompt,
-    ...(sourceImage ? { image: sourceImage } : {}),
+    ...imageFields,
     extra_body: { provider: { ...PROVIDER_OPTIONS } },
   };
 }
 
-function requireCompatibleImageMode(modelId, sourceImage) {
-  if (EDIT_ONLY_MODELS.has(modelId) && !sourceImage) {
+function requireCompatibleImageMode(modelId, sourceImages) {
+  const hasSourceImage = normalizeSourceImages(sourceImages).length > 0;
+  if (EDIT_ONLY_MODELS.has(modelId) && !hasSourceImage) {
     throw new Error(`${modelId} 是图片编辑模型，需要先上传参考图`);
   }
-  if (TEXT_ONLY_MODELS.has(modelId) && sourceImage) {
+  if (TEXT_ONLY_MODELS.has(modelId) && hasSourceImage) {
     throw new Error(`${modelId} 不支持图生图，请改用图片编辑模型`);
   }
 }
 
-function buildAipingImageRequest({ modelId, prompt, ratio = '1:1', quality = '高清', size, sourceImage }) {
+function buildAipingImageRequest({ modelId, prompt, ratio = '1:1', quality = '高清', size, sourceImage, sourceImages }) {
   const normalizedModel = String(modelId || '').trim();
   if (!normalizedModel) throw new Error('Aiping 模型名称不能为空');
-  requireCompatibleImageMode(normalizedModel, sourceImage);
-  const body = commonBody(normalizedModel, prompt, sourceImage);
+  const normalizedSourceImages = normalizeSourceImages(sourceImages, sourceImage);
+  requireCompatibleImageMode(normalizedModel, normalizedSourceImages);
+  const body = commonBody(normalizedModel, prompt, normalizedSourceImages);
   const standardQuality = quality === '标准';
   const ultraQuality = quality === '超高清';
 
@@ -128,7 +147,7 @@ function buildAipingImageRequest({ modelId, prompt, ratio = '1:1', quality = '�
   if (normalizedModel === '即梦图片生成 4.0') {
     const resolutionMap = standardQuality ? RATIO_MAPS.jimeng1k : (ultraQuality ? RATIO_MAPS.jimeng4k : RATIO_MAPS.jimeng2k);
     const [width, height] = valueForRatio(resolutionMap, ratio);
-    return { ...body, width, height, scale: sourceImage ? 0.6 : 0.5, force_single: true };
+    return { ...body, width, height, scale: normalizedSourceImages.length > 0 ? 0.6 : 0.5, force_single: true };
   }
   if (normalizedModel === 'Kolors') {
     return { ...body, image_size: valueForRatio(RATIO_MAPS.kolors, ratio), num_inference_steps: standardQuality ? 20 : 30 };

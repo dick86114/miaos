@@ -42,6 +42,7 @@ test('修改已有图片主线后，入队前创建新主线并返回新版本 I
       providerName: '新供应商',
       modelId: 'model-new',
       sourceImage: '/tmp/reference.png',
+      sourceImages: ['/tmp/reference.png'],
     },
   ]]);
   assert.deepEqual(updated, []);
@@ -78,6 +79,7 @@ test('未触发新主线时，继续将任务归属当前版本', () => {
       providerId: 'provider-new',
       providerName: '新供应商',
       sourceImage: '',
+      sourceImages: [],
     },
   ]]);
 });
@@ -111,6 +113,37 @@ test('空白主线首次图生图会在入队前保存参考图', () => {
       providerId: 'provider-old',
       providerName: '原供应商',
       sourceImage: '/tmp/reference.png',
+      sourceImages: ['/tmp/reference.png'],
     },
   ]]);
+});
+
+
+test('项目根版本比较并保存完整 sourceImages 数组', () => {
+  const created = [];
+  const result = projectPage.prepareProjectGenerationTarget({
+    projectId: 'project-1',
+    currentVersion: {
+      id: 'root-old',
+      parentId: null,
+      prompt: '原提示词',
+      modelId: 'model-old',
+      sourceImage: '/tmp/a.png',
+      sourceImages: ['/tmp/a.png'],
+      images: [{ id: 'image-1' }],
+    },
+    prompt: '融合新参考图',
+    modelId: 'model-new',
+    provider: { id: 'provider-new', name: '新供应商' },
+    sourceImages: ['/tmp/a.png', '/tmp/b.png'],
+    createRootVersion: (...args) => {
+      created.push(args);
+      return { currentVersionId: 'root-new' };
+    },
+    updateVersionFields: () => { throw new Error('不应原地更新'); },
+  });
+
+  assert.deepEqual(result, { versionId: 'root-new', willCreateRoot: true });
+  assert.deepEqual(created[0][1].sourceImages, ['/tmp/a.png', '/tmp/b.png']);
+  assert.equal(created[0][1].sourceImage, '/tmp/a.png');
 });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   getImageParameterOptions,
+  getReferenceImageOptions,
   normalizeImageParameters,
 } from '../src/js/image-model-capabilities.js';
 import { AIPING_IMAGE_MODELS } from '../src/js/state-schema.js';
@@ -68,4 +69,38 @@ test('未知 OpenAI 兼容模型保持原有兜底参数', () => {
   const options = getImageParameterOptions('custom', 'private-model');
   assert.deepEqual(options.ratios, ['1:1', '4:3', '16:9', '9:16']);
   assert.deepEqual(values(options.qualities), ['标准', '高清', '超高清']);
+});
+
+
+test('参考图能力按供应商和模型返回明确上限与提示类型', () => {
+  assert.deepEqual(getReferenceImageOptions('grsai', 'nano-banana-pro'), {
+    supported: true,
+    maxImages: 10,
+    limitKind: 'application',
+    message: '当前模型支持多图，应用最多允许 10 张',
+  });
+  assert.deepEqual(getReferenceImageOptions('aiping', 'Qwen-Image-Edit-Plus'), {
+    supported: true,
+    maxImages: 3,
+    limitKind: 'documented',
+    message: '当前模型最多支持 3 张参考图',
+  });
+  assert.deepEqual(getReferenceImageOptions('aiping', 'Doubao-Seedream-4.5'), {
+    supported: true,
+    maxImages: 10,
+    limitKind: 'documented',
+    message: '当前模型最多支持 10 张参考图',
+  });
+  assert.deepEqual(getReferenceImageOptions('aiping', 'glm-image'), {
+    supported: false,
+    maxImages: 0,
+    limitKind: 'unsupported',
+    message: '当前模型不支持参考图',
+  });
+  assert.deepEqual(getReferenceImageOptions('custom', 'private-model'), {
+    supported: true,
+    maxImages: 1,
+    limitKind: 'unknown',
+    message: '当前模型未声明多图能力，仅支持 1 张参考图',
+  });
 });

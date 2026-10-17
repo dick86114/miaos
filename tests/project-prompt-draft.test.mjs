@@ -1,22 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const previousWindow = globalThis.window;
-globalThis.window = { location: { hash: '#/project/project-1' }, addEventListener() {}, removeEventListener() {} };
-const { createProjectPromptDraftStore } = await import(`../src/js/pages/project.js?prompt-draft=${Date.now()}-${Math.random()}`);
-globalThis.window = previousWindow;
+import { createComposerDraftStore } from '../src/js/composer-drafts.js';
 
-test('项目提示词草稿在离开详情页后优先于节点已保存提示词恢复', () => {
-  const drafts = createProjectPromptDraftStore();
+test('项目提示词与参考图草稿在离开详情页后优先于节点已保存值恢复', () => {
+  const drafts = createComposerDraftStore();
+  const key = 'project:project-1:child';
+  const fallback = { prompt: '父节点保存的提示词', sourceImages: ['/tmp/parent.png'] };
 
-  assert.equal(drafts.read('project-1', 'child', '父节点保存的提示词'), '父节点保存的提示词');
+  assert.deepEqual(drafts.read(key, fallback), fallback);
 
-  drafts.write('project-1', 'child', '用户尚未生成的新提示词');
-  assert.equal(drafts.read('project-1', 'child', '父节点保存的提示词'), '用户尚未生成的新提示词');
+  drafts.write(key, {
+    prompt: '用户尚未生成的新提示词',
+    sourceImages: ['/tmp/upload.png'],
+  });
+  assert.deepEqual(drafts.read(key, fallback), {
+    prompt: '用户尚未生成的新提示词',
+    sourceImages: ['/tmp/upload.png'],
+  });
 
-  drafts.write('project-1', 'child', '');
-  assert.equal(drafts.read('project-1', 'child', '父节点保存的提示词'), '');
-
-  drafts.clear('project-1', 'child');
-  assert.equal(drafts.read('project-1', 'child', '父节点保存的提示词'), '父节点保存的提示词');
+  drafts.clear(key);
+  assert.deepEqual(drafts.read(key, fallback), fallback);
 });

@@ -490,3 +490,28 @@ test('项目画廊的稳定 key 重排后复用节点，委托取消与删除各
   assert.match(projectSource, /createKeyedListRenderer/);
   assert.match(projectSource, /galleryGrid\.addEventListener\('click'/);
 });
+
+
+test('快速任务保留 sourceImages 并按数组交给生图 worker', async () => {
+  const workerArgs = [];
+  const controlledQueue = await createControlledQueue({
+    generateImage: async (options) => {
+      workerArgs.push(options);
+      return { id: 'history-1', image: '/tmp/result.png' };
+    },
+  });
+  controlledQueue.enqueue({
+    source: 'quick',
+    prompt: '融合两张参考图',
+    providerId: 'provider-1',
+    modelId: 'model-1',
+    ratio: '1:1',
+    quality: '高清',
+    isImageToImage: true,
+    sourceImages: ['/tmp/a.png', '/tmp/b.png'],
+  });
+  await flushMicrotasks();
+
+  assert.deepEqual(workerArgs[0].sourceImages, ['/tmp/a.png', '/tmp/b.png']);
+  assert.equal(workerArgs[0].sourceImage, '/tmp/a.png');
+});

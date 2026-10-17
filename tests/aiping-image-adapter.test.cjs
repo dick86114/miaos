@@ -78,3 +78,28 @@ test('Seedream 高阶模型按 UI 清晰度映射到官方分辨率档位', () =
   const seedream4 = build('Doubao-Seedream-4.0', { ratio: '16:9', quality: '超高清' });
   assert.equal(seedream4.size, '4096*2304');
 });
+
+
+test('Aiping 编辑模型将多张参考图按顺序写入 image 数组', () => {
+  const sourceImages = ['data:image/png;base64,one', 'data:image/png;base64,two', 'data:image/png;base64,three'];
+  const body = build('Qwen-Image-Edit-Plus', { sourceImages });
+  assert.deepEqual(body.image, sourceImages);
+  assert.equal('images' in body, false);
+});
+
+test('HunyuanImage-3.0 多参考图使用文档要求的 images 数组且不重复发送 image', () => {
+  const sourceImages = ['data:image/png;base64,one', 'data:image/png;base64,two'];
+  const body = build('HunyuanImage-3.0', { sourceImages });
+  assert.deepEqual(body.images, sourceImages);
+  assert.equal('image' in body, false);
+});
+
+test('Aiping 参考图能力同时兼容旧 sourceImage 并拒绝纯文生图模型', () => {
+  const legacy = build('Qwen-Image-Edit', { sourceImage: 'data:image/png;base64,one' });
+  assert.equal(legacy.image, 'data:image/png;base64,one');
+
+  assert.throws(
+    () => build('Qwen-Image', { sourceImages: ['data:image/png;base64,one'] }),
+    /不支持图生图/u,
+  );
+});

@@ -11,6 +11,7 @@ import {
   saveFailedGenerationTask,
   uid,
 } from './store.js';
+import { normalizeReferenceImages } from './reference-images.js';
 
 // 创建独立队列实例。生产环境使用默认 worker；测试可注入受控 worker 验证真实 pump 与通知时序。
 export function createQueue(dependencies = {}) {
@@ -74,23 +75,27 @@ export function createQueue(dependencies = {}) {
       let result;
       if (task.source === 'quick') {
         // 快速生图：store.generateImage 内部已写入 history。
+        const sourceImages = normalizeReferenceImages(task.sourceImages, task.sourceImage);
         result = await generateImageWorker({
           prompt: task.prompt,
           providerId: task.providerId,
           modelId: task.modelId,
           ratio: task.ratio,
           quality: task.quality,
-          sourceImage: task.sourceImage || null,
+          sourceImages,
+          sourceImage: sourceImages[0] || null,
         });
       } else if (task.source === 'project') {
         // 项目生图：根版本 prompt/model 变更时自动建新主线节点再出图。
+        const sourceImages = normalizeReferenceImages(task.sourceImages, task.sourceImage);
         const response = await generateSmartWorker(task.projectId, task.versionId, {
           prompt: task.prompt,
           providerId: task.providerId,
           modelId: task.modelId,
           ratio: task.ratio,
           quality: task.quality,
-          sourceImage: task.sourceImage || null,
+          sourceImages,
+          sourceImage: sourceImages[0] || null,
         });
         // 如果因为主线变更换了版本 id，记录最终版本，便于页面切换。
         if (response.versionId !== task.versionId) task.versionId = response.versionId;
@@ -154,6 +159,7 @@ export function createQueue(dependencies = {}) {
       throw new Error('批次序号必须位于批次数量范围内');
     }
 
+    const sourceImages = normalizeReferenceImages(taskData.sourceImages, taskData.sourceImage);
     const task = {
       id: createTaskId('task'),
       source: taskData.source || 'quick',
@@ -166,7 +172,8 @@ export function createQueue(dependencies = {}) {
       ratio: taskData.ratio || '1:1',
       quality: taskData.quality || '高清',
       isImageToImage: !!taskData.isImageToImage,
-      sourceImage: taskData.sourceImage || '',
+      sourceImage: sourceImages[0] || '',
+      sourceImages,
       batchIndex,
       batchTotal,
       status: 'queued',
