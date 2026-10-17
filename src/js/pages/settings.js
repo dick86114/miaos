@@ -59,6 +59,23 @@ const CATEGORIES = [
   { key: 'video', label: '生视频模型', icon: 'video', color: 'video' },
  ];
 
+const GITHUB_PROJECT_URL = 'https://github.com/dick86114/miaos';
+const GITHUB_STAR_GUIDE_DISMISS_KEY = 'miaos.github-star-guide-dismissed';
+
+function isGithubStarGuideDismissed() {
+  try {
+    return window.localStorage?.getItem(GITHUB_STAR_GUIDE_DISMISS_KEY) === '1';
+  } catch (_) {
+    return false;
+  }
+}
+
+function dismissGithubStarGuide() {
+  try {
+    window.localStorage?.setItem(GITHUB_STAR_GUIDE_DISMISS_KEY, '1');
+  } catch (_) {}
+}
+
 // 连接测试和模型获取优先使用输入框里的新密钥；未输入时才读取已保存的供应商密钥。
 export function createProviderRequestData(form, typedApiKey = '', isAddingProvider = false) {
   const request = {
@@ -105,8 +122,15 @@ const UPDATE_STATE_TEXT = {
 };
 
 export function renderSettings(container, params = [], query = {}) {
+  const initialTab = query.section === 'about'
+    ? 'about'
+    : query.section === 'providers'
+      ? 'providers'
+      : query.section === 'storage'
+        ? 'storage'
+        : 'general';
   let pageState = {
-    tab: query.section === 'storage' ? 'storage' : 'general', // general | providers | storage | about
+    tab: initialTab, // general | providers | storage | about
     selectedProviderId: null,
     isAddingProvider: false,
     // 编辑表单临时状态
@@ -739,6 +763,16 @@ export function renderSettings(container, params = [], query = {}) {
     const modeTag = u.current?.isPackaged === false ? ' <span class="tag tag-soft">开发模式</span>' : '';
     const currentCdn = getUpdateCdn();
     const currentChannel = getUpdateChannel();
+    const starGuide = isGithubStarGuideDismissed() ? '' : `
+      <div class="github-star-guide" id="github-star-guide">
+        <span class="github-star-guide-icon">${icon('star', 22)}</span>
+        <span class="github-star-guide-text">如果 妙生 帮到了你，请在 GitHub 点个 Star，这对我们意义重大</span>
+        <a class="btn btn-secondary github-star-guide-action" href="${GITHUB_PROJECT_URL}" target="_blank" rel="noopener noreferrer">
+          ${icon('github', 15)}<span>去点 Star</span>
+        </a>
+        <button type="button" class="github-star-guide-close" data-star-guide-dismiss title="关闭 Star 引导" aria-label="关闭 Star 引导">${icon('x', 14)}</button>
+      </div>
+    `;
     return `
       <div class="page-header">
         <h1 class="page-title">关于与更新</h1>
@@ -758,6 +792,8 @@ export function renderSettings(container, params = [], query = {}) {
           </div>
         </div>
       </div>
+
+      ${starGuide}
 
       <div class="settings-card">
         <div class="settings-section-header">
@@ -1639,6 +1675,13 @@ export function renderSettings(container, params = [], query = {}) {
         }
         const hint = channelControl.parentElement?.querySelector('.update-cdn-hint');
         if (hint) hint.textContent = channel === 'prerelease' ? '包含预览版本，可能不稳定' : '仅接收正式版本更新';
+      });
+    }
+    const dismissStarGuide = inner.querySelector('[data-star-guide-dismiss]');
+    if (dismissStarGuide) {
+      dismissStarGuide.addEventListener('click', () => {
+        dismissGithubStarGuide();
+        inner.querySelector('#github-star-guide')?.remove();
       });
     }
     const cdnSelect = inner.querySelector('#update-cdn-select');

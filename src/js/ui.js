@@ -65,6 +65,7 @@ export function toast(message, type = 'info', options = {}) {
   const normalized = normalizeToastOptions(options);
   const key = normalized.key == null ? null : String(normalized.key);
   const duration = normalized.duration === undefined ? 2600 : normalized.duration;
+  const action = typeof normalized.onClick === 'function' ? normalized.onClick : null;
   const records = getToastRecords(documentRef);
   let record = key ? records.get(key) : null;
 
@@ -89,6 +90,7 @@ export function toast(message, type = 'info', options = {}) {
       messageNode,
       closeButton,
       key,
+      action: null,
       timer: null,
       close: null,
     };
@@ -106,14 +108,42 @@ export function toast(message, type = 'info', options = {}) {
       element.addEventListener('animationend', finishRemoval);
     };
     closeButton.addEventListener('click', record.close);
+    element.addEventListener('click', (event) => {
+      const target = event.target;
+      if (target === closeButton || target?.closest?.('.toast-close')) return;
+      if (typeof record.action !== 'function') return;
+      const actionHandler = record.action;
+      record.close();
+      try {
+        Promise.resolve(actionHandler()).catch((error) => {
+          console.warn('toast action error', error);
+        });
+      } catch (error) {
+        console.warn('toast action error', error);
+      }
+    });
+    element.addEventListener('keydown', (event) => {
+      if (!record.action || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault?.();
+      element.dispatchEvent(new Event('click', { bubbles: true }));
+    });
     getToastStack(documentRef).appendChild(element);
     if (key) records.set(key, record);
   }
 
   const { element, messageNode } = record;
+  record.action = action;
   if (record.timer) clearTimeout(record.timer);
   element.classList.remove('fade-out', 'toast-success', 'toast-error', 'toast-info');
   element.classList.add(`toast-${type}`);
+  element.classList.toggle('toast-actionable', !!action);
+  element.setAttribute('role', action ? 'button' : 'status');
+  element.tabIndex = action ? 0 : -1;
+  if (action) {
+    element.setAttribute('aria-label', String(message ?? ''));
+  } else {
+    element.removeAttribute('aria-label');
+  }
   const existingIcon = element.children[0];
   const nextIcon = createIcon(getToastIconName(type), 16);
   if (existingIcon?.replaceWith) existingIcon.replaceWith(nextIcon);

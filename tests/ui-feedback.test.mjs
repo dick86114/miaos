@@ -9,6 +9,12 @@ class FakeClassList {
   add(...values) { values.forEach((value) => this.values.add(value)); }
   remove(...values) { values.forEach((value) => this.values.delete(value)); }
   contains(value) { return this.values.has(value); }
+  toggle(value, force) {
+    const shouldAdd = force === undefined ? !this.values.has(value) : !!force;
+    if (shouldAdd) this.values.add(value);
+    else this.values.delete(value);
+    return shouldAdd;
+  }
   toString() { return [...this.values].join(' '); }
 }
 
@@ -399,5 +405,38 @@ test('路由切换会集中关闭未决确认，旧确认不能删除或覆盖�
 
     assert.equal(deleted, 0);
     assert.equal(documentRef.body.querySelector('.confirm-dialog-overlay'), null);
+  });
+});
+
+
+test('可操作 Toast 支持点击和键盘触发，关闭按钮不会误触跳转', () => {
+  withFakeDom((documentRef) => {
+    let actions = 0;
+    toast('发现新版本，点击打开更新页面', 'info', {
+      key: 'update-available',
+      duration: 0,
+      onClick: () => { actions += 1; },
+    });
+    const notice = documentRef.body.querySelector('.toast');
+    assert.equal(notice.classList.contains('toast-actionable'), true);
+    assert.equal(notice.getAttribute('role'), 'button');
+    assert.equal(notice.tabIndex, 0);
+
+    notice.dispatchEvent({ type: 'click', target: notice });
+    assert.equal(actions, 1);
+    assert.equal(notice.classList.contains('fade-out'), true);
+  });
+
+  withFakeDom((documentRef) => {
+    let actions = 0;
+    toast('发现新版本，点击打开更新页面', 'info', {
+      key: 'update-available-close',
+      duration: 0,
+      onClick: () => { actions += 1; },
+    });
+    const notice = documentRef.body.querySelector('.toast');
+    notice.querySelector('.toast-close').dispatchEvent({ type: 'click' });
+    assert.equal(actions, 0);
+    assert.equal(notice.classList.contains('fade-out'), true);
   });
 });

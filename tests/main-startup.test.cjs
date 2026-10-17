@@ -1908,3 +1908,16 @@ test('Grsai 新版异步任务使用 GET 查询结果并下载图片', async () 
     cleanupTempHome(homePath);
   }
 });
+
+
+test('更新提示的跳转能力通过受限 IPC 打开 GitHub Release 页面', async () => {
+  const homePath = createTempHome('miaos-open-release-page-');
+  try {
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['update-open-release-page'](trustedEvent());
+    assert.deepEqual(result, { ok: true });
+    assert.deepEqual(calls.externalUrls, ['https://github.com/dick86114/miaos/releases/latest']);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});

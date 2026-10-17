@@ -150,7 +150,13 @@ function bindGlobalUpdateListener() {
     if (payload.state === 'available' && payload.version) {
       if (lastNotifiedVersion === payload.version) return;
       lastNotifiedVersion = payload.version;
-      toast(`发现新版本 v${payload.version}，前往「设置」下载`, 'info', 4500);
+      toast(`发现新版本 v${payload.version}，点击前往「关于与更新」`, 'info', {
+        key: `update-available:${payload.version}`,
+        duration: 8000,
+        onClick: () => {
+          navigate('/settings?section=about');
+        },
+      });
     }
   });
 }

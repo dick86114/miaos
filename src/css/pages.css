@@ -2706,6 +2706,62 @@ i[data-lucide="loader"] {
   line-height: 1.6;
 }
 
+.github-star-guide {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 13px 14px 13px 16px;
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, #f59e0b 30%, var(--line));
+  border-radius: var(--r-lg);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #f59e0b 13%, var(--surface)),
+    var(--surface) 72%
+  );
+  box-shadow: var(--shadow-1);
+}
+.github-star-guide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #f5b301;
+  filter: drop-shadow(0 2px 5px rgba(245, 158, 11, 0.22));
+}
+.github-star-guide-text {
+  flex: 1 1 320px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.github-star-guide-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  white-space: nowrap;
+}
+.github-star-guide-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.github-star-guide-close:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
 .form-row {
   display: flex;
   gap: 12px;
