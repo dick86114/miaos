@@ -139,15 +139,73 @@ async function checkForUpdateFromAtom({ owner, repo, currentVersion, httpsImpl =
   };
 }
 
-function downloadFile(url, targetPath, { httpsImpl = https, fsImpl = fs, onProgress, expectedSha256 = '', timeoutMs = 180000, maxRetries = 3 } = {}) {
+function createCanceledDownloadError() {
+  const error = new Error('已取消下载更新');
+  error.code = 'UPDATE_DOWNLOAD_CANCELED';
+  error.canceled = true;
+  return error;
+}
+
+function downloadFile(url, targetPath, { httpsImpl = https, fsImpl = fs, onProgress, expectedSha256 = '', timeoutMs = 180000, maxRetries = 3, signal } = {}) {
   return new Promise((resolve, reject) => {
-    const options = { httpsImpl, fsImpl, onProgress, expectedSha256, timeoutMs, maxRetries, retriesLeft: maxRetries };
-    attemptDownload(url, targetPath, options, resolve, reject);
+    const state = {
+      settled: false,
+      canceled: false,
+      retryTimer: null,
+      request: null,
+      response: null,
+      output: null,
+    };
+    const cleanupPartialFile = () => {
+      try { fsImpl.unlinkSync(targetPath); } catch (_) {}
+    };
+    const onAbort = () => {
+      if (state.settled) return;
+      state.canceled = true;
+      state.output?.destroy?.();
+      state.response?.destroy?.();
+      state.request?.destroy?.();
+      cleanupPartialFile();
+      settle(createCanceledDownloadError());
+    };
+    const settle = (error, result) => {
+      if (state.settled) return;
+      state.settled = true;
+      if (state.retryTimer) clearTimeout(state.retryTimer);
+      signal?.removeEventListener?.('abort', onAbort);
+      if (error) reject(error);
+      else resolve(result);
+    };
+
+    if (signal?.aborted) {
+      cleanupPartialFile();
+      reject(createCanceledDownloadError());
+      return;
+    }
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+    const options = {
+      httpsImpl,
+      fsImpl,
+      onProgress,
+      expectedSha256,
+      timeoutMs,
+      maxRetries,
+      retriesLeft: maxRetries,
+      state,
+      settle,
+    };
+    attemptDownload(url, targetPath, options);
   });
 }
 
-function attemptDownload(url, targetPath, options, resolve, reject) {
-  const { httpsImpl, fsImpl, onProgress, expectedSha256, timeoutMs, retriesLeft } = options;
+function attemptDownload(url, targetPath, options) {
+  const { httpsImpl, fsImpl, onProgress, expectedSha256, timeoutMs, retriesLeft, state, settle } = options;
+  if (state.settled) return;
+  if (state.canceled) {
+    settle(createCanceledDownloadError());
+    return;
+  }
+  let attemptClosed = false;
   let resumeFrom = 0;
   try {
     if (fsImpl.existsSync(targetPath)) {
@@ -160,16 +218,28 @@ function attemptDownload(url, targetPath, options, resolve, reject) {
   if (resumeFrom > 0) headers.Range = `bytes=${resumeFrom}-`;
 
   const request = httpsImpl.get(url, { headers }, (response) => {
+    if (state.settled) {
+      response.resume?.();
+      return;
+    }
+    state.request = request;
+    state.response = response;
     const status = Number(response.statusCode || 0);
     if (status >= 300 && status < 400 && response.headers?.location) {
-      attemptDownload(response.headers.location, targetPath, { ...options }, resolve, reject);
+      attemptClosed = true;
+      response.resume?.();
+      state.response = null;
+      attemptDownload(response.headers.location, targetPath, options);
       return;
     }
     const isPartial = status === 206;
     if (status === 200 && resumeFrom > 0) resumeFrom = 0;
     if (status < 200 || status >= 300) {
       response.resume?.();
-      retryOrFail(url, targetPath, options, resolve, reject, `更新下载返回 HTTP ${status}`);
+      if (!attemptClosed) {
+        attemptClosed = true;
+        retryOrFail(url, targetPath, options, `更新下载返回 HTTP ${status}`);
+      }
       return;
     }
     const contentLength = Number(response.headers?.['content-length']) || 0;
@@ -187,11 +257,18 @@ function attemptDownload(url, targetPath, options, resolve, reject) {
     }
     const writeFlags = isPartial && resumeFrom > 0 ? 'a' : 'w';
     const output = fsImpl.createWriteStream(targetPath, { mode: 0o600, flags: writeFlags });
+    state.output = output;
     const fail = (error) => {
+      if (state.settled || attemptClosed) return;
+      attemptClosed = true;
       output.destroy?.();
-      retryOrFail(url, targetPath, options, resolve, reject, error?.message || '下载中断');
+      response.destroy?.();
+      state.output = null;
+      state.response = null;
+      retryOrFail(url, targetPath, options, error?.message || '下载中断');
     };
     response.on('data', (chunk) => {
+      if (state.settled) return;
       received += chunk.length;
       hash.update(chunk);
       onProgress?.(total > 0 ? Math.min(1, received / total) : null);
@@ -199,35 +276,51 @@ function attemptDownload(url, targetPath, options, resolve, reject) {
     response.on('error', fail);
     output.on('error', fail);
     output.on('finish', () => {
+      if (state.settled || attemptClosed) return;
+      attemptClosed = true;
+      state.request = null;
+      state.response = null;
+      state.output = null;
       const sha256 = hash.digest('hex');
       if (expectedSha256 && sha256.toLowerCase() !== String(expectedSha256).toLowerCase()) {
         try { fsImpl.unlinkSync(targetPath); } catch (_) {}
-        reject(new Error('更新包校验失败'));
+        settle(new Error('更新包校验失败'));
         return;
       }
-      resolve({ path: targetPath, bytes: received, sha256 });
+      settle(null, { path: targetPath, bytes: received, sha256 });
     });
     response.pipe(output);
   });
+  state.request = request;
   request.setTimeout?.(timeoutMs, () => {
+    if (state.settled || attemptClosed) return;
+    attemptClosed = true;
     request.destroy?.();
-    retryOrFail(url, targetPath, options, resolve, reject, '更新下载超时');
+    retryOrFail(url, targetPath, options, '更新下载超时');
   });
   request.on?.('error', (error) => {
-    retryOrFail(url, targetPath, options, resolve, reject, error?.message || '网络错误');
+    if (state.settled || attemptClosed) return;
+    attemptClosed = true;
+    retryOrFail(url, targetPath, options, error?.message || '网络错误');
   });
 }
 
-function retryOrFail(url, targetPath, options, resolve, reject, message) {
-  const { retriesLeft } = options;
+function retryOrFail(url, targetPath, options, message) {
+  const { retriesLeft, state, settle } = options;
+  if (state.settled) return;
+  if (state.canceled) {
+    settle(createCanceledDownloadError());
+    return;
+  }
   if (retriesLeft > 0) {
-    setTimeout(() => {
-      attemptDownload(url, targetPath, { ...options, retriesLeft: retriesLeft - 1 }, resolve, reject);
+    state.retryTimer = setTimeout(() => {
+      state.retryTimer = null;
+      attemptDownload(url, targetPath, { ...options, retriesLeft: retriesLeft - 1 });
     }, 1000);
     return;
   }
   try { options.fsImpl.unlinkSync(targetPath); } catch (_) {}
-  reject(new Error(message));
+  settle(new Error(message));
 }
 
 function shellQuote(value) {

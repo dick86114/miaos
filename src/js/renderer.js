@@ -2,6 +2,7 @@
 import { renderIcons } from './icons.js';
 import { initRouter, navigate } from './router.js';
 import { toast } from './ui.js';
+import { showUpdateRestartNotice } from './update-restart-notice.js';
 import { discardLegacyProviderSecrets, getThemeMode } from './store.js';
 
 async function init() {
@@ -48,6 +49,9 @@ async function init() {
 
   // 监听更新事件（用于全局提示）
   bindGlobalUpdateListener();
+
+  // 自动更新重新启动后，展示本次安装版本与更新日志。
+  bindUpdateRestartNotice();
 }
 
 export function initSidebarResize(sidebar, resizeHandle, {
@@ -159,6 +163,13 @@ function bindGlobalUpdateListener() {
       });
     }
   });
+}
+
+function bindUpdateRestartNotice() {
+  if (!window.api?.updateGetRestartNotice) return;
+  window.api.updateGetRestartNotice().then((result) => {
+    if (result?.ok && result.notice) showUpdateRestartNotice(result.notice);
+  }).catch(() => {});
 }
 
 document.addEventListener('DOMContentLoaded', init);

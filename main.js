@@ -35,6 +35,7 @@ const {
 } = require('./src/main/services/grsai-image-adapter');
 const { createConfigPairingServer } = require('./src/main/services/config-pairing');
 const { checkForUpdate: checkManualUpdate, downloadFile: downloadUpdateFile, buildInstallScript } = require('./src/main/services/manual-updater');
+const { createPendingUpdateStore } = require('./src/main/services/update-state');
 const { downloadImageToFile, isRetryableImageDownloadError } = require('./src/main/services/image-downloader');
 const { spawn } = require('child_process');
 const crypto = require('crypto');
@@ -45,6 +46,8 @@ let secretsVault = null;
 let activeConfigPairing = null;
 let diagnosticLogger = null;
 let storageManager = null;
+let pendingUpdateStore = null;
+let activeUpdateDownload = null;
 let updateRepository = { owner: 'dick86114', repo: 'miaos' };
 const providerTransactions = new Map();
 const decodeImageBuffer = createImageDecoder({ nativeImageImpl: nativeImage });
@@ -55,8 +58,23 @@ const imageFileAccess = createImageFileAccess({
   decodeImageBuffer,
 });
 
-// GitHub Release 页面地址
-const RELEASE_URL = 'https://github.com/dick86114/miaos/releases/latest';
+function getLatestReleaseUrl() {
+  return `https://github.com/${updateRepository.owner}/${updateRepository.repo}/releases/latest`;
+}
+
+// 仅允许打开当前更新仓库的 Release 页面，避免渲染层借更新入口跳转到其他站点。
+function resolveAllowedReleaseUrl(value) {
+  const requested = value === undefined || value === null || value === '' ? getLatestReleaseUrl() : value;
+  if (typeof requested !== 'string' || !isAllowedExternalUrl(requested)) return '';
+  try {
+    const url = new URL(requested);
+    const releasePath = `/${updateRepository.owner}/${updateRepository.repo}/releases`;
+    if (url.pathname !== releasePath && !url.pathname.startsWith(`${releasePath}/`)) return '';
+    return url.toString();
+  } catch (_) {
+    return '';
+  }
+}
 
 // ===== 自动更新初始化：保留 electron-updater 兼容配置，实际下载和替换由自定义 DMG 安装器完成 =====
 function setupAutoUpdater() {
@@ -160,15 +178,22 @@ registerSecureHandler({
   validate: () => {},
   handle: async () => {
     if (!app.isPackaged) return { ok: false, error: '开发环境不支持自动安装更新，请使用打包版本' };
+    if (activeUpdateDownload) return { ok: false, error: '更新包正在下载中' };
     const update = updateInfoCache;
     if (!update?.downloadUrl || !update.version) return { ok: false, error: '当前没有可安装的更新' };
     const dmgPath = path.join(app.getPath('temp'), `miaos-update-${Date.now()}.dmg`);
+    const controller = new AbortController();
+    const downloadState = { controller, dmgPath, version: update.version };
+    activeUpdateDownload = downloadState;
+    let pendingSaved = false;
     try {
       sendUpdateStatus('downloading', { version: update.version, progress: 0 });
       const download = await downloadUpdateFile(update.downloadUrl, dmgPath, {
         expectedSha256: update.expectedSha256,
+        signal: controller.signal,
         onProgress: (progress) => sendUpdateStatus('downloading', { version: update.version, progress }),
       });
+      activeUpdateDownload = null;
       const appPath = path.dirname(path.dirname(path.dirname(process.execPath)));
       const scriptPath = path.join(app.getPath('temp'), `miaos-update-${Date.now()}.sh`);
       const script = buildInstallScript({
@@ -180,31 +205,78 @@ registerSecureHandler({
       });
       fs.writeFileSync(scriptPath, script, { encoding: 'utf8', mode: 0o700 });
       try { fs.chmodSync(scriptPath, 0o700); } catch (_) {}
+      try {
+        pendingUpdateStore?.save({
+          version: update.version,
+          previousVersion: app.getVersion(),
+          releaseNotes: update.releaseNotes,
+          releaseDate: update.releaseDate,
+          releaseUrl: update.releaseUrl,
+        });
+        pendingSaved = true;
+      } catch (error) {
+        console.warn('保存待展示更新记录失败', error?.message || error);
+      }
       const installer = spawn('/bin/sh', [scriptPath], { detached: true, stdio: 'ignore' });
       installer.unref();
       sendUpdateStatus('installing', { version: update.version });
       setTimeout(() => app.quit(), 80);
       return { ok: true, scheduled: true, version: update.version };
     } catch (error) {
+      activeUpdateDownload = null;
       try { fs.unlinkSync(dmgPath); } catch (_) {}
+      if (pendingSaved) pendingUpdateStore?.clear();
+      if (error?.code === 'UPDATE_DOWNLOAD_CANCELED') {
+        sendUpdateStatus('canceled', { version: update.version });
+        return { ok: true, canceled: true, version: update.version };
+      }
       sendUpdateStatus('error', { message: error?.message || '更新安装失败' });
       return { ok: false, error: error?.message || '更新安装失败' };
+    } finally {
+      if (activeUpdateDownload === downloadState) activeUpdateDownload = null;
     }
   },
 });
 
-// 打开 GitHub Release 页面，由用户手动下载安装
+registerSecureHandler({
+  ipcMain,
+  channel: 'update-cancel',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: () => {
+    if (!activeUpdateDownload) return { ok: true, canceled: false };
+    activeUpdateDownload.controller.abort();
+    return { ok: true, canceled: true };
+  },
+});
+
+registerSecureHandler({
+  ipcMain,
+  channel: 'update-get-restart-notice',
+  getMainWindow: () => mainWindow,
+  validate: () => {},
+  handle: () => {
+    try {
+      return { ok: true, notice: pendingUpdateStore?.consumeForVersion(app.getVersion()) || null };
+    } catch (error) {
+      return { ok: false, error: error?.message || '读取更新记录失败' };
+    }
+  },
+});
+
+// 打开 GitHub Release 页面，由用户手动下载安装或查看完整更新内容。
 registerSecureHandler({
   ipcMain,
   channel: 'update-open-release-page',
   getMainWindow: () => mainWindow,
   validate: () => {},
-  handle: async () => {
+  handle: async (_event, requestedUrl) => {
   try {
-    if (!isAllowedExternalUrl(RELEASE_URL)) {
+    const releaseUrl = resolveAllowedReleaseUrl(requestedUrl);
+    if (!releaseUrl) {
       return { ok: false, error: '发布页面地址不受信任' };
     }
-    await shell.openExternal(RELEASE_URL);
+    await shell.openExternal(releaseUrl);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message || '打开页面失败' };
@@ -267,6 +339,10 @@ if (!shouldStartApp) {
   return;
 }
 app.setPath('userData', userDataPath);
+pendingUpdateStore = createPendingUpdateStore({
+  filePath: path.join(userDataPath, 'pending-update.json'),
+  fsImpl: fs,
+});
 storageManager = createStorageManager({
   fsImpl: fs,
   pathImpl: path,
@@ -1969,6 +2045,7 @@ if (shouldStartApp) {
 }
 
 app.on('before-quit', () => {
+  activeUpdateDownload?.controller.abort();
   // 进程退出时同样尽力释放临时端口；正常读取、超时和窗口关闭也都会主动撤销。
   void stopActiveConfigPairing('app-quit').catch(() => {});
 });

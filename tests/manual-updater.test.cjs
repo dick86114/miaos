@@ -1,10 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const http = require('node:http');
+const os = require('node:os');
+const path = require('node:path');
 
 const {
   compareVersions,
   selectDmgAsset,
   buildInstallScript,
+  downloadFile,
 } = require('../src/main/services/manual-updater');
 
 test('手动更新器正确比较版本并选择 DMG 资产', () => {
@@ -60,4 +65,45 @@ test('GitHub API 限流时回退到 Releases Atom feed', async () => {
   const update = await checkForUpdate({ owner: 'acme', repo: 'miaos', currentVersion: '1.0.0', httpsImpl });
   assert.equal(update.version, '2.0.0');
   assert.equal(update.assetName, 'miaos-2.0.0-arm64.dmg');
+});
+
+test('下载更新包时可通过 AbortSignal 取消并清理未完成文件', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miaos-cancel-download-'));
+  const targetPath = path.join(dir, 'miaos-update.dmg');
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'content-length': '1024' });
+    response.write(Buffer.alloc(128, 1));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const controller = new AbortController();
+
+  try {
+    const download = downloadFile(`http://127.0.0.1:${port}/miaos.dmg`, targetPath, {
+      httpsImpl: http,
+      signal: controller.signal,
+      timeoutMs: 10000,
+      maxRetries: 0,
+    });
+    await new Promise((resolve) => {
+      const timer = setInterval(() => {
+        if (fs.existsSync(targetPath) && fs.statSync(targetPath).size > 0) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 10);
+    });
+
+    controller.abort();
+    await assert.rejects(download, (error) => {
+      assert.equal(error.code, 'UPDATE_DOWNLOAD_CANCELED');
+      assert.equal(error.canceled, true);
+      return true;
+    });
+    assert.equal(fs.existsSync(targetPath), false);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

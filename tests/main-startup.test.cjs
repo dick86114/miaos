@@ -21,6 +21,8 @@ const EXPECTED_CHANNELS = [
   'update-get-current-version',
   'update-check',
   'update-install',
+  'update-cancel',
+  'update-get-restart-notice',
   'update-open-release-page',
   'update-configure',
   'provider-secret-set',
@@ -515,7 +517,7 @@ test('app.setPath 非预期异常会传播且不显示数据目录错误', async
   }
 });
 
-test('正常启动精确注册 28 个真实安全 handler（含失败日志导出和更新安装），未知 sender 全部被拒绝', async () => {
+test('正常启动精确注册 30 个真实安全 handler（含失败日志导出和更新安装），未知 sender 全部被拒绝', async () => {
   const homePath = createTempHome('miaos-ipc-registrations-');
   try {
     const { calls } = await runMainWithMock({ homePath });
@@ -1914,9 +1916,24 @@ test('更新提示的跳转能力通过受限 IPC 打开 GitHub Release 页面',
   const homePath = createTempHome('miaos-open-release-page-');
   try {
     const { calls } = await runMainWithMock({ homePath });
+    const cancelResult = await calls.ipcHandlers['update-cancel'](trustedEvent());
+    assert.deepEqual(cancelResult, { ok: true, canceled: false });
+    const restartNotice = await calls.ipcHandlers['update-get-restart-notice'](trustedEvent());
+    assert.deepEqual(restartNotice, { ok: true, notice: null });
+
     const result = await calls.ipcHandlers['update-open-release-page'](trustedEvent());
     assert.deepEqual(result, { ok: true });
-    assert.deepEqual(calls.externalUrls, ['https://github.com/dick86114/miaos/releases/latest']);
+    const specific = await calls.ipcHandlers['update-open-release-page'](
+      trustedEvent(),
+      'https://github.com/dick86114/miaos/releases/tag/v1.5.0',
+    );
+    assert.deepEqual(specific, { ok: true });
+    const rejected = await calls.ipcHandlers['update-open-release-page'](trustedEvent(), 'https://example.com/releases/tag/v1.5.0');
+    assert.equal(rejected.ok, false);
+    assert.deepEqual(calls.externalUrls, [
+      'https://github.com/dick86114/miaos/releases/latest',
+      'https://github.com/dick86114/miaos/releases/tag/v1.5.0',
+    ]);
   } finally {
     cleanupTempHome(homePath);
   }

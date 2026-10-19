@@ -3436,6 +3436,97 @@ i[data-lucide="loader"] {
 }
 .update-error i { flex-shrink: 0; }
 
+/* 自动更新完成后的版本说明弹窗 */
+.update-restart-overlay {
+  z-index: 1300;
+}
+.update-restart-card {
+  width: min(680px, calc(100vw - 40px));
+  overflow: hidden;
+}
+.update-restart-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 26px 26px 14px;
+}
+.update-restart-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 14px;
+  color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--line));
+}
+.update-restart-heading {
+  flex: 1;
+  min-width: 0;
+  padding-top: 1px;
+}
+.update-restart-title {
+  margin: 0;
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.update-restart-subtitle {
+  margin: 7px 0 0;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.update-restart-close {
+  flex: 0 0 auto;
+  margin-top: -3px;
+}
+.update-restart-body {
+  padding: 8px 26px 4px;
+}
+.update-restart-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.update-restart-meta strong {
+  color: var(--ink);
+  font-size: 16px;
+  margin: 0;
+}
+.update-restart-meta time {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+.update-restart-notes {
+  max-height: min(46vh, 420px);
+  padding: 16px 2px 12px 0;
+  overflow-y: auto;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.update-restart-notes h1,
+.update-restart-notes h2,
+.update-restart-notes h3 {
+  margin-top: 0;
+}
+.update-restart-empty {
+  margin: 0;
+  color: var(--ink-2);
+}
+.update-restart-footer {
+  padding: 14px 26px 22px;
+  border-top: 0;
+}
+
 /* 按钮尺寸变体 */
 .btn-sm {
   padding: 5px 10px;

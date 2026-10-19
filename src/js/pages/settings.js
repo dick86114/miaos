@@ -115,6 +115,7 @@ const UPDATE_STATE_TEXT = {
   checking: '正在检查更新…',
   available: '发现新版本',
   downloading: '正在下载更新',
+  canceled: '下载已取消',
   installing: '正在安装更新',
   completed: '更新已安装',
   'not-available': '当前已是最新版本',
@@ -145,6 +146,7 @@ export function renderSettings(container, params = [], query = {}) {
       latest: null,
       state: 'idle',
       payload: null,
+      available: null,
     },
     // 默认模型
     defaults: getDefaults(),
@@ -828,6 +830,12 @@ export function renderSettings(container, params = [], query = {}) {
               </button>
               <button class="btn btn-primary" id="btn-download" type="button" style="display:none;">
                 ${icon('download', 14)}<span>下载并安装更新</span>
+              </button>
+              <button class="btn btn-secondary" id="btn-cancel-download" type="button" style="display:none;">
+                ${icon('x', 14)}<span>取消下载</span>
+              </button>
+              <button class="btn btn-secondary" id="btn-open-release" type="button">
+                ${icon('external-link', 14)}<span>GitHub 手动下载</span>
               </button>
             </div>
           </div>
@@ -1713,8 +1721,46 @@ export function renderSettings(container, params = [], query = {}) {
     if (btnDownload) {
       btnDownload.addEventListener('click', async () => {
         if (!window.api?.updateInstall) { toast('当前运行环境不支持自动安装更新', 'error'); return; }
-        const result = await window.api.updateInstall();
-        if (result?.ok === false && !result.canceled) handleUpdateEvent({ state: 'error', message: result.error || '更新安装失败' });
+        btnDownload.disabled = true;
+        const label = btnDownload.querySelector('span');
+        if (label) label.textContent = '准备下载…';
+        try {
+          const result = await window.api.updateInstall();
+          if (result?.ok === false && !result.canceled) handleUpdateEvent({ state: 'error', message: result.error || '更新安装失败' });
+        } catch (error) {
+          handleUpdateEvent({ state: 'error', message: error?.message || '更新安装失败' });
+        }
+      });
+    }
+    const btnCancelDownload = inner.querySelector('#btn-cancel-download');
+    if (btnCancelDownload) {
+      btnCancelDownload.addEventListener('click', async () => {
+        if (!window.api?.updateCancel) { toast('当前运行环境不支持取消下载', 'error'); return; }
+        btnCancelDownload.disabled = true;
+        try {
+          const result = await window.api.updateCancel();
+          if (result?.ok === false) {
+            toast(result.error || '取消下载失败', 'error');
+          } else if (result?.canceled === false) {
+            toast('更新包已进入安装阶段，无法再取消', 'info');
+          }
+        } catch (error) {
+          toast(error?.message || '取消下载失败', 'error');
+        } finally {
+          if (btnCancelDownload.isConnected) btnCancelDownload.disabled = false;
+        }
+      });
+    }
+    const btnOpenRelease = inner.querySelector('#btn-open-release');
+    if (btnOpenRelease) {
+      btnOpenRelease.addEventListener('click', async () => {
+        if (!window.api?.openReleasePage) { toast('当前运行环境不支持打开 GitHub', 'error'); return; }
+        try {
+          const result = await window.api.openReleasePage(pageState.update.available?.releaseUrl);
+          if (result?.ok === false) toast(result.error || '打开 GitHub 发布页面失败', 'error');
+        } catch (error) {
+          toast(error?.message || '打开 GitHub 发布页面失败', 'error');
+        }
       });
     }
   }
@@ -1787,6 +1833,8 @@ export function renderSettings(container, params = [], query = {}) {
 
   function handleUpdateEvent(payload) {
     const s = payload?.state;
+    if (s === 'available') pageState.update.available = { ...payload };
+    const available = pageState.update.available;
     pageState.update.state = s;
     pageState.update.payload = payload;
     if (pageState.tab !== 'about') return;
@@ -1796,30 +1844,48 @@ export function renderSettings(container, params = [], query = {}) {
     const notesEl = document.getElementById('update-notes');
     const btnCheck = document.getElementById('btn-check');
     const btnDownload = document.getElementById('btn-download');
+    const btnCancelDownload = document.getElementById('btn-cancel-download');
     const latestVer = document.getElementById('latest-ver');
     const latestDate = document.getElementById('latest-date');
+    const setDownloadLabel = (text) => {
+      const label = btnDownload?.querySelector('span');
+      if (label) label.textContent = text;
+    };
+    const showAvailableNotes = () => {
+      if (!available?.releaseNotes || !notesEl) return;
+      notesEl.style.display = 'block';
+      const body = document.getElementById('update-notes-body');
+      if (body) renderReleaseNotes(body, available.releaseNotes);
+    };
+    const showAvailableVersion = () => {
+      if (!available?.version) return;
+      pageState.update.latest = available.version;
+      if (latestVer) latestVer.textContent = `v${available.version}`;
+    };
 
     if (chip) chip.textContent = UPDATE_STATE_TEXT[s] || s || UPDATE_STATE_TEXT.idle;
     if (chip) chip.className = 'tag tag-soft';
     if (errorEl) errorEl.style.display = 'none';
     if (notesEl) notesEl.style.display = 'none';
     if (btnCheck) btnCheck.style.display = 'inline-flex';
-    if (btnDownload) btnDownload.style.display = 'none';
+    if (btnDownload) {
+      btnDownload.style.display = 'none';
+      btnDownload.disabled = false;
+      setDownloadLabel('下载并安装更新');
+    }
+    if (btnCancelDownload) {
+      btnCancelDownload.style.display = 'none';
+      btnCancelDownload.disabled = false;
+    }
     syncUpdateCheckButton(btnCheck, s);
 
     switch (s) {
       case 'checking':
         break;
       case 'available': {
-        const ver = payload.version || '未知';
-        if (latestVer) latestVer.textContent = `v${ver}`;
-        pageState.update.latest = ver;
-        if (payload.releaseDate && latestDate) latestDate.textContent = '发布时间：' + formatDate(payload.releaseDate);
-        if (payload.releaseNotes && notesEl) {
-          notesEl.style.display = 'block';
-          const body = document.getElementById('update-notes-body');
-          if (body) renderReleaseNotes(body, payload.releaseNotes);
-        }
+        showAvailableVersion();
+        if (latestDate) latestDate.textContent = available?.releaseDate ? '发布时间：' + formatDate(available.releaseDate) : '';
+        showAvailableNotes();
         if (btnCheck) btnCheck.style.display = 'none';
         if (btnDownload) btnDownload.style.display = 'inline-flex';
         if (chip) chip.className = 'tag tag-primary';
@@ -1834,21 +1900,32 @@ export function renderSettings(container, params = [], query = {}) {
         if (btnDownload) {
           btnDownload.style.display = 'inline-flex';
           btnDownload.disabled = true;
-          const label = btnDownload.querySelector('span');
-          if (label) label.textContent = '下载中…';
+          setDownloadLabel('下载中…');
         }
+        if (btnCancelDownload) btnCancelDownload.style.display = 'inline-flex';
+        showAvailableNotes();
         if (chip) { chip.textContent = UPDATE_STATE_TEXT.downloading; chip.className = 'tag tag-primary'; }
         break;
       }
+      case 'canceled':
+        showAvailableVersion();
+        if (latestDate) latestDate.textContent = '下载已取消，可重新下载或前往 GitHub 手动下载';
+        if (btnCheck) btnCheck.style.display = 'none';
+        if (btnDownload) btnDownload.style.display = 'inline-flex';
+        showAvailableNotes();
+        break;
       case 'installing':
         if (btnCheck) btnCheck.style.display = 'none';
         if (btnDownload) btnDownload.style.display = 'none';
+        if (btnCancelDownload) btnCancelDownload.style.display = 'none';
         if (chip) { chip.textContent = UPDATE_STATE_TEXT.installing; chip.className = 'tag tag-primary'; }
         if (latestDate) latestDate.textContent = '更新包已下载，应用将自动重启完成安装';
+        showAvailableNotes();
         break;
       case 'completed':
         if (btnCheck) btnCheck.style.display = 'inline-flex';
         if (btnDownload) btnDownload.style.display = 'none';
+        if (btnCancelDownload) btnCancelDownload.style.display = 'none';
         if (chip) { chip.textContent = UPDATE_STATE_TEXT.completed; chip.className = 'tag tag-primary'; }
         break;
       case 'not-available':
@@ -1856,6 +1933,12 @@ export function renderSettings(container, params = [], query = {}) {
         if (latestDate) latestDate.textContent = '当前已是最新版本';
         break;
       case 'error': {
+        if (available) {
+          showAvailableVersion();
+          if (btnCheck) btnCheck.style.display = 'none';
+          if (btnDownload) btnDownload.style.display = 'inline-flex';
+          showAvailableNotes();
+        }
         if (errorEl) {
           errorEl.style.display = 'flex';
           const msg = document.getElementById('update-error-msg');

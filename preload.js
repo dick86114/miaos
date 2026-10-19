@@ -38,7 +38,9 @@ contextBridge.exposeInMainWorld('api', {
   updateGetCurrentVersion: () => ipcRenderer.invoke('update-get-current-version'),
   updateCheck: (opts) => ipcRenderer.invoke('update-check', opts),
   updateInstall: () => ipcRenderer.invoke('update-install'),
-  openReleasePage: () => ipcRenderer.invoke('update-open-release-page'),
+  updateCancel: () => ipcRenderer.invoke('update-cancel'),
+  updateGetRestartNotice: () => ipcRenderer.invoke('update-get-restart-notice'),
+  openReleasePage: (url) => ipcRenderer.invoke('update-open-release-page', url),
   onUpdateStatus: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('update-status', listener);
