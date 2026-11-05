@@ -24,7 +24,7 @@ test('pnpm 安装允许官方 Electron 构建脚本', () => {
 });
 
 test('Electron 使用受支持稳定版本且不使用自定义 postinstall 兜底', () => {
-  assert.equal(pkg.devDependencies.electron, '44.3.0');
+  assert.equal(pkg.devDependencies.electron, '45.2.3');
   assert.equal('postinstall' in pkg.scripts, false);
   assert.equal(existsSync(new URL('../scripts/ensure-electron-ready.mjs', import.meta.url)), false);
 });

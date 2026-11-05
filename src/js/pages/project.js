@@ -532,31 +532,28 @@ export function renderProject(container, params, routeOptions = {}) {
                 <button class="composer-tool-btn" type="button" id="btn-upload-file" title="导入长文本提示词" data-tooltip="从 .txt 或 .md 文件读取长提示词，并覆盖当前节点输入框内容。">${icon('file-text', 16)}<span class="composer-tool-label">导入文本</span></button>
                 <div class="composer-chip composer-chip--model" id="model-chip">
                   <span class="chip-icon">${icon('cpu', 13)}</span>
-                  <span class="chip-label">模型</span>
                   <span class="chip-value" id="model-chip-value" title="选择模型">选择模型</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
                 <div class="composer-chip" id="ratio-chip" title="选择画面比例" data-tooltip="设置本节点生成图片的画幅比例。可选项会随当前模型变化。">
                   <span class="chip-icon">${icon('aperture', 13)}</span>
-                  <span class="chip-label">比例</span>
                   <span class="chip-value" id="ratio-chip-value">${curVer.images[0] ? curVer.images[0].ratio : '1:1'}</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
                 <div class="composer-chip" id="quality-chip" title="选择生成清晰度" data-tooltip="设置本节点生成图片的清晰度。部分模型会固定清晰度，不能修改。">
                   <span class="chip-icon">${icon('sparkles', 13)}</span>
-                  <span class="chip-label">质量</span>
                   <span class="chip-value" id="quality-chip-value">${curVer.images[0] ? curVer.images[0].quality : '高清'}</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
                 <div class="composer-chip" id="quantity-chip" title="选择生成数量" data-tooltip="一次加入 1–4 个生成任务。每张图片会作为独立任务排队，可分别查看和保存。">
-                  <span class="chip-label">数量</span>
-                  <span class="chip-value" id="quantity-chip-value">1 张</span>
+                  <span class="chip-icon">${icon('copy', 13)}</span>
+                  <span class="chip-value" id="quantity-chip-value">1</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
                 <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词" data-tooltip="调用系统设置中配置的文本模型，扩写并润色当前节点提示词。">${icon('wand', 15)}<span class="composer-tool-label">优化</span></button>
                 <div class="composer-toolbar-spacer"></div>
-                <button class="composer-generate-round composer-generate-round--labeled" id="btn-generate" title="生成图片（⌘+Enter）" data-tooltip="将当前提示词、模型和参数加入生成队列。修改主线提示词或模型后会创建新的主线节点。">
-                  ${icon('arrow-down', 20)}<span class="composer-generate-label">生成</span>
+                <button class="composer-generate-round" id="btn-generate" title="生成图片（⌘+Enter）" aria-label="生成图片" data-tooltip="将当前提示词、模型和参数加入生成队列。修改主线提示词或模型后会创建新的主线节点。">
+                  ${icon('arrow-down', 20)}
                 </button>
               </div>
             </div>
@@ -767,7 +764,7 @@ export function renderProject(container, params, routeOptions = {}) {
       );
     }
     buildModelChipValue();
-    quantityChipValue.textContent = `${currentQuantity} 张`;
+    quantityChipValue.textContent = String(currentQuantity);
     saveComposerDraft();
 
     function getCurrentReferenceOptions(providerId = currentProviderId, modelId = currentModelId) {
@@ -1021,7 +1018,7 @@ export function renderProject(container, params, routeOptions = {}) {
         saveComposerDraft();
       } else if (item.hasAttribute('data-quantity')) {
         currentQuantity = Number(item.getAttribute('data-quantity'));
-        quantityChipValue.textContent = `${currentQuantity} 张`;
+        quantityChipValue.textContent = String(currentQuantity);
         saveComposerDraft();
       }
       closeDropdown();

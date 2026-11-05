@@ -341,22 +341,44 @@
   position: fixed;
   z-index: 10050;
   max-width: min(320px, calc(100vw - 24px));
-  padding: 8px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(17, 24, 39, 0.96);
-  color: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.46);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(255, 255, 255, 0.40) 52%, rgba(241, 245, 255, 0.44)),
+    radial-gradient(120% 80% at 12% 0%, rgba(79, 70, 229, 0.08), transparent 58%);
+  backdrop-filter: blur(22px) saturate(1.55);
+  -webkit-backdrop-filter: blur(22px) saturate(1.55);
+  color: #172033;
+  box-shadow:
+    0 18px 42px -22px rgba(15, 23, 42, 0.30),
+    0 2px 10px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
+  text-wrap: pretty;
   pointer-events: none;
   opacity: 0;
-  transform: translateY(3px);
-  transition: opacity var(--motion-fast) var(--motion-ease), transform var(--motion-fast) var(--motion-ease);
+  transform: translateY(4px) scale(0.96);
+  transition:
+    opacity var(--motion-slow) var(--motion-ease),
+    transform var(--motion-slow) var(--motion-ease);
 }
 .app-tooltip.is-visible {
   opacity: 1;
-  transform: translateY(0);
+  transform: translateY(0) scale(1);
+}
+
+[data-theme="dark"] .app-tooltip {
+  border-color: rgba(255, 255, 255, 0.17);
+  background:
+    linear-gradient(135deg, rgba(54, 66, 88, 0.78), rgba(31, 41, 55, 0.58) 54%, rgba(22, 30, 43, 0.66)),
+    radial-gradient(120% 80% at 12% 0%, rgba(129, 140, 248, 0.10), transparent 58%);
+  color: rgba(244, 247, 255, 0.94);
+  box-shadow:
+    0 22px 48px -24px rgba(0, 0, 0, 0.62),
+    0 2px 12px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 /* 图片右键菜单 */

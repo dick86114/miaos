@@ -230,32 +230,29 @@ export function renderGenerate(container) {
           <button class="composer-tool-btn" type="button" id="btn-upload-file" title="导入长文本提示词" data-tooltip="从 .txt 或 .md 文件读取长提示词，并覆盖当前输入框内容。">${icon('file-text', 16)}<span class="composer-tool-label">导入文本</span></button>
           <div class="composer-chip composer-chip--model" id="model-chip">
             <span class="chip-icon">${icon('cpu', 13)}</span>
-            <span class="chip-label">模型</span>
             <span class="chip-value" id="model-chip-value" title="选择模型">选择模型</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
           <div class="composer-chip" id="ratio-chip" title="选择画面比例" data-tooltip="设置生成图片的画幅比例。可选项会随当前模型变化。">
             <span class="chip-icon">${icon('aperture', 13)}</span>
-            <span class="chip-label">比例</span>
             <span class="chip-value" id="ratio-chip-value">${currentRatio}</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
           <div class="composer-chip" id="quality-chip" title="选择生成清晰度" data-tooltip="设置生成图片的清晰度。部分模型会固定清晰度，不能修改。">
             <span class="chip-icon">${icon('sparkles', 13)}</span>
-            <span class="chip-label">质量</span>
             <span class="chip-value" id="quality-chip-value">${getQualityLabel(currentQuality)}</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
           <div class="composer-chip" id="quantity-chip" title="选择生成数量" data-tooltip="一次加入 1–4 个生成任务。每张图片会作为独立任务排队，可分别查看和保存。">
-            <span class="chip-label">数量</span>
-            <span class="chip-value" id="quantity-chip-value">${currentQuantity} 张</span>
+            <span class="chip-icon">${icon('copy', 13)}</span>
+            <span class="chip-value" id="quantity-chip-value">${currentQuantity}</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
           <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词" data-tooltip="调用系统设置中配置的文本模型，扩写并润色当前提示词，让画面描述更完整。">${icon('wand', 15)}<span class="composer-tool-label">优化</span></button>
           <button class="composer-tool-btn" type="button" id="btn-random" title="随机提示词" data-tooltip="用一条内置示例提示词替换当前输入，适合快速开始创作。">${icon('shuffle', 15)}<span class="composer-tool-label">随机</span></button>
           <div class="composer-toolbar-spacer"></div>
-          <button class="composer-generate-round composer-generate-round--labeled" id="btn-generate" title="开始生成（⌘+Enter）" data-tooltip="将当前提示词、模型和参数加入生成队列；也可以按 ⌘+Enter 快速提交。">
-            ${icon('arrow-down', 20)}<span class="composer-generate-label">生成</span>
+          <button class="composer-generate-round" id="btn-generate" title="开始生成（⌘+Enter）" aria-label="开始生成" data-tooltip="将当前提示词、模型和参数加入生成队列；也可以按 ⌘+Enter 快速提交。">
+            ${icon('arrow-down', 20)}
           </button>
         </div>
       </div>
@@ -612,7 +609,7 @@ export function renderGenerate(container) {
       saveComposerDraft();
     } else if (item.hasAttribute('data-quantity')) {
       currentQuantity = Number(item.getAttribute('data-quantity'));
-      quantityChipValue.textContent = `${currentQuantity} 张`;
+      quantityChipValue.textContent = String(currentQuantity);
       saveComposerDraft();
     }
     closeDropdown();
