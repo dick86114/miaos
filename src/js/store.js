@@ -711,6 +711,30 @@ export function deleteProvider(id) {
   persistProviderState(previousState);
 }
 
+function assertExactOrder(ids, currentIds, label) {
+  if (!Array.isArray(ids) || ids.length !== currentIds.length) {
+    throw new Error(`${label}顺序参数不完整`);
+  }
+  const nextIds = ids.map((id) => String(id));
+  const nextSet = new Set(nextIds);
+  if (nextSet.size !== nextIds.length || currentIds.some((id) => !nextSet.has(id))) {
+    throw new Error(`${label}顺序参数无效`);
+  }
+}
+
+export function reorderProviders(providerIds) {
+  const currentIds = state.providers.map((provider) => provider.id);
+  assertExactOrder(providerIds, currentIds, '供应商');
+  const nextIds = providerIds.map((id) => String(id));
+  if (nextIds.every((id, index) => id === currentIds[index])) return true;
+
+  const previousState = cloneStateForRollback();
+  const providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
+  state.providers = nextIds.map((id) => providerMap.get(id));
+  persistProviderState(previousState);
+  return true;
+}
+
 function ensureDefaults() {
   const d = state.defaults;
   if (!d.defaultImageProvider || !state.providers.find((p) => p.id === d.defaultImageProvider && p.imageModels.some((m) => m.enabled))) {
@@ -732,6 +756,24 @@ function ensureDefaults() {
 
 // ===== 模型操作（按分类） =====
 const CAT_KEYS = { image: 'imageModels', text: 'textModels', video: 'videoModels' };
+
+export function reorderModelsByCat(providerId, category, modelIds) {
+  const p = state.providers.find((provider) => provider.id === providerId);
+  if (!p) throw new Error('供应商不存在');
+  const key = CAT_KEYS[category];
+  if (!key) throw new Error('模型分类无效');
+
+  const currentIds = p[key].map((model) => model.id);
+  assertExactOrder(modelIds, currentIds, '模型');
+  const nextIds = modelIds.map((id) => String(id));
+  if (nextIds.every((id, index) => id === currentIds[index])) return true;
+
+  const previousState = cloneStateForRollback();
+  const modelMap = new Map(p[key].map((model) => [model.id, model]));
+  p[key] = nextIds.map((id) => modelMap.get(id));
+  persistProviderState(previousState);
+  return true;
+}
 
 function toggleModelByCat(providerId, category, modelId, enabled) {
   const p = state.providers.find((p) => p.id === providerId);

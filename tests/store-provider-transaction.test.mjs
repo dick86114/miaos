@@ -41,6 +41,17 @@ test('删除供应商的 localStorage 落盘失败会保留原供应商', async 
   assert.equal(store.getProvider('p_grsai')?.id, 'p_grsai');
 });
 
+test('供应商与模型拖拽排序的 localStorage 落盘失败会回滚内存顺序', async () => {
+  const store = await loadStoreWithFailingStorage();
+  const providerIds = store.getProviders().map((provider) => provider.id);
+  assert.throws(() => store.reorderProviders(providerIds.slice().reverse()), /localStorage 写入失败/);
+  assert.deepEqual(store.getProviders().map((provider) => provider.id), providerIds);
+
+  const modelIds = store.getProvider('p_grsai').imageModels.map((model) => model.id);
+  assert.throws(() => store.reorderModelsByCat('p_grsai', 'image', modelIds.slice().reverse()), /localStorage 写入失败/);
+  assert.deepEqual(store.getProvider('p_grsai').imageModels.map((model) => model.id), modelIds);
+});
+
 test('迁移尚未完成时普通 provider getter 也绝不返回旧 apiKey', async () => {
   const legacyState = {
     providers: [{

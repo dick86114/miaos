@@ -5,12 +5,15 @@ import { openImagePreview } from '../image-preview.js';
 import { renderReleaseNotes } from '../release-notes.js';
 import { getModelDescription } from '../model-catalog.js';
 import { getReferenceImageOptions } from '../image-model-capabilities.js';
+import { createSortableList } from '../sortable-list.js';
 import {
   getProviders,
   getStateSnapshot,
   getProvider,
   saveProvider,
   deleteProvider,
+  reorderProviders,
+  reorderModelsByCat,
   toggleImageModel,
   toggleTextModel,
   toggleVideoModel,
@@ -174,6 +177,7 @@ export function renderSettings(container, params = [], query = {}) {
   };
 
   const root = htmlToElement(`<div class="settings-wrap"><div class="settings-layout"></div></div>`);
+  let activeSortables = [];
   mountPage(container, root);
 
   refresh();
@@ -191,6 +195,8 @@ export function renderSettings(container, params = [], query = {}) {
   return () => {
     unsubscribeUpdateStatus?.();
     unsubscribeConfigPairingEnded?.();
+    activeSortables.forEach((sortable) => sortable.destroy());
+    activeSortables = [];
     if (pageState.pairing.active) window.api?.stopConfigPairing?.();
   };
 
@@ -254,6 +260,8 @@ export function renderSettings(container, params = [], query = {}) {
     const scrollContainer = inner.querySelector('.settings-content') || inner;
     const savedScrollTop = scrollContainer.scrollTop || 0;
     const savedScrollLeft = scrollContainer.scrollLeft || 0;
+    activeSortables.forEach((sortable) => sortable.destroy());
+    activeSortables = [];
     inner.innerHTML = renderLayout(providers);
     renderIcons(inner);
     // 恢复滚动位置
@@ -420,7 +428,7 @@ export function renderSettings(container, params = [], query = {}) {
     return `
       <div class="page-header">
         <h1 class="page-title">模型供应商</h1>
-        <p class="page-subtitle">配置大模型 API 端点和密钥，管理可用模型</p>
+        <p class="page-subtitle">配置大模型 API 端点和密钥，拖拽供应商或模型可调整展示顺序</p>
       </div>
       <div class="providers-layout">
         <div class="providers-list-panel">
@@ -1253,6 +1261,21 @@ export function renderSettings(container, params = [], query = {}) {
   function bindProviderEvents() {
     const inner = getInner();
 
+    const providerList = inner.querySelector('.providers-list');
+    if (providerList) {
+      activeSortables.push(createSortableList({
+        list: providerList,
+        itemSelector: '.provider-list-item',
+        getKey: (item) => item.getAttribute('data-pid'),
+        onReorder: (providerIds) => {
+          reorderProviders(providerIds);
+        },
+        onError: (error) => {
+          toast('供应商排序失败：' + (error?.message || '未知错误'), 'error');
+        },
+      }));
+    }
+
     // 添加供应商
     const addBtn = inner.querySelector('#btn-add-provider');
     if (addBtn) {
@@ -1298,6 +1321,39 @@ export function renderSettings(container, params = [], query = {}) {
   function bindFormEvents() {
     const inner = getInner();
     const f = pageState.form;
+
+    inner.querySelectorAll('.model-checklist').forEach((modelList) => {
+      const category = modelList.closest('.model-category-section')?.getAttribute('data-cat');
+      const key = category ? category + 'Models' : '';
+      if (!key || !Array.isArray(f[key])) return;
+
+      activeSortables.push(createSortableList({
+        list: modelList,
+        itemSelector: '.model-check-item',
+        getKey: (item) => item.getAttribute('data-mid'),
+        onReorder: (modelIds) => {
+          const nextModels = modelIds
+            .map((id) => f[key].find((model) => model.id === id))
+            .filter(Boolean);
+          if (nextModels.length !== modelIds.length) {
+            throw new Error('模型列表已发生变化，请重试');
+          }
+
+          if (!pageState.isAddingProvider) {
+            const persisted = getProvider(f.id);
+            const persistedIds = (persisted?.[key] || []).map((model) => model.id);
+            const samePersistedSet = persistedIds.length === modelIds.length
+              && modelIds.every((id) => persistedIds.includes(id));
+            if (samePersistedSet) reorderModelsByCat(f.id, category, modelIds);
+          }
+
+          f[key] = nextModels;
+        },
+        onError: (error) => {
+          toast('模型排序失败：' + (error?.message || '未知错误'), 'error');
+        },
+      }));
+    });
 
     // 同步输入到 form 状态
     const syncInput = (id, key) => {

@@ -3451,6 +3451,55 @@ i[data-lucide="loader"] {
   margin-top: 8px;
 }
 
+/* ========== 列表拖拽排序 ========== */
+.sortable-list [data-sortable-item] {
+  cursor: grab;
+}
+.sortable-list.is-sorting {
+  user-select: none;
+}
+.sortable-list.is-sorting > [data-sortable-item] {
+  transform: translate3d(0, var(--sortable-shift, 0), 0);
+  transition: transform var(--motion-normal) var(--motion-ease);
+  will-change: transform;
+}
+.sortable-list.is-sorting > [data-sortable-item]:active {
+  cursor: grabbing;
+}
+.sortable-item--placeholder {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.sortable-item--placeholder > * {
+  opacity: 0 !important;
+}
+.sortable-drag-ghost {
+  position: fixed !important;
+  z-index: 10050;
+  box-sizing: border-box;
+  margin: 0 !important;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--surface) !important;
+  box-shadow: var(--shadow-3) !important;
+  outline: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  outline-offset: -1px;
+  pointer-events: none !important;
+  cursor: grabbing !important;
+  transform-origin: center;
+  opacity: 0.98;
+}
+.sortable-drag-ghost.is-dropping {
+  transition:
+    transform var(--motion-normal) var(--motion-ease),
+    opacity var(--motion-fast) var(--motion-ease);
+}
+body.is-sortable-dragging,
+body.is-sortable-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
 /* 表单底部操作 */
 .form-actions {
   display: flex;
