@@ -28,6 +28,7 @@ import { getImageParameterOptions, getReferenceImageOptions, normalizeImageParam
 import { mergeReferenceImages, normalizeReferenceImages } from '../reference-images.js';
 import { createComposerDraftStore } from '../composer-drafts.js';
 import { getImageModelDescription } from '../model-catalog.js';
+import { isModelOptionSelected } from '../model-selection.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -426,7 +427,7 @@ export function renderGenerate(container) {
       const models = p.imageModels.filter((m) => m.enabled);
       html += `<div style="font-size:11px;color:var(--ink-3);padding:4px 10px 2px;">${escapeHtml(p.name)}</div>`;
       for (const m of models) {
-        const active = m.id === currentModelId && p.id === currentProviderId;
+        const active = isModelOptionSelected(p.id, m.id, currentProviderId, currentModelId);
         const referenceOptions = getReferenceImageOptions(p.type, m.id);
         const description = [
           getImageModelDescription(m.id, m.name, m.description || ''),
