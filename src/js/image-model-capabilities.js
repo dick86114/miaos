@@ -20,6 +20,7 @@ const GPT_IMAGE_RATIOS = [
   '1:1', '4:3', '3:4', '16:9', '9:16', '3:2', '2:3', '5:4', '4:5',
   '21:9', '9:21', '1:2', '2:1',
 ];
+const KLONG_RATIOS = ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'];
 
 const GRSAI_ALL_RESOLUTIONS = new Set(['nano-banana-2', 'nano-banana-pro']);
 const GRSAI_1K_ONLY = new Set([
@@ -132,6 +133,7 @@ const AIPING_REFERENCE_IMAGE_LIMITS = new Map([
 ]);
 
 const AIPING_APPLICATION_LIMIT_MODELS = new Set(['Kling-V1', 'Kling-V2.1']);
+const KLONG_SINGLE_IMAGE_MODELS = new Set(['grok-imagine-image-2.0']);
 
 function referenceImageResult(maxImages, limitKind) {
   if (maxImages <= 0) {
@@ -170,6 +172,11 @@ export function getReferenceImageOptions(providerType, modelId) {
     return referenceImageResult(10, 'application');
   }
 
+  if (type === 'klong') {
+    if (KLONG_SINGLE_IMAGE_MODELS.has(model)) return referenceImageResult(1, 'unknown');
+    return referenceImageResult(10, 'application');
+  }
+
   if (type === 'aiping') {
     if (!AIPING_REFERENCE_IMAGE_LIMITS.has(model)) return referenceImageResult(1, 'unknown');
     const maxImages = AIPING_REFERENCE_IMAGE_LIMITS.get(model);
@@ -186,6 +193,7 @@ export function getImageParameterOptions(providerType, modelId) {
 
   if (type === 'grsai') return getGrsaiOptions(model);
   if (type === 'aiping') return getAipingOptions(model);
+  if (type === 'klong') return { ratios: KLONG_RATIOS, qualities: STANDARD_QUALITIES };
 
   // OpenAI 兼容、Agnes 与自定义供应商没有统一能力接口，保持现有四比例兜底。
   return { ratios: COMMON_RATIOS, qualities: STANDARD_QUALITIES };

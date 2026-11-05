@@ -29,16 +29,22 @@ object ImageRequestFactory {
         val body = when (normalizedType) {
             "grsai" -> buildGrsai(input)
             "aiping" -> buildAiping(input)
+            "klong" -> buildKlong(input)
             "agnes-ai" -> buildAgnes(input)
             else -> buildOpenAi(input)
         }
-        return ImageRequestSpec(imageEndpoint(input.endpoint, normalizedType), body)
+        return ImageRequestSpec(imageEndpoint(input.endpoint, normalizedType, input.sourceImage != null), body)
     }
 
-    private fun imageEndpoint(endpoint: String, providerType: String): String {
+    private fun imageEndpoint(endpoint: String, providerType: String, hasSourceImage: Boolean = false): String {
         val normalized = endpoint.trimEnd('/')
         return when (providerType) {
             "grsai" -> normalized
+            "klong" -> {
+                val base = normalized.replace(Regex("/images/(generations|edits)$", RegexOption.IGNORE_CASE), "")
+                val versionedBase = if (Regex("/v\\d+$", RegexOption.IGNORE_CASE).containsMatchIn(base)) base else "$base/v1"
+                "$versionedBase/images/${if (hasSourceImage) "edits" else "generations"}"
+            }
             "aiping", "agnes-ai" -> if (normalized.endsWith("/images/generations", ignoreCase = true)) normalized else "$normalized/images/generations"
             else -> when {
                 normalized.endsWith("/images/generations", ignoreCase = true) -> normalized
@@ -165,6 +171,36 @@ object ImageRequestFactory {
         }
     }
 
+    /**
+     * Klong 的尺寸扩展字段与文档一致：普通模型传比例和档位，
+     * -exact 模型必须传明确像素；GPT Image 使用 reference_images，Nano/Grok 使用 image。
+     */
+    private fun buildKlong(input: ImageGenerationInput): Map<String, Any> {
+        val ratio = if (input.ratio in KLONG_RATIO_SIZES.getValue("2K")) input.ratio else "1:1"
+        val imageSize = KLONG_IMAGE_SIZES[input.quality] ?: "2K"
+        val body = linkedMapOf<String, Any>(
+            "model" to input.modelId,
+            "prompt" to input.prompt,
+            "n" to 1,
+            "response_format" to "b64_json",
+            "output_format" to "png",
+        )
+        if (input.modelId in KLONG_EXACT_MODELS) {
+            body["size"] = KLONG_RATIO_SIZES.getValue(imageSize).getValue(ratio)
+        } else {
+            body["aspect_ratio"] = ratio
+            body["image_size"] = imageSize
+        }
+        input.sourceImage?.let { sourceImage ->
+            if (input.modelId in KLONG_GPT_IMAGE_MODELS) {
+                body["reference_images"] = listOf(sourceImage)
+            } else {
+                body["image"] = sourceImage
+            }
+        }
+        return body
+    }
+
     private fun buildAiping(input: ImageGenerationInput): Map<String, Any> {
         val model = input.modelId.trim()
         requireAipingImageMode(model, input.sourceImage)
@@ -222,4 +258,25 @@ object ImageRequestFactory {
     private val GLM = mapOf("1:1" to "1280x1280", "4:3" to "1472x1088", "16:9" to "1728x960", "9:16" to "960x1728")
     private val KOLORS = mapOf("1:1" to "1024x1024", "4:3" to "1280x960", "16:9" to "1280x720", "9:16" to "720x1280")
     private val WAN = mapOf("1:1" to "1280*1280", "4:3" to "1280*960", "16:9" to "1280*720", "9:16" to "720*1280")
+    private val KLONG_EXACT_MODELS = setOf("gpt-image-2-exact", "gpt-image-2.5-exact")
+    private val KLONG_GPT_IMAGE_MODELS = setOf(
+        "gpt-image-2", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
+        "gpt-image-2-exact", "gpt-image-2.5-exact", "gpt-image-2-1k", "gpt-image-2.5-1k",
+        "gpt-image-2-vip", "gpt-image-2-high",
+    )
+    private val KLONG_IMAGE_SIZES = mapOf("标准" to "1K", "高清" to "2K", "超高清" to "4K")
+    private val KLONG_RATIO_SIZES = mapOf(
+        "1K" to mapOf(
+            "1:1" to "1024x1024", "4:3" to "1280x960", "3:4" to "960x1280",
+            "3:2" to "1536x1024", "2:3" to "1024x1536", "16:9" to "1536x864", "9:16" to "864x1536",
+        ),
+        "2K" to mapOf(
+            "1:1" to "2048x2048", "4:3" to "2048x1536", "3:4" to "1536x2048",
+            "3:2" to "2304x1536", "2:3" to "1536x2304", "16:9" to "2048x1152", "9:16" to "1152x2048",
+        ),
+        "4K" to mapOf(
+            "1:1" to "4096x4096", "4:3" to "4096x3072", "3:4" to "3072x4096",
+            "3:2" to "4086x2724", "2:3" to "2724x4086", "16:9" to "4096x2304", "9:16" to "2304x4096",
+        ),
+    )
 }

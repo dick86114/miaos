@@ -826,11 +826,12 @@ internal fun pairingConfirmationPresentation(code: String): PairingConfirmationP
     )
 }
 
-private val providerTypes = listOf("openai", "grsai", "aiping", "agnes-ai")
+private val providerTypes = listOf("openai", "grsai", "aiping", "klong", "agnes-ai")
 
 private fun providerTypeLabel(type: String): String = when (type) {
     "grsai" -> "Grsai"
     "aiping" -> "Aiping"
+    "klong" -> "Klong"
     "agnes-ai" -> "Agnes AI"
     else -> "OpenAI 兼容"
 }

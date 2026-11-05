@@ -22,11 +22,12 @@ function createMemoryStorage(seed = {}) {
   };
 }
 
-test('默认状态包含 Grsai 与 Aiping 内置供应商，并保持 Grsai 为默认生图模型', () => {
+test('默认状态包含 Grsai、Aiping 与 Klong 内置供应商，并保持 Grsai 为默认生图模型', () => {
   const state = createDefaultState();
-  assert.equal(state.schemaVersion, 6);
-  assert.equal(CURRENT_STORAGE_KEY, 'miaos.state.v6');
-  assert.equal(BACKUP_STORAGE_KEY, 'miaos.state.backup.v6');
+  assert.equal(state.schemaVersion, 7);
+  assert.equal(CURRENT_STORAGE_KEY, 'miaos.state.v7');
+  assert.equal(BACKUP_STORAGE_KEY, 'miaos.state.backup.v7');
+  assert.ok(LEGACY_STORAGE_KEYS.includes('miaos.state.v6'));
   assert.ok(LEGACY_STORAGE_KEYS.includes('miaos.state.v5'));
   assert.equal(state.providers[0].id, 'p_grsai');
   assert.equal(state.providers[0].imageModels.find((m) => m.id === 'gpt-image-2')?.enabled, true);
@@ -37,6 +38,12 @@ test('默认状态包含 Grsai 与 Aiping 内置供应商，并保持 Grsai 为�
   assert.equal(aiping?.imageModels.find((model) => model.id === 'Qwen-Image')?.enabled, true);
   assert.equal(aiping?.imageModels.find((model) => model.id === 'Qwen-Image-Edit')?.enabled, false);
   assert.equal(aiping?.textModels.find((model) => model.id === 'DeepSeek-V3.1')?.enabled, true);
+  const klong = state.providers.find((provider) => provider.id === 'p_klong');
+  assert.equal(klong?.type, 'klong');
+  assert.equal(klong?.endpoint, 'https://api.klong.lat/v1');
+  assert.deepEqual(klong?.capabilities, ['image']);
+  assert.equal(klong?.imageModels.find((model) => model.id === 'nano-banana2')?.enabled, true);
+  assert.equal(klong?.imageModels.find((model) => model.id === 'gpt-image-2-high')?.enabled, true);
   assert.equal(state.defaults.defaultImageProvider, 'p_grsai');
   assert.equal(state.defaults.defaultImageModel, 'gpt-image-2');
   assert.equal(state.updateRepo, 'dick86114/miaos');
@@ -54,7 +61,7 @@ test('状态迁移保留失败生图记录', () => {
   assert.deepEqual(migrated.failedGenerationTasks, source.failedGenerationTasks);
 });
 
-test('v5 状态迁移到 v6 时只补入一次 Aiping，v6 中主动删除后不会重新出现', () => {
+test('v5 状态迁移到 v7 时补入 Aiping 与 Klong，v7 中主动删除后不会重新出现', () => {
   const legacyV5 = createDefaultState();
   delete legacyV5.schemaVersion;
   legacyV5.providers = legacyV5.providers.filter((provider) => provider.id !== 'p_aiping');
@@ -62,20 +69,33 @@ test('v5 状态迁移到 v6 时只补入一次 Aiping，v6 中主动删除后不
   legacyV5.projects.push({ id: 'p_keep', versions: [] });
 
   const migrated = migrateState(legacyV5);
-  assert.equal(migrated.schemaVersion, 6);
+  assert.equal(migrated.schemaVersion, 7);
   assert.equal(migrated.providers.filter((provider) => provider.id === 'p_aiping').length, 1);
+  assert.equal(migrated.providers.filter((provider) => provider.id === 'p_klong').length, 1);
   assert.equal(migrated.history[0].id, 'h_keep');
   assert.equal(migrated.projects[0].id, 'p_keep');
 
   const deletedByUser = {
     ...migrated,
-    providers: migrated.providers.filter((provider) => provider.id !== 'p_aiping'),
+    providers: migrated.providers.filter((provider) => provider.id !== 'p_aiping' && provider.id !== 'p_klong'),
   };
   const normalizedAgain = migrateState(deletedByUser);
   assert.equal(normalizedAgain.providers.some((provider) => provider.id === 'p_aiping'), false);
+  assert.equal(normalizedAgain.providers.some((provider) => provider.id === 'p_klong'), false);
 
   const deletedAllProviders = migrateState({ ...migrated, providers: [] });
   assert.deepEqual(deletedAllProviders.providers, []);
+});
+
+test('v6 状态迁移到 v7 只补入 Klong，不恢复用户已删除的 Aiping', () => {
+  const legacyV6 = createDefaultState();
+  legacyV6.schemaVersion = 6;
+  legacyV6.providers = legacyV6.providers.filter((provider) => provider.id !== 'p_aiping' && provider.id !== 'p_klong');
+
+  const migrated = migrateState(legacyV6);
+  assert.equal(migrated.schemaVersion, 7);
+  assert.equal(migrated.providers.some((provider) => provider.id === 'p_aiping'), false);
+  assert.equal(migrated.providers.filter((provider) => provider.id === 'p_klong').length, 1);
 });
 
 test('损坏主状态时恢复备份且不覆盖备份', () => {

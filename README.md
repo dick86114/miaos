@@ -1,12 +1,12 @@
 # 妙生 miaos
 
-> macOS 本地生图工具 · 基于 Electron · 支持 Grsai / OpenAI 兼容供应商
+> macOS 本地生图工具 · 基于 Electron · 支持 Grsai / Klong / OpenAI 兼容供应商
 
 妙生是一款专注 macOS 平台的本地生图工具，集成多家大模型供应商，提供项目化的版本树管理与图生图迭代能力。所有配置与生成记录保存在本地，隐私可控。
 
 ## 功能特性
 
-- **多供应商接入**：内置 Grsai（gpt-image-2 / nano-banana 系列），兼容 OpenAI Images API 格式
+- **多供应商接入**：内置 Grsai、Aiping、Klong，兼容 OpenAI Images API 格式
 - **项目版本树**：横向时间轴布局，主线节点按创建时间排列，支持多级分支派生
 - **图生图迭代**：基于父版本图像派生子版本，递归衍生多级创作链
 - **提示词优化**：接入文本模型 chat 接口，一键优化中英文提示词
@@ -69,6 +69,8 @@ pnpm start
 4. 点击「获取模型」拉取可用模型列表，勾选需要启用的模型
 
 如需使用 OpenAI 兼容供应商（如自建中转、第三方服务），新增供应商时选择类型「OpenAI 兼容」，填入 `/v1/images/generations` 端点即可。
+
+Klong 已作为内置供应商预填 OpenAI SDK 基础地址 `https://api.klong.lat/v1`。在 `https://api.klong.lat` 创建 API Key 后填入应用，点击「测试连接」或「获取模型」，即可按当前密钥分组拉取可用模型。文生图会调用 `/v1/images/generations`，图生图会调用 `/v1/images/edits`。
 
 ### 开始生图
 

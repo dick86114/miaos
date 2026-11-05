@@ -1,10 +1,10 @@
 // 状态 schema 与持久化：纯 ES Module，不依赖浏览器 DOM
-// 版本 v6：新增 Aiping 内置供应商，并保证旧用户仅在迁移时补入一次。
+// 版本 v7：新增 Klong 内置供应商，并保证旧用户仅在迁移时补入一次。
 
-export const STATE_SCHEMA_VERSION = 6;
-export const CURRENT_STORAGE_KEY = 'miaos.state.v6';
-export const BACKUP_STORAGE_KEY = 'miaos.state.backup.v6';
-export const LEGACY_STORAGE_KEYS = ['miaos.state.v5', 'miaos.state.v4', 'miaos.state.v3'];
+export const STATE_SCHEMA_VERSION = 7;
+export const CURRENT_STORAGE_KEY = 'miaos.state.v7';
+export const BACKUP_STORAGE_KEY = 'miaos.state.backup.v7';
+export const LEGACY_STORAGE_KEYS = ['miaos.state.v6', 'miaos.state.v5', 'miaos.state.v4', 'miaos.state.v3'];
 
 // Grsai 内置已知模型（生图）
 export const GRSAI_IMAGE_MODELS = [
@@ -121,6 +121,23 @@ export const AIPING_TEXT_MODELS = [
   { id: 'DeepSeek-R1-0528', name: 'DeepSeek-R1-0528' },
 ];
 
+// Klong 当前文档中可通过 OpenAI Images 协议调用的图像模型。
+export const KLONG_IMAGE_MODELS = [
+  { id: 'gpt-image-2', name: 'GPT Image 2' },
+  { id: 'gpt-image-2.5', name: 'GPT Image 2.5' },
+  { id: 'gpt-image-2.5-flare', name: 'GPT Image 2.5 Flare' },
+  { id: 'gpt-image-2.5-sunburst', name: 'GPT Image 2.5 Sunburst' },
+  { id: 'gpt-image-2-exact', name: 'GPT Image 2 精确尺寸' },
+  { id: 'gpt-image-2.5-exact', name: 'GPT Image 2.5 精确尺寸' },
+  { id: 'gpt-image-2-1k', name: 'GPT Image 2 1K 直出' },
+  { id: 'gpt-image-2.5-1k', name: 'GPT Image 2.5 1K 直出' },
+  { id: 'gpt-image-2-vip', name: 'GPT Image 2 VIP' },
+  { id: 'gpt-image-2-high', name: 'GPT Image 2 High' },
+  { id: 'nano-banana2', name: 'Nano Banana 2' },
+  { id: 'nano-banana-pro', name: 'Nano Banana Pro' },
+  { id: 'grok-imagine-image-2.0', name: 'Grok Imagine Image 2.0' },
+];
+
 const AIPING_DISABLED_IMAGE_MODELS = new Set([
   'Qwen-Image-Edit',
   'Qwen-Image-Edit-Plus',
@@ -155,6 +172,18 @@ export const DEFAULT_PROVIDERS = [
       enabled: !AIPING_DISABLED_IMAGE_MODELS.has(model.id),
     })),
     textModels: AIPING_TEXT_MODELS.map((model) => ({ ...model, enabled: true })),
+    videoModels: [],
+    lastTestResult: null,
+  },
+  {
+    id: 'p_klong',
+    name: 'Klong',
+    type: 'klong',
+    endpoint: 'https://api.klong.lat/v1',
+    hasApiKey: false,
+    capabilities: ['image'],
+    imageModels: KLONG_IMAGE_MODELS.map((model) => ({ ...model, enabled: true })),
+    textModels: [],
     videoModels: [],
     lastTestResult: null,
   },
@@ -209,18 +238,29 @@ function appendAipingIfMissing(providers) {
   return normalized;
 }
 
+function appendKlongIfMissing(providers) {
+  const normalized = providers.map(normalizeProvider);
+  if (!normalized.some((provider) => provider.id === 'p_klong')) {
+    normalized.push(clone(DEFAULT_PROVIDERS.find((provider) => provider.id === 'p_klong')));
+  }
+  return normalized;
+}
+
 export function migrateState(parsed) {
   const source = parsed && typeof parsed === 'object' ? parsed : {};
+  const sourceVersion = Number(source.schemaVersion) || 0;
 
-  // v5/v6 都已使用分类模型；只有旧于 v6 的状态需要补入一次 Aiping。
+  // v5 及以上都已使用分类模型；内置供应商只在跨版本迁移时补入，用户删除后不自动恢复。
   const hasCategorizedProviderState = Array.isArray(source.providers)
-    && (source.schemaVersion === STATE_SCHEMA_VERSION
+    && (sourceVersion >= 5
       || source.providers.some((provider) => Array.isArray(provider?.imageModels)));
   if (hasCategorizedProviderState) {
     const defaults = source.defaults || {};
-    const providers = source.schemaVersion === STATE_SCHEMA_VERSION
-      ? source.providers.map(normalizeProvider)
-      : appendAipingIfMissing(source.providers);
+    let providers = source.providers.map(normalizeProvider);
+    if (sourceVersion < STATE_SCHEMA_VERSION) {
+      if (sourceVersion < 6) providers = appendAipingIfMissing(providers);
+      providers = appendKlongIfMissing(providers);
+    }
     return {
       ...source,
       schemaVersion: STATE_SCHEMA_VERSION,
@@ -307,7 +347,7 @@ export function migrateState(parsed) {
   const migrated = {
     ...source,
     schemaVersion: STATE_SCHEMA_VERSION,
-    providers: appendAipingIfMissing(providers),
+    providers: appendKlongIfMissing(appendAipingIfMissing(providers)),
     history: source.history || [],
     failedGenerationTasks: Array.isArray(source.failedGenerationTasks) ? source.failedGenerationTasks : [],
     lastSettings: source.lastSettings || null,

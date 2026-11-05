@@ -46,6 +46,14 @@ test('Aiping 全部内置模型都有比例和质量能力', () => {
   assert.deepEqual(values(getImageParameterOptions('aiping', 'Kling-V2.1').qualities), ['标准', '高清']);
 });
 
+test('Klong 提供多画幅、三档分辨率与按模型限制的参考图', () => {
+  const options = getImageParameterOptions('klong', 'gpt-image-2.5-exact');
+  assert.deepEqual(options.ratios, ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16']);
+  assert.deepEqual(values(options.qualities), ['标准', '高清', '超高清']);
+  assert.equal(getReferenceImageOptions('klong', 'nano-banana2').maxImages, 10);
+  assert.equal(getReferenceImageOptions('klong', 'grok-imagine-image-2.0').maxImages, 1);
+});
+
 test('旧参数切换模型时会收敛到第一个受支持值', () => {
   assert.deepEqual(
     normalizeImageParameters('grsai', 'gpt-image-2.5', '21:9', '超高清'),

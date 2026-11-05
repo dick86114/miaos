@@ -206,4 +206,57 @@ class ImageRequestFactoryTest {
         assertEquals("https://aiping.example/api/v1/images/generations", request.url)
     }
 
+    @Test
+    fun `Klong 文生图使用比例档位与生成接口`() {
+        val request = ImageRequestFactory.build(ImageGenerationInput(
+            providerType = "klong",
+            endpoint = "https://api.klong.lat/v1",
+            modelId = "nano-banana2",
+            prompt = "木桌上的红苹果",
+            ratio = "16:9",
+            quality = "高清",
+        ))
+
+        assertEquals("https://api.klong.lat/v1/images/generations", request.url)
+        assertEquals("16:9", request.body.getValue("aspect_ratio"))
+        assertEquals("2K", request.body.getValue("image_size"))
+        assertEquals("b64_json", request.body.getValue("response_format"))
+        assertEquals("png", request.body.getValue("output_format"))
+    }
+
+    @Test
+    fun `Klong 图生图切换到 edits 并写入参考图数组`() {
+        val sourceImage = "data:image/png;base64,klong-reference"
+        val request = ImageRequestFactory.build(ImageGenerationInput(
+            providerType = "klong",
+            endpoint = "https://api.klong.lat/v1",
+            modelId = "gpt-image-2-high",
+            prompt = "保留主体并改成水彩风",
+            ratio = "4:3",
+            quality = "标准",
+            sourceImage = sourceImage,
+        ))
+
+        assertEquals("https://api.klong.lat/v1/images/edits", request.url)
+        assertEquals(listOf(sourceImage), request.body.getValue("reference_images"))
+        assertEquals("1K", request.body.getValue("image_size"))
+    }
+
+    @Test
+    fun `Klong 精确尺寸模型发送明确像素`() {
+        val request = ImageRequestFactory.build(ImageGenerationInput(
+            providerType = "klong",
+            endpoint = "https://api.klong.lat",
+            modelId = "gpt-image-2.5-exact",
+            prompt = "未来城市",
+            ratio = "9:16",
+            quality = "超高清",
+        ))
+
+        assertEquals("https://api.klong.lat/v1/images/generations", request.url)
+        assertEquals("2304x4096", request.body.getValue("size"))
+        org.junit.Assert.assertFalse(request.body.containsKey("aspect_ratio"))
+        org.junit.Assert.assertFalse(request.body.containsKey("image_size"))
+    }
+
 }

@@ -33,6 +33,12 @@ const {
   resolveGrsaiEndpoints,
   parseGrsaiPayload,
 } = require('./src/main/services/grsai-image-adapter');
+const {
+  KLONG_IMAGE_MODELS,
+  buildKlongImageRequest,
+  resolveKlongImageModels,
+  resolveKlongImageEndpoints,
+} = require('./src/main/services/klong-image-adapter');
 const { createConfigPairingServer } = require('./src/main/services/config-pairing');
 const { checkForUpdate: checkManualUpdate, downloadFile: downloadUpdateFile, buildInstallScript } = require('./src/main/services/manual-updater');
 const { createPendingUpdateStore } = require('./src/main/services/update-state');
@@ -1168,6 +1174,28 @@ registerSecureHandler({
       return { ok: true, status: result.status };
     }
 
+    if (String(trustedProvider.type).toLowerCase() === 'klong') {
+      const result = await requestJson({
+        url: buildModelsUrl(trustedProvider.endpoint),
+        method: 'GET',
+        headers,
+        timeoutMs: 8000,
+      });
+      const availableModels = result?.data?.data;
+      if (!Array.isArray(availableModels)) {
+        throw new Error('Klong 模型接口返回格式异常');
+      }
+      const imageModels = resolveKlongImageModels(availableModels);
+      if (imageModels.length === 0) {
+        return {
+          ok: true,
+          status: result.status,
+          warning: 'API Key 有效，但当前分组没有可用生图模型，请在 Klong 控制台将密钥分组切换为 gpt-image 或画图分组',
+        };
+      }
+      return { ok: true, status: result.status, message: `认证成功，当前分组可用生图模型 ${imageModels.length} 个` };
+    }
+
     const result = await requestJson({
       url: buildModelsUrl(trustedProvider.endpoint),
       method: 'GET',
@@ -1458,6 +1486,66 @@ async function generateWithOpenAI({ prompt, model, size, providerType }) {
   return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
 }
 
+// ===== Klong 生图：文生图与图生图分别使用 OpenAI Images 的 generations / edits =====
+async function generateWithKlong({ prompt, model, ratio, quality, size, sourceImage, sourceImages }) {
+  const headers = {};
+  if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+
+  const endpoints = resolveKlongImageEndpoints(model.endpoint);
+  const normalizedSourceImages = Array.isArray(sourceImages) ? sourceImages.filter(Boolean) : [];
+  const requestUrl = normalizedSourceImages.length > 0 ? endpoints.editUrl : endpoints.generationUrl;
+  const body = buildKlongImageRequest({
+    modelId: model.model,
+    prompt,
+    ratio,
+    quality,
+    size,
+    sourceImage,
+    sourceImages: normalizedSourceImages,
+  });
+
+  let result;
+  try {
+    result = await requestJson({
+      url: requestUrl,
+      method: 'POST',
+      headers,
+      body,
+      timeoutMs: 180000,
+    });
+  } catch (error) {
+    if (Number(error?.status) === 503) {
+      throw new AppError(
+        'UPSTREAM_ERROR',
+        'Klong 生图渠道暂时不可用，请确认 API Key 分组包含生图模型（如 gpt-image），或稍后重试',
+        { cause: error, status: 503, retryable: true },
+      );
+    }
+    throw error;
+  }
+
+  const data = result?.data;
+  const item = data?.data?.[0];
+  if (!item) {
+    const providerMessage = data?.error?.message || data?.message;
+    throw new Error(`Klong 返回格式不正确：未找到图片数据${providerMessage ? `（${providerMessage}）` : ''}`);
+  }
+
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  let source = null;
+  if (item.url) {
+    source = item.url;
+  } else if (item.b64_json) {
+    const prefix = /^data:image\//.test(item.b64_json) ? '' : 'data:image/png;base64,';
+    source = prefix + item.b64_json;
+  } else {
+    throw new Error('Klong 返回中未找到 url 或 b64_json 字段');
+  }
+
+  const filePath = await saveGeneratedImage(source, id);
+  return { ok: true, imagePath: filePath, fileUrl: 'file://' + encodeURI(filePath) };
+}
+
 // ===== Aiping 生图：使用 OpenAI 标准端点，但按平台文档传递调度参数与顶层参考图。 =====
 async function generateWithAiping({ prompt, model, size, ratio, quality, sourceImage, sourceImages }) {
   const headers = {};
@@ -1664,7 +1752,18 @@ registerSecureHandler({
     .map((m) => ({ id: m.id, name: m.id }));
 
   // 按分类过滤
-  if (ptype === 'aiping') {
+  if (ptype === 'klong') {
+    if (cat === 'image') {
+      models = resolveKlongImageModels(models);
+      if (models.length === 0) {
+        throw new Error('当前 Klong API Key 分组没有可用生图模型，请在 Klong 控制台将密钥分组切换为 gpt-image 或画图分组后重试');
+      }
+    } else if (cat === 'video') {
+      models = [];
+    } else {
+      models = models.filter((model) => !/image|nano-banana|grok-imagine/i.test(model.id));
+    }
+  } else if (ptype === 'aiping') {
     const availableIds = new Set(models.map((model) => model.id));
     models = (KNOWN_MODELS.aiping[cat] || []).filter((model) => availableIds.has(model.id));
   } else if (cat === 'image') {
@@ -1715,6 +1814,17 @@ registerSecureHandler({
       if (ptype === 'grsai') {
         const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
         return await generateWithGrsai({ prompt, model, ratio, quality, sourceImages });
+      }
+      if (ptype === 'klong') {
+        const model = { endpoint, apiKey, model: modelName, provider: provider || '' };
+        return await generateWithKlong({
+          prompt,
+          model,
+          ratio,
+          quality,
+          size,
+          sourceImages,
+        });
       }
 
       let imageEndpoint = endpoint;

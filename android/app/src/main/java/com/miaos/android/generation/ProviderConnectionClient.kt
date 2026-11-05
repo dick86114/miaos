@@ -78,6 +78,19 @@ class ProviderConnectionClient {
                     ProviderModelCategory.VIDEO -> emptyList()
                 }
             }
+            "klong" -> {
+                val returnedIds = returned.mapTo(mutableSetOf()) { it.id }
+                if (category == ProviderModelCategory.IMAGE) {
+                    val known = klongImageModels.filter { it.id in returnedIds }
+                    if (known.isNotEmpty()) {
+                        known
+                    } else {
+                        returned.filter { Regex("image|nano-banana|grok-imagine", RegexOption.IGNORE_CASE).containsMatchIn(it.id) }
+                    }
+                } else {
+                    emptyList()
+                }
+            }
             else -> when (category) {
                 ProviderModelCategory.IMAGE -> returned.filter { it.id.contains("image", ignoreCase = true) }
                 ProviderModelCategory.TEXT -> returned.filterNot { it.id.contains("image", ignoreCase = true) || it.id.contains("video", ignoreCase = true) }
@@ -184,3 +197,19 @@ private val aipingImageModels = listOf(
     "Doubao-Seedream-4.5", "即梦图片生成 4.0", "Kolors", "Qwen-Image-Plus", "Qwen-Image-Edit-Plus",
     "Wan2.5-T2I-Preview", "Wan2.5-I2I-Preview",
 ).map { RemoteProviderModel(it, it) }
+
+private val klongImageModels = listOf(
+    RemoteProviderModel("gpt-image-2", "GPT Image 2"),
+    RemoteProviderModel("gpt-image-2.5", "GPT Image 2.5"),
+    RemoteProviderModel("gpt-image-2.5-flare", "GPT Image 2.5 Flare"),
+    RemoteProviderModel("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst"),
+    RemoteProviderModel("gpt-image-2-exact", "GPT Image 2 精确尺寸"),
+    RemoteProviderModel("gpt-image-2.5-exact", "GPT Image 2.5 精确尺寸"),
+    RemoteProviderModel("gpt-image-2-1k", "GPT Image 2 1K 直出"),
+    RemoteProviderModel("gpt-image-2.5-1k", "GPT Image 2.5 1K 直出"),
+    RemoteProviderModel("gpt-image-2-vip", "GPT Image 2 VIP"),
+    RemoteProviderModel("gpt-image-2-high", "GPT Image 2 High"),
+    RemoteProviderModel("nano-banana2", "Nano Banana 2"),
+    RemoteProviderModel("nano-banana-pro", "Nano Banana Pro"),
+    RemoteProviderModel("grok-imagine-image-2.0", "Grok Imagine Image 2.0"),
+)

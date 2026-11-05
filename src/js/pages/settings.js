@@ -42,6 +42,7 @@ import {
 const PROVIDER_TYPES = [
   { value: 'grsai', label: 'Grsai', defaultEndpoint: 'https://grsaiapi.com/v1/api/generate', defaultCaps: ['image'] },
   { value: 'aiping', label: 'Aiping', defaultEndpoint: 'https://aiping.cn/api/v1', defaultCaps: ['image', 'text'] },
+  { value: 'klong', label: 'Klong', defaultEndpoint: 'https://api.klong.lat/v1', defaultCaps: ['image'] },
   { value: 'agnes-ai', label: 'Agnes AI', defaultEndpoint: 'https://apihub.agnes-ai.com/v1', defaultCaps: ['image', 'text', 'video'] },
   { value: 'deepseek', label: 'DeepSeek', defaultEndpoint: 'https://api.deepseek.com/v1', defaultCaps: ['text'] },
   { value: 'openai', label: 'OpenAI 兼容', defaultEndpoint: '', defaultCaps: ['image', 'text'] },
@@ -819,7 +820,7 @@ export function renderSettings(container, params = [], query = {}) {
           <div class="settings-about-info">
             <div class="settings-about-name">妙生 · miaos</div>
             <div class="settings-about-version">当前版本：<span id="cur-ver">${escapeHtml(currentVersion)}</span>${modeTag}</div>
-            <div class="settings-about-desc">本地运行的 AI 生图工具，内置 Grsai、Aiping，并支持 OpenAI 兼容供应商。</div>
+            <div class="settings-about-desc">本地运行的 AI 生图工具，内置 Grsai、Aiping、Klong，并支持 OpenAI 兼容供应商。</div>
           </div>
         </div>
       </div>
@@ -1311,7 +1312,8 @@ export function renderSettings(container, params = [], query = {}) {
         if (key === 'type') {
           const pt = PROVIDER_TYPES.find((t) => t.value === el.value);
           if (pt) {
-            if (pt.defaultEndpoint && (!f.endpoint || f.endpoint === 'https://grsaiapi.com/v1/api/generate')) {
+            const usesBuiltInEndpoint = PROVIDER_TYPES.some((type) => type.defaultEndpoint && f.endpoint === type.defaultEndpoint);
+            if (pt.defaultEndpoint && (!f.endpoint || usesBuiltInEndpoint)) {
               f.endpoint = pt.defaultEndpoint;
             }
             f.capabilities = [...pt.defaultCaps];

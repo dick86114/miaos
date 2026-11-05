@@ -421,6 +421,38 @@ function createAipingGenerateParams({ sourceImage = null, sourceImages, modelNam
   };
 }
 
+function createKlongMetadata() {
+  return {
+    id: 'p_klong', name: 'Klong', type: 'klong', endpoint: 'https://api.klong.lat/v1',
+    capabilities: ['image'],
+    imageModels: [
+      { id: 'gpt-image-2-high', name: 'GPT Image 2 High', enabled: true },
+      { id: 'gpt-image-2.5-exact', name: 'GPT Image 2.5 精确尺寸', enabled: true },
+      { id: 'nano-banana2', name: 'Nano Banana 2', enabled: true },
+      { id: 'nano-banana-pro', name: 'Nano Banana Pro', enabled: true },
+    ],
+    textModels: [],
+    videoModels: [],
+  };
+}
+
+function createKlongGenerateParams({
+  sourceImage = null,
+  modelName = 'nano-banana2',
+  ratio = '16:9',
+  quality = '高清',
+} = {}) {
+  return {
+    prompt: '测试提示词',
+    modelName,
+    ratio,
+    quality,
+    size: '1024x576',
+    providerId: 'p_klong',
+    sourceImage,
+  };
+}
+
 function getRequestBody(calls, index = -1) {
   const request = calls.networkRequests.at(index);
   return JSON.parse(Buffer.concat(request.chunks).toString('utf8'));
@@ -1598,6 +1630,173 @@ test('Aiping 图生图把参考图放在顶层 image 字段', async () => {
     assert.equal(body.image, PNG_DATA_URL);
     assert.equal(body.extra_body.provider.enable_image_base64, false);
     assert.equal('images' in body, false);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Klong 模型列表保留不含 image 字样的 Nano 生图模型', async () => {
+  const homePath = createTempHome('miaos-klong-models-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 200,
+        body: JSON.stringify({
+          object: 'list',
+          data: [
+            { id: 'nano-banana2', status: true },
+            { id: 'nano-banana-pro', status: true },
+            { id: 'gpt-image-2-high', status: true },
+            { id: 'deepseek-chat', status: true },
+          ],
+        }),
+      },
+    });
+    await seedProvider(calls, createKlongMetadata(), 'klong-test-key');
+
+    const imageModels = await calls.ipcHandlers['fetch-models'](trustedEvent(), { providerId: 'p_klong' }, 'image');
+    assert.deepEqual(imageModels.models.map((model) => model.id), [
+      'gpt-image-2-high', 'nano-banana2', 'nano-banana-pro',
+    ]);
+    assert.equal(calls.networkRequests[0].options.path, '/v1/models');
+    assert.equal(calls.networkRequests[0].options.headers.Authorization, 'Bearer klong-test-key');
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Klong 非生图分组返回可操作的密钥分组提示', async () => {
+  const homePath = createTempHome('miaos-klong-models-empty-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 200,
+        body: JSON.stringify({
+          object: 'list',
+          data: [{ id: 'deepseek-chat', status: true }],
+        }),
+      },
+    });
+    await seedProvider(calls, createKlongMetadata(), 'klong-test-key');
+
+    const result = await calls.ipcHandlers['fetch-models'](trustedEvent(), { providerId: 'p_klong' }, 'image');
+    assert.equal(result.ok, false);
+    assert.match(result.error, /分组没有可用生图模型/u);
+    assert.match(result.error, /gpt-image/u);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Klong 连接测试会警告非生图分组', async () => {
+  const homePath = createTempHome('miaos-klong-test-warning-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 200,
+        body: JSON.stringify({
+          object: 'list',
+          data: [{ id: 'deepseek-chat', status: true }],
+        }),
+      },
+    });
+    await seedProvider(calls, createKlongMetadata(), 'klong-test-key');
+
+    const result = await calls.ipcHandlers['test-connection'](trustedEvent(), { providerId: 'p_klong' });
+    assert.equal(result.ok, true);
+    assert.match(result.warning, /分组没有可用生图模型/u);
+    assert.match(result.warning, /gpt-image/u);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Klong 文生图使用比例档位并保存 Base64 结果', async () => {
+  const homePath = createTempHome('miaos-klong-text-image-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 200,
+        body: JSON.stringify({
+          created: 1,
+          data: [{ b64_json: PNG_BYTES.toString('base64') }],
+        }),
+      },
+    });
+    await seedProvider(calls, createKlongMetadata(), 'klong-test-key');
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createKlongGenerateParams());
+    assert.equal(result.ok, true);
+    assert.deepEqual(fs.readFileSync(result.imagePath), PNG_BYTES);
+    assert.equal(calls.networkRequests[0].options.hostname, 'api.klong.lat');
+    assert.equal(calls.networkRequests[0].options.path, '/v1/images/generations');
+    assert.deepEqual(getRequestBody(calls), {
+      model: 'nano-banana2',
+      prompt: '测试提示词',
+      n: 1,
+      response_format: 'b64_json',
+      output_format: 'png',
+      aspect_ratio: '16:9',
+      image_size: '2K',
+    });
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Klong 上游 503 会提示检查 API Key 分组', async () => {
+  const homePath = createTempHome('miaos-klong-upstream-503-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 503,
+        body: JSON.stringify({ error: { message: 'upstream unavailable' } }),
+      },
+    });
+    await seedProvider(calls, createKlongMetadata(), 'klong-test-key');
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createKlongGenerateParams());
+    assert.equal(result.ok, false);
+    assert.match(result.error, /API Key 分组/u);
+    assert.match(result.error, /gpt-image/u);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('Klong 精确尺寸图生图切换到 edits 并发送参考图与像素', async () => {
+  const homePath = createTempHome('miaos-klong-image-edit-');
+  try {
+    const { calls } = await runMainWithMock({
+      homePath,
+      networkResponse: {
+        statusCode: 200,
+        body: JSON.stringify({
+          created: 1,
+          data: [{ b64_json: PNG_BYTES.toString('base64') }],
+        }),
+      },
+    });
+    await seedProvider(calls, createKlongMetadata(), 'klong-test-key');
+
+    const result = await calls.ipcHandlers['generate-image'](trustedEvent(), createKlongGenerateParams({
+      sourceImage: PNG_DATA_URL,
+      modelName: 'gpt-image-2.5-exact',
+      ratio: '9:16',
+      quality: '超高清',
+    }));
+    assert.equal(result.ok, true);
+    assert.equal(calls.networkRequests[0].options.path, '/v1/images/edits');
+    const body = getRequestBody(calls);
+    assert.equal(body.size, '2304x4096');
+    assert.equal(body.aspect_ratio, undefined);
+    assert.equal(body.image_size, undefined);
+    assert.deepEqual(body.reference_images, [PNG_DATA_URL]);
   } finally {
     cleanupTempHome(homePath);
   }
