@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const [renderer, settings, css, icons, preload, restartNotice] = await Promise.all([
+const [renderer, settings, css, icons, preload, restartNotice, main] = await Promise.all([
   readFile(new URL('../src/js/renderer.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/js/pages/settings.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/css/pages.css', import.meta.url), 'utf8'),
   readFile(new URL('../src/js/icons.js', import.meta.url), 'utf8'),
   readFile(new URL('../preload.js', import.meta.url), 'utf8'),
   readFile(new URL('../src/js/update-restart-notice.js', import.meta.url), 'utf8'),
+  readFile(new URL('../main.js', import.meta.url), 'utf8'),
 ]);
 
 test('自动更新提示可点击进入设置里的关于与更新页签', () => {
@@ -50,4 +51,12 @@ test('自动更新重启后展示本次版本和更新日志', () => {
   assert.match(restartNotice, /查看完整更新内容/u);
   assert.match(css, /\.update-restart-overlay/u);
   assert.match(css, /\.update-restart-notes/u);
+});
+
+test('当前已是最新版本时仍展示当前版本更新日志', () => {
+  assert.match(main, /release\?\.isCurrentVersion \? release\.releaseNotes/u);
+  assert.match(settings, /id="update-notes-title"/u);
+  assert.match(settings, /当前版本更新日志/u);
+  assert.match(settings, /showReleaseNotes\(payload, '当前版本更新日志'\)/u);
+  assert.match(settings, /payload\.releaseVersion/u);
 });

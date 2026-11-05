@@ -4,6 +4,7 @@ import { initRouter, navigate } from './router.js';
 import { toast } from './ui.js';
 import { showUpdateRestartNotice } from './update-restart-notice.js';
 import { discardLegacyProviderSecrets, getThemeMode } from './store.js';
+import { initGlobalTooltips } from './tooltips.js';
 
 async function init() {
   const legacyLocalKeys = discardLegacyProviderSecrets();
@@ -21,6 +22,7 @@ async function init() {
 
   // 应用主题
   applyTheme(getThemeMode());
+  initGlobalTooltips();
 
   renderIcons(document);
 

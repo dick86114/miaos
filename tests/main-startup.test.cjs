@@ -39,6 +39,7 @@ const EXPECTED_CHANNELS = [
   'storage-delete',
   'storage-get-usage',
   'save-image',
+  'copy-image',
   'show-in-folder',
   'test-connection',
   'fetch-models',
@@ -123,6 +124,7 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, saveDialo
     failures: [],
     ipcHandlers: {},
     showItemInFolder: [],
+    clipboardImages: [],
     openDialogOptions: [],
     saveDialogOptions: [],
     networkRequests: [],
@@ -213,6 +215,9 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, saveDialo
       openExternal(url) { calls.externalUrls.push(url); return Promise.resolve(); },
       showItemInFolder(filePath) { calls.showItemInFolder.push(filePath); },
     },
+    clipboard: {
+      writeImage(image) { calls.clipboardImages.push(image); },
+    },
     safeStorage: safeStorageImpl || {
       isEncryptionAvailable: () => true,
       encryptString: (value) => Buffer.from(`encrypted:${value}`),
@@ -225,6 +230,9 @@ function createElectronMock({ homePath, setPathImpl, openDialogResult, saveDialo
     nativeImage: {
       ...createNativeImageMock(),
       createFromPath() { return { isEmpty() { return true; } }; },
+      createFromBuffer(buffer) {
+        return createNativeImageMock().createFromBuffer(buffer);
+      },
     },
     nativeTheme: {
       shouldUseDarkColors: false,
@@ -517,7 +525,7 @@ test('app.setPath 非预期异常会传播且不显示数据目录错误', async
   }
 });
 
-test('正常启动精确注册 30 个真实安全 handler（含失败日志导出和更新安装），未知 sender 全部被拒绝', async () => {
+test('正常启动精确注册 31 个真实安全 handler（含复制图片、失败日志导出和更新安装），未知 sender 全部被拒绝', async () => {
   const homePath = createTempHome('miaos-ipc-registrations-');
   try {
     const { calls } = await runMainWithMock({ homePath });
@@ -1368,6 +1376,29 @@ test('保存图片支持 generated 内的 file URL，避免渲染层 fetch 本�
     assert.equal(result.canceled, undefined);
     assert.deepEqual(fs.readFileSync(targetPath), PNG_BYTES);
     assert.equal(calls.saveDialogOptions.length, 1);
+  } finally {
+    cleanupTempHome(homePath);
+  }
+});
+
+test('复制图片只接受 generated 内的图片并写入系统剪贴板', async () => {
+  const homePath = createTempHome('miaos-copy-generated-file-');
+  try {
+    const generatedDir = path.join(homePath, '.miaos', 'generated');
+    const sourcePath = path.join(generatedDir, 'source.png');
+    fs.mkdirSync(generatedDir, { recursive: true });
+    fs.writeFileSync(sourcePath, PNG_BYTES);
+
+    const { calls } = await runMainWithMock({ homePath });
+    const result = await calls.ipcHandlers['copy-image'](trustedEvent(), pathToFileURL(sourcePath).href);
+    assert.equal(result.ok, true);
+    assert.equal(calls.clipboardImages.length, 1);
+
+    const outsidePath = path.join(homePath, 'outside.png');
+    fs.writeFileSync(outsidePath, PNG_BYTES);
+    const rejected = await calls.ipcHandlers['copy-image'](trustedEvent(), outsidePath);
+    assert.equal(rejected.ok, false);
+    assert.equal(calls.clipboardImages.length, 1);
   } finally {
     cleanupTempHome(homePath);
   }

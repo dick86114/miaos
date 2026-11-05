@@ -64,7 +64,45 @@ test('GitHub API 限流时回退到 Releases Atom feed', async () => {
   };
   const update = await checkForUpdate({ owner: 'acme', repo: 'miaos', currentVersion: '1.0.0', httpsImpl });
   assert.equal(update.version, '2.0.0');
+  assert.equal(update.isUpdateAvailable, true);
+  assert.equal(update.isCurrentVersion, false);
   assert.equal(update.assetName, 'miaos-2.0.0-arm64.dmg');
+});
+
+test('当前版本已是最新时仍返回当前 Release 的更新日志', async () => {
+  const { checkForUpdate } = require('../src/main/services/manual-updater');
+  const { EventEmitter } = require('node:events');
+  const release = {
+    tag_name: 'v1.5.22',
+    body: '## v1.5.22\n\n- 新增当前版本更新日志回看',
+    published_at: '2026-10-19T01:46:36Z',
+    html_url: 'https://github.com/acme/miaos/releases/tag/v1.5.22',
+    prerelease: false,
+    assets: [{ name: 'miaos-1.5.22-arm64.dmg', browser_download_url: 'https://example.invalid/miaos.dmg' }],
+  };
+  const httpsImpl = {
+    get(_url, _options, callback) {
+      const request = new EventEmitter();
+      request.setTimeout = () => {};
+      process.nextTick(() => {
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        response.headers = {};
+        callback(response);
+        response.emit('data', Buffer.from(JSON.stringify(release)));
+        response.emit('end');
+      });
+      return request;
+    },
+  };
+
+  const result = await checkForUpdate({ owner: 'acme', repo: 'miaos', currentVersion: '1.5.22', httpsImpl });
+  assert.equal(result.version, '1.5.22');
+  assert.equal(result.isUpdateAvailable, false);
+  assert.equal(result.isCurrentVersion, true);
+  assert.match(result.releaseNotes, /当前版本更新日志回看/u);
+  assert.equal(result.releaseUrl, release.html_url);
+  assert.equal('downloadUrl' in result, false);
 });
 
 test('下载更新包时可通过 AbortSignal 取消并清理未完成文件', async () => {

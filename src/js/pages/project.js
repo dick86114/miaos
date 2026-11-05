@@ -36,6 +36,8 @@ import { createRunningTaskTicker, formatGenerationDuration } from '../generation
 import { getImageParameterOptions, getReferenceImageOptions, normalizeImageParameters } from '../image-model-capabilities.js';
 import { mergeReferenceImages, normalizeReferenceImages } from '../reference-images.js';
 import { createComposerDraftStore } from '../composer-drafts.js';
+import { openImageContextMenu } from '../image-context-menu.js';
+import { getImageModelDescription } from '../model-catalog.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -458,6 +460,11 @@ export function renderProject(container, params, routeOptions = {}) {
     const composerDraft = composerDrafts.read(composerDraftKey, {
       prompt: curVer.prompt,
       sourceImages: isChild ? [] : normalizeReferenceImages(curVer.sourceImages, curVer.sourceImage),
+      providerId: curVer.providerId || '',
+      modelId: curVer.modelId || '',
+      ratio: curVer.images[0] ? curVer.images[0].ratio : '',
+      quality: curVer.images[0] ? curVer.images[0].quality : '',
+      quantity: 1,
     });
     const promptDraft = composerDraft.prompt;
 
@@ -521,31 +528,35 @@ export function renderProject(container, params, routeOptions = {}) {
                 <textarea class="composer-textarea composer-textarea--project" id="version-prompt" spellcheck="false" placeholder="描述你想生成的画面…">${escapeHtml(promptDraft)}</textarea>
               </div>
               <div class="composer-toolbar">
-                <button class="composer-tool-btn" type="button" id="btn-upload-image" ${isChild ? 'disabled title="分支使用父图作为参考，无需上传"' : 'title="上传图片（图生图）"'}>${icon('plus', 16)}</button>
-                <button class="composer-tool-btn" type="button" id="btn-upload-file" title="上传文件（长文本提示词）">${icon('file-text', 16)}</button>
+                <button class="composer-tool-btn" type="button" id="btn-upload-image" ${isChild ? 'disabled title="分支使用父图作为参考，无需上传" data-tooltip="当前分支自动使用父图作为参考，不能额外上传参考图。"' : 'title="上传参考图（图生图）" data-tooltip="上传本地图片作为本节点的图生图参考，也可以直接粘贴图片。可添加数量取决于当前模型。"'}>${icon('plus', 16)}<span class="composer-tool-label">参考图</span></button>
+                <button class="composer-tool-btn" type="button" id="btn-upload-file" title="导入长文本提示词" data-tooltip="从 .txt 或 .md 文件读取长提示词，并覆盖当前节点输入框内容。">${icon('file-text', 16)}<span class="composer-tool-label">导入文本</span></button>
                 <div class="composer-chip composer-chip--model" id="model-chip">
                   <span class="chip-icon">${icon('cpu', 13)}</span>
+                  <span class="chip-label">模型</span>
                   <span class="chip-value" id="model-chip-value" title="选择模型">选择模型</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
-                <div class="composer-chip" id="ratio-chip">
+                <div class="composer-chip" id="ratio-chip" title="选择画面比例" data-tooltip="设置本节点生成图片的画幅比例。可选项会随当前模型变化。">
                   <span class="chip-icon">${icon('aperture', 13)}</span>
+                  <span class="chip-label">比例</span>
                   <span class="chip-value" id="ratio-chip-value">${curVer.images[0] ? curVer.images[0].ratio : '1:1'}</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
-                <div class="composer-chip" id="quality-chip">
+                <div class="composer-chip" id="quality-chip" title="选择生成清晰度" data-tooltip="设置本节点生成图片的清晰度。部分模型会固定清晰度，不能修改。">
                   <span class="chip-icon">${icon('sparkles', 13)}</span>
+                  <span class="chip-label">质量</span>
                   <span class="chip-value" id="quality-chip-value">${curVer.images[0] ? curVer.images[0].quality : '高清'}</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
-                <div class="composer-chip" id="quantity-chip">
+                <div class="composer-chip" id="quantity-chip" title="选择生成数量" data-tooltip="一次加入 1–4 个生成任务。每张图片会作为独立任务排队，可分别查看和保存。">
+                  <span class="chip-label">数量</span>
                   <span class="chip-value" id="quantity-chip-value">1 张</span>
                   <span class="chip-caret">${icon('chevron-down', 13)}</span>
                 </div>
-                <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词">${icon('wand', 15)}</button>
+                <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词" data-tooltip="调用系统设置中配置的文本模型，扩写并润色当前节点提示词。">${icon('wand', 15)}<span class="composer-tool-label">优化</span></button>
                 <div class="composer-toolbar-spacer"></div>
-                <button class="composer-generate-round" id="btn-generate" title="生成图片">
-                  ${icon('arrow-down', 20)}
+                <button class="composer-generate-round composer-generate-round--labeled" id="btn-generate" title="生成图片（⌘+Enter）" data-tooltip="将当前提示词、模型和参数加入生成队列。修改主线提示词或模型后会创建新的主线节点。">
+                  ${icon('arrow-down', 20)}<span class="composer-generate-label">生成</span>
                 </button>
               </div>
             </div>
@@ -688,8 +699,8 @@ export function renderProject(container, params, routeOptions = {}) {
 
     // 如果当前版本已有模型选择，使用它；否则使用默认模型
     const defaults = getDefaults();
-    let currentModelId = curVer.modelId || defaults.defaultImageModel || '';
-    let currentProviderId = curVer.providerId || defaults.defaultImageProvider || '';
+    let currentModelId = composerDraft.modelId || curVer.modelId || defaults.defaultImageModel || '';
+    let currentProviderId = composerDraft.providerId || curVer.providerId || defaults.defaultImageProvider || '';
     // 如果默认模型也没有，找第一个可用的
     if (!currentModelId || !currentProviderId) {
       const firstProvider = providers.find((p) => p.imageModels.some((m) => m.enabled));
@@ -702,19 +713,24 @@ export function renderProject(container, params, routeOptions = {}) {
     // 初始化当前模型支持的比例和质量；旧版本的参数不匹配时收敛到安全值。
     const getProviderType = (providerId) => providers.find((provider) => provider.id === providerId)?.type || '';
     let parameterOptions = getImageParameterOptions(getProviderType(currentProviderId), currentModelId);
-    const initialRatio = curVer.images[0] ? curVer.images[0].ratio : '1:1';
-    const initialQuality = curVer.images[0] ? curVer.images[0].quality : '高清';
+    const initialRatio = composerDraft.ratio || (curVer.images[0] ? curVer.images[0].ratio : '1:1');
+    const initialQuality = composerDraft.quality || (curVer.images[0] ? curVer.images[0].quality : '高清');
     let currentRatio = parameterOptions.ratios.includes(initialRatio) ? initialRatio : parameterOptions.ratios[0];
     let currentQuality = parameterOptions.qualities.some((item) => item.value === initialQuality)
       ? initialQuality
       : parameterOptions.qualities[0].value;
-    let currentQuantity = 1;
+    let currentQuantity = QUANTITIES.includes(Number(composerDraft.quantity)) ? Number(composerDraft.quantity) : 1;
     let sourceImages = isChild ? [] : normalizeReferenceImages(composerDraft.sourceImages);
 
     function saveComposerDraft() {
       composerDrafts.write(composerDraftKey, {
         prompt: promptInput.value,
         sourceImages,
+        providerId: currentProviderId,
+        modelId: currentModelId,
+        ratio: currentRatio,
+        quality: currentQuality,
+        quantity: currentQuantity,
       });
     }
 
@@ -741,18 +757,27 @@ export function renderProject(container, params, routeOptions = {}) {
       if (!currentModelId) { setModelChipLabel('选择模型'); return; }
       const provider = providers.find((p) => p.id === currentProviderId) || modelToProvider.get(currentModelId);
       const model = provider?.imageModels.find((item) => item.id === currentModelId);
-      setModelChipLabel(model ? `${provider.name} · ${model.name}` : currentModelId);
+      setModelChipLabel(currentModelId);
+      modelChip.setAttribute(
+        'data-tooltip',
+        model
+          ? `${getImageModelDescription(model.id, model.name, model.description || '')} 参考图：${referenceLimitBadge(getReferenceImageOptions(getProviderType(currentProviderId), currentModelId))}。`
+            + (provider ? ` 供应商：${provider.name}。` : '')
+          : '选择本节点生图使用的模型。',
+      );
     }
     buildModelChipValue();
+    quantityChipValue.textContent = `${currentQuantity} 张`;
+    saveComposerDraft();
 
     function getCurrentReferenceOptions(providerId = currentProviderId, modelId = currentModelId) {
       return getReferenceImageOptions(getProviderType(providerId), modelId);
     }
 
     function referenceLimitBadge(options) {
-      if (options.maxImages === 0) return '无参考图';
-      if (options.maxImages === 1) return '单图';
-      return `≤${options.maxImages} 图`;
+      if (options.maxImages === 0) return '不支持参考图';
+      if (options.maxImages === 1) return '仅 1 张参考图';
+      return `最多 ${options.maxImages} 张参考图`;
     }
 
     function renderSourcePreviews() {
@@ -776,15 +801,20 @@ export function renderProject(container, params, routeOptions = {}) {
       if (isChild) {
         btnUploadImage.disabled = true;
         btnUploadImage.title = '分支使用父图作为参考，无需上传';
+        btnUploadImage.setAttribute('data-tooltip', '当前分支自动使用父图作为参考，不能额外上传参考图。');
         return;
       }
       const canAdd = options.supported && sourceImages.length < options.maxImages;
       btnUploadImage.disabled = !canAdd;
-      btnUploadImage.title = !options.supported
+      const uploadHint = !options.supported
         ? options.message
         : canAdd
           ? `上传参考图（${sourceImages.length}/${options.maxImages}）`
           : `已达到当前模型上限（${options.maxImages} 张）`;
+      btnUploadImage.title = uploadHint;
+      btnUploadImage.setAttribute('data-tooltip', options.supported
+        ? `上传本地图片作为本节点的图生图参考，也可以直接粘贴图片。当前已选 ${sourceImages.length}/${options.maxImages} 张。`
+        : `${options.message}。可以切换支持参考图的模型后再上传。`);
       const promptHint = options.maxImages > 1 && sourceImages.length > 1
         ? '；可用「图1」「图2」指代'
         : '';
@@ -826,6 +856,12 @@ export function renderProject(container, params, routeOptions = {}) {
       qualityChip.title = qualityLocked
         ? `${getQualityLabel(currentQuality)}由当前模型固定`
         : '选择清晰度';
+      qualityChip.setAttribute(
+        'data-tooltip',
+        qualityLocked
+          ? `当前模型固定使用「${getQualityLabel(currentQuality)}」清晰度。`
+          : '设置生成图片的清晰度。可选项会随当前模型变化。',
+      );
     }
 
     function buildModelDropdownHtml() {
@@ -837,8 +873,16 @@ export function renderProject(container, params, routeOptions = {}) {
         for (const m of models) {
           const active = m.id === currentModelId;
           const referenceOptions = getReferenceImageOptions(p.type, m.id);
+          const description = [
+            getImageModelDescription(m.id, m.name, m.description || ''),
+            `参考图：${referenceLimitBadge(referenceOptions)}。`,
+          ].join(' ');
           html += `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-provider="${p.id}" data-model="${m.id}" data-reference-limit="${referenceOptions.maxImages}">
-            <span class="item-left"><span>${escapeHtml(m.name)}</span><span class="item-provider">${referenceLimitBadge(referenceOptions)}</span></span>
+          <span class="item-left">
+            <span class="item-model-id">${escapeHtml(m.id)}</span>
+            <button type="button" class="model-info-btn" data-model-info="${escapeHtml(m.id)}" data-tooltip="${escapeHtml(description)}" data-tooltip-click aria-label="查看模型 ${escapeHtml(m.id)} 的说明">?</button>
+            <span class="item-provider" title="${escapeHtml(referenceLimitBadge(referenceOptions))}">${escapeHtml(referenceLimitBadge(referenceOptions))}</span>
+          </span>
             <span class="item-right">${active ? icon('check', 14) : ''}</span>
           </div>`;
         }
@@ -937,6 +981,10 @@ export function renderProject(container, params, routeOptions = {}) {
     });
 
     root.addEventListener('click', (e) => {
+      if (e.target.closest('[data-model-info]')) {
+        e.preventDefault();
+        return;
+      }
       const item = e.target.closest('.composer-dropdown-item');
       if (!item) return;
       if (item.hasAttribute('data-model')) {
@@ -962,15 +1010,19 @@ export function renderProject(container, params, routeOptions = {}) {
         updateParameterChips();
         buildModelChipValue();
         updateReferenceControls();
+        saveComposerDraft();
       } else if (item.hasAttribute('data-ratio')) {
         currentRatio = item.getAttribute('data-ratio');
         ratioChipValue.textContent = currentRatio;
+        saveComposerDraft();
       } else if (item.hasAttribute('data-quality')) {
         currentQuality = item.getAttribute('data-quality');
         qualityChipValue.textContent = getQualityLabel(currentQuality);
+        saveComposerDraft();
       } else if (item.hasAttribute('data-quantity')) {
         currentQuantity = Number(item.getAttribute('data-quantity'));
         quantityChipValue.textContent = `${currentQuantity} 张`;
+        saveComposerDraft();
       }
       closeDropdown();
     });
@@ -1403,6 +1455,27 @@ export function renderProject(container, params, routeOptions = {}) {
           await downloadImage(image.image, image.id);
         }
       },
+    });
+
+    const getCurrentGalleryImage = (imageId) => {
+      const fresh = getProject(project.id);
+      const currentVersion = fresh?.versions.find((item) => item.id === fresh.currentVersionId);
+      if (!fresh || !currentVersion) return null;
+      const image = currentVersion.images.find((item) => item.id === imageId);
+      return image ? { image, version: currentVersion } : null;
+    };
+
+    galleryGrid.addEventListener('contextmenu', (event) => {
+      const imageElement = event.target.closest?.('.gallery-item img');
+      if (!imageElement) return;
+      const imageId = imageElement.closest('.gallery-item')?.getAttribute('data-image-id');
+      const current = imageId ? getCurrentGalleryImage(imageId) : null;
+      if (!current) return;
+      openImageContextMenu(event, {
+        imageSource: current.image.image,
+        prompt: current.version.prompt || '',
+        suggestedName: `miaos-${current.image.id}.png`,
+      });
     });
 
     // ========== 刷新画廊（队列变化时） ==========

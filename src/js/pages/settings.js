@@ -3,6 +3,8 @@ import { icon, renderIcons } from '../icons.js';
 import { mountPage, htmlToElement, toast, confirmDialog, promptDialog, escapeHtml, escapeAttr, withButtonLoading, toImageSrc } from '../ui.js';
 import { openImagePreview } from '../image-preview.js';
 import { renderReleaseNotes } from '../release-notes.js';
+import { getModelDescription } from '../model-catalog.js';
+import { getReferenceImageOptions } from '../image-model-capabilities.js';
 import {
   getProviders,
   getStateSnapshot,
@@ -461,6 +463,12 @@ export function renderSettings(container, params = [], query = {}) {
 
   function renderProviderForm(existing) {
     const f = pageState.form;
+    const getImageModelReferenceSummary = (providerType, modelId) => {
+      const referenceOptions = getReferenceImageOptions(providerType, modelId);
+      if (referenceOptions.maxImages === 0) return '不支持参考图';
+      if (referenceOptions.maxImages === 1) return '仅 1 张参考图';
+      return `最多 ${referenceOptions.maxImages} 张参考图`;
+    };
     const isNew = !existing;
     const testStatus = pageState.testStatus;
     const testLoading = pageState.testLoading;
@@ -587,13 +595,34 @@ export function renderSettings(container, params = [], query = {}) {
                 </div>
                 ${models.length > 0 ? `
                   <div class="model-checklist">
-                    ${models.map((m) => `
+                    ${models.map((m) => {
+                      const description = c.key === 'image'
+                        ? [
+                          getModelDescription({
+                            category: c.key,
+                            modelId: m.id,
+                            name: m.name,
+                            description: m.description || '',
+                          }),
+                          `参考图：${getImageModelReferenceSummary(f.type, m.id)}。`,
+                        ].join(' ')
+                        : getModelDescription({
+                          category: c.key,
+                          modelId: m.id,
+                          name: m.name,
+                          description: m.description || '',
+                        });
+                      return `
                       <label class="model-check-item" data-mid="${m.id}">
                         <input type="checkbox" ${m.enabled ? 'checked' : ''} data-act="toggle-model" data-cat="${c.key}" data-mid="${m.id}" />
-                        <span class="model-check-name">${escapeHtml(m.name)}</span>
+                        <span class="model-check-copy">
+                          <span class="model-check-name">${escapeHtml(m.id)}</span>
+                          <span class="model-check-desc" title="${escapeAttr(description)}">${escapeHtml(description)}</span>
+                        </span>
                         <button class="icon-btn mini" type="button" data-act="remove-model" data-cat="${c.key}" data-mid="${m.id}" title="移除">${icon('x', 10)}</button>
                       </label>
-                    `).join('')}
+                    `;
+                    }).join('')}
                   </div>
                 ` : `
                   <div class="models-empty-hint">暂无模型，点击「获取模型」自动拉取，或手动添加</div>
@@ -840,7 +869,7 @@ export function renderSettings(container, params = [], query = {}) {
             </div>
           </div>
           <div id="update-notes" class="update-notes" style="display:none;">
-            <div class="update-notes-title">更新说明</div>
+            <div class="update-notes-title" id="update-notes-title">更新说明</div>
             <div id="update-notes-body" class="update-notes-body"></div>
           </div>
           <div id="update-error" class="update-error" style="display:none;">
@@ -1834,6 +1863,7 @@ export function renderSettings(container, params = [], query = {}) {
   function handleUpdateEvent(payload) {
     const s = payload?.state;
     if (s === 'available') pageState.update.available = { ...payload };
+    else if (s === 'not-available') pageState.update.available = null;
     const available = pageState.update.available;
     pageState.update.state = s;
     pageState.update.payload = payload;
@@ -1847,16 +1877,19 @@ export function renderSettings(container, params = [], query = {}) {
     const btnCancelDownload = document.getElementById('btn-cancel-download');
     const latestVer = document.getElementById('latest-ver');
     const latestDate = document.getElementById('latest-date');
+    const notesTitle = document.getElementById('update-notes-title');
     const setDownloadLabel = (text) => {
       const label = btnDownload?.querySelector('span');
       if (label) label.textContent = text;
     };
-    const showAvailableNotes = () => {
-      if (!available?.releaseNotes || !notesEl) return;
+    const showReleaseNotes = (release, title) => {
+      if (!release?.releaseNotes || !notesEl) return;
+      if (notesTitle) notesTitle.textContent = title;
       notesEl.style.display = 'block';
       const body = document.getElementById('update-notes-body');
-      if (body) renderReleaseNotes(body, available.releaseNotes);
+      if (body) renderReleaseNotes(body, release.releaseNotes);
     };
+    const showAvailableNotes = () => showReleaseNotes(available, '更新日志');
     const showAvailableVersion = () => {
       if (!available?.version) return;
       pageState.update.latest = available.version;
@@ -1929,8 +1962,9 @@ export function renderSettings(container, params = [], query = {}) {
         if (chip) { chip.textContent = UPDATE_STATE_TEXT.completed; chip.className = 'tag tag-primary'; }
         break;
       case 'not-available':
-        if (latestVer) latestVer.textContent = pageState.update.current ? `v${pageState.update.current.version}` : '—';
-        if (latestDate) latestDate.textContent = '当前已是最新版本';
+        if (latestVer) latestVer.textContent = payload.releaseVersion ? `v${payload.releaseVersion}` : (pageState.update.current ? `v${pageState.update.current.version}` : '—');
+        if (latestDate) latestDate.textContent = payload.releaseDate ? `当前已是最新版本 · 发布于 ${formatDate(payload.releaseDate)}` : '当前已是最新版本';
+        showReleaseNotes(payload, '当前版本更新日志');
         break;
       case 'error': {
         if (available) {

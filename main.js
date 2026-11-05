@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage, safeStorage, nativeTheme } = require('electron');
+const { app, BrowserWindow, ClipboardItem, ipcMain, dialog, shell, nativeImage, safeStorage, nativeTheme, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -160,10 +160,17 @@ registerSecureHandler({
   try {
     const cdnPrefix = opts?.cdnPrefix || '';
     const channel = opts?.channel === 'prerelease' ? 'prerelease' : 'stable';
-    const update = await checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion(), cdnPrefix, channel });
+    const release = await checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion(), cdnPrefix, channel });
+    const update = release?.isUpdateAvailable ? release : null;
     updateInfoCache = update;
     if (update) sendUpdateStatus('available', update);
-    else sendUpdateStatus('not-available', { version: app.getVersion() });
+    else sendUpdateStatus('not-available', {
+      version: app.getVersion(),
+      releaseVersion: release?.isCurrentVersion ? release.version : '',
+      releaseNotes: release?.isCurrentVersion ? release.releaseNotes : '',
+      releaseDate: release?.isCurrentVersion ? release.releaseDate : '',
+      releaseUrl: release?.isCurrentVersion ? release.releaseUrl : '',
+    });
     return { ok: true, update };
   } catch (e) {
     return { ok: false, error: e.message || '检查更新失败' };
@@ -1057,6 +1064,31 @@ registerSecureHandler({
       const buffer = await readSaveImageBuffer(imageSource);
       fs.writeFileSync(filePath, buffer);
       return { ok: true, filePath: await imageFileAccess.authorizePastedImage(filePath) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  },
+});
+
+// 复制图片到系统剪贴板：复用保存图片的路径校验与读取逻辑。
+registerSecureHandler({
+  ipcMain,
+  channel: 'copy-image',
+  getMainWindow: () => mainWindow,
+  validate: validateSaveImageSource,
+  handle: async (_event, imageSource) => {
+    try {
+      const buffer = await readSaveImageBuffer(imageSource);
+      const image = nativeImage.createFromBuffer(buffer);
+      if (image.isEmpty()) throw new Error('图片内容无法解码');
+      if (typeof clipboard.writeImage === 'function') {
+        clipboard.writeImage(image);
+      } else if (typeof clipboard.write === 'function' && typeof ClipboardItem === 'function') {
+        await clipboard.write([new ClipboardItem({ 'image/png': new Blob([buffer], { type: 'image/png' }) })]);
+      } else {
+        throw new Error('当前 Electron 环境不支持复制图片');
+      }
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -2035,7 +2067,8 @@ if (shouldStartApp) {
     if (app.isPackaged) {
       setTimeout(() => {
         sendUpdateStatus('checking', { info: '正在检查更新…' });
-        checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion() }).then((update) => {
+        checkManualUpdate({ ...updateRepository, currentVersion: app.getVersion() }).then((release) => {
+          const update = release?.isUpdateAvailable ? release : null;
           updateInfoCache = update;
           if (update) sendUpdateStatus('available', update);
         }).catch(() => {});

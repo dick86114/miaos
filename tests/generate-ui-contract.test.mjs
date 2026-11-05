@@ -481,11 +481,14 @@ test('失败任务卡片将元信息与操作分区，按钮不得被压缩成�
 });
 
 test('统一详情页支持点击全屏、滚轮缩放与拖拽平移', () => {
-  assert.match(detailPage, /function openDetailImageFullscreen\(imageSource, altText\)/u, '详情页必须定义全屏预览控制器');
+  assert.match(detailPage, /function openDetailImageFullscreen\(imageSource, altText, promptText = ''\)/u, '详情页必须定义全屏预览控制器');
   assert.match(detailPage, /detailImage\.addEventListener\('click', \(\) => openDetailImageFullscreen/u, '点击详情大图必须打开全屏预览');
   assert.match(detailPage, /overlay\.addEventListener\('wheel'/u, '全屏预览必须支持滚轮缩放');
   assert.match(detailPage, /pointerdown/u, '全屏预览必须支持拖拽平移');
+  assert.match(detailPage, /if \(dragged\) \{/u, '拖拽结束后不得误触发缩小关闭');
+  assert.match(detailPage, /image\.addEventListener\('click', \(\) => \{/u, '放大查看必须支持再次点击缩小');
   assert.match(pagesCss, /\.detail-fullscreen-image/u, '详情页全屏图片必须具有独立样式');
+  assert.match(pagesCss, /\.detail-fullscreen-overlay[\s\S]*?-webkit-app-region: no-drag;/u, '全屏遮罩必须避免被窗口拖拽区拦截点击');
 });
 
 

@@ -124,18 +124,25 @@ async function checkForUpdateFromAtom({ owner, repo, currentVersion, httpsImpl =
   const entry = feed.match(/<entry>[\s\S]*?<\/entry>/i)?.[0] || '';
   if (!entry) throw new Error('GitHub 更新订阅中没有 Release');
   const version = normalizeVersion(entry.match(/<id>[^<]*\/(v?[0-9][^<\s]*)<\/id>/i)?.[1] || entry.match(/<title>\s*([^<]*?)\s*<\/title>/i)?.[1]);
-  if (!version || compareVersions(version, currentVersion) <= 0) return null;
+  if (!version) return null;
+  const comparison = compareVersions(version, currentVersion);
+  const isUpdateAvailable = comparison > 0;
   const releaseUrl = entry.match(/<link[^>]+href="([^"]+)"/i)?.[1] || `https://github.com/${owner}/${repo}/releases/tag/v${version}`;
   const content = decodeXmlText(entry.match(/<content[^>]*>([\s\S]*?)<\/content>/i)?.[1] || '');
   const assetName = content.match(/[A-Za-z0-9._-]+\.dmg/i)?.[0] || `miaos-${version}-arm64.dmg`;
   return {
     version,
+    isUpdateAvailable,
+    isCurrentVersion: comparison === 0,
     releaseNotes: htmlToMarkdown(content),
     releaseDate: entry.match(/<updated>([^<]+)<\/updated>/i)?.[1] || '',
     releaseUrl,
-    downloadUrl: applyCdnPrefix(`https://github.com/${owner}/${repo}/releases/download/v${version}/${assetName}`, cdn),
-    assetName,
-    expectedSha256: '',
+    isPrerelease: false,
+    ...(isUpdateAvailable ? {
+      downloadUrl: applyCdnPrefix(`https://github.com/${owner}/${repo}/releases/download/v${version}/${assetName}`, cdn),
+      assetName,
+      expectedSha256: '',
+    } : {}),
   };
 }
 
@@ -403,18 +410,24 @@ async function checkForUpdate({ owner, repo, currentVersion, httpsImpl = https, 
     return checkForUpdateFromAtom({ owner, repo, currentVersion, httpsImpl, cdnPrefix: cdn });
   }
   const version = normalizeVersion(release.tag_name || release.name);
-  if (!version || compareVersions(version, currentVersion) <= 0) return null;
-  const asset = selectDmgAsset(release);
-  if (!asset) throw new Error('最新 Release 没有找到 macOS DMG 安装包');
+  if (!version) return null;
+  const comparison = compareVersions(version, currentVersion);
+  const isUpdateAvailable = comparison > 0;
+  const asset = isUpdateAvailable ? selectDmgAsset(release) : null;
+  if (isUpdateAvailable && !asset) throw new Error('最新 Release 没有找到 macOS DMG 安装包');
   return {
     version,
+    isUpdateAvailable,
+    isCurrentVersion: comparison === 0,
     releaseNotes: release.body || '',
     releaseDate: release.published_at || release.created_at || '',
     releaseUrl: release.html_url || '',
-    downloadUrl: applyCdnPrefix(asset.browser_download_url, cdn),
-    assetName: asset.name,
-    expectedSha256: typeof asset.digest === 'string' && asset.digest.startsWith('sha256:') ? asset.digest.slice(7) : '',
     isPrerelease: Boolean(release.prerelease),
+    ...(isUpdateAvailable ? {
+      downloadUrl: applyCdnPrefix(asset.browser_download_url, cdn),
+      assetName: asset.name,
+      expectedSha256: typeof asset.digest === 'string' && asset.digest.startsWith('sha256:') ? asset.digest.slice(7) : '',
+    } : {}),
   };
 }
 

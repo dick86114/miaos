@@ -236,6 +236,11 @@ test('共享图片预览支持图片二次点击全屏、滚轮缩放范围与�
   fullscreenImage.dispatch('pointerup', { pointerId: 1 });
 
   fullscreenImage.dispatch('click');
+  assert.ok(
+    findByAttribute(documentRef.body, 'data-image-preview-fullscreen'),
+    '拖拽结束后的 click 不应误关闭放大查看',
+  );
+  fullscreenImage.dispatch('click');
   assert.equal(findByAttribute(documentRef.body, 'data-image-preview-fullscreen'), null);
   image.dispatch('click');
   fullscreen = findByAttribute(documentRef.body, 'data-image-preview-fullscreen');

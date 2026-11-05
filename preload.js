@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('api', {
   saveImage: (dataUrl, suggestedName) =>
     ipcRenderer.invoke('save-image', dataUrl, suggestedName),
+  copyImage: (imageSource) => ipcRenderer.invoke('copy-image', imageSource),
   exportConfig: (state, password) => ipcRenderer.invoke('export-config', state, password),
   startConfigPairing: (state, password) => ipcRenderer.invoke('start-config-pairing', state, password),
   stopConfigPairing: () => ipcRenderer.invoke('stop-config-pairing'),

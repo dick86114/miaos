@@ -11,6 +11,7 @@ import {
 import { navigate } from '../router.js';
 import { formatImageDimensions, resolveImageDetailRecord } from '../image-detail-data.js';
 import { formatGenerationDuration } from '../generation-timing.js';
+import { closeImageContextMenu, openImageContextMenu } from '../image-context-menu.js';
 
 const DETAIL_MIN_ZOOM = 1;
 const DETAIL_MAX_ZOOM = 4;
@@ -44,7 +45,7 @@ function createPromptChainHtml(chain) {
         ${chain.map((node, index) => `
           <article class="detail-prompt-chain-node" data-detail-prompt-chain-node="${index}">
             <div class="detail-prompt-chain-label">${escapeHtml(node.label || '未命名节点')}</div>
-            ${node.image ? `<button type="button" class="detail-parent-image-button" data-detail-parent-image="${escapeHtml(node.image)}" data-detail-parent-image-label="${escapeHtml(node.label || '父节点参考图')}" title="点击放大查看父图"><img src="${escapeHtml(toImageSrc(node.image))}" alt="${escapeHtml(node.label || '父节点参考图')}" class="detail-parent-image-thumb" /></button>` : '<div class="detail-parent-image-missing">父图不可用</div>'}
+            ${node.image ? `<button type="button" class="detail-parent-image-button" data-detail-parent-image="${escapeHtml(node.image)}" data-detail-parent-image-label="${escapeHtml(node.label || '父节点参考图')}" data-detail-parent-image-prompt="${escapeHtml(node.prompt || '')}" title="点击放大查看父图"><img src="${escapeHtml(toImageSrc(node.image))}" alt="${escapeHtml(node.label || '父节点参考图')}" class="detail-parent-image-thumb" /></button>` : '<div class="detail-parent-image-missing">父图不可用</div>'}
             <textarea class="detail-textarea detail-chain-textarea" readonly spellcheck="false">${escapeHtml(node.prompt || '（无提示词）')}</textarea>
           </article>`).join('')}
       </div>
@@ -154,12 +155,13 @@ export function renderDetail(container, params, routeOptions = {}) {
   syncImageDimensions();
 
   let closeFullscreenPreview = null;
-  function openDetailImageFullscreen(imageSource, altText) {
+  function openDetailImageFullscreen(imageSource, altText, promptText = '') {
     if (closeFullscreenPreview) return;
     let zoom = DETAIL_MIN_ZOOM;
     let panX = 0;
     let panY = 0;
     let pointer = null;
+    let dragged = false;
     const overlay = document.createElement('div');
     overlay.className = 'detail-fullscreen-overlay';
     overlay.setAttribute('data-detail-fullscreen', '');
@@ -187,6 +189,7 @@ export function renderDetail(container, params, routeOptions = {}) {
     };
     const close = () => {
       if (!closeFullscreenPreview) return;
+      closeImageContextMenu();
       document.removeEventListener('keydown', onKeydown);
       overlay.remove();
       closeFullscreenPreview = null;
@@ -207,11 +210,15 @@ export function renderDetail(container, params, routeOptions = {}) {
     });
     closeButton.addEventListener('click', close);
     image.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
       pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: panX, startY: panY };
+      dragged = false;
       image.setPointerCapture?.(event.pointerId);
     });
     image.addEventListener('pointermove', (event) => {
       if (!pointer || pointer.id !== event.pointerId) return;
+      if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 4) dragged = true;
+      if (!dragged) return;
       panX = pointer.startX + event.clientX - pointer.x;
       panY = pointer.startY + event.clientY - pointer.y;
       renderTransform();
@@ -223,25 +230,60 @@ export function renderDetail(container, params, routeOptions = {}) {
     };
     image.addEventListener('pointerup', stopDragging);
     image.addEventListener('pointercancel', stopDragging);
+    image.addEventListener('click', () => {
+      if (dragged) {
+        dragged = false;
+        return;
+      }
+      close();
+    });
+    image.addEventListener('contextmenu', (event) => {
+      openImageContextMenu(event, {
+        imageSource,
+        prompt: promptText,
+        suggestedName: `miaos-${item.id}.png`,
+        onSave: () => saveDetailImage(),
+        onCloseFullscreen: close,
+      });
+    });
+    image.title = '点击缩小并返回详情；按住拖拽平移，滚轮缩放';
     document.addEventListener('keydown', onKeydown);
     closeButton.focus();
   }
 
   const detailImage = root.querySelector('.detail-image');
-  detailImage.addEventListener('click', () => openDetailImageFullscreen(item.image, item.prompt || '生成结果'));
-  detailImage.title = '点击全屏预览；滚轮缩放，拖拽平移';
+  detailImage.addEventListener('click', () => openDetailImageFullscreen(item.image, item.prompt || '生成结果', item.prompt || ''));
+  detailImage.addEventListener('contextmenu', (event) => {
+    openImageContextMenu(event, {
+      imageSource: item.image,
+      prompt: item.prompt || '',
+      suggestedName: `${filePrefix}-${item.id}.png`,
+      onSave: () => saveDetailImage(),
+    });
+  });
+  detailImage.title = '点击放大查看；右键可复制或保存图片';
 
   root.querySelectorAll('[data-detail-parent-image]').forEach((button) => {
     button.addEventListener('click', () => {
       const source = button.getAttribute('data-detail-parent-image');
       const label = button.getAttribute('data-detail-parent-image-label') || '父节点参考图';
-      if (source) openDetailImageFullscreen(source, label);
+      const prompt = button.getAttribute('data-detail-parent-image-prompt') || '';
+      if (source) openDetailImageFullscreen(source, label, prompt);
+    });
+    button.addEventListener('contextmenu', (event) => {
+      const source = button.getAttribute('data-detail-parent-image');
+      if (!source) return;
+      openImageContextMenu(event, {
+        imageSource: source,
+        prompt: button.getAttribute('data-detail-parent-image-prompt') || '',
+        suggestedName: `miaos-parent-${item.id}.png`,
+      });
     });
   });
 
   root.querySelector('#back-detail').addEventListener('click', () => navigate(backTarget.path));
 
-  root.querySelector('#btn-download').addEventListener('click', async () => {
+  async function saveDetailImage() {
     try {
       const result = await window.api.saveImage(item.image, `${filePrefix}-${item.id}.png`);
       if (result.ok) toast('图片已保存', 'success');
@@ -249,7 +291,9 @@ export function renderDetail(container, params, routeOptions = {}) {
     } catch (error) {
       toast('保存失败：' + error.message, 'error');
     }
-  });
+  }
+
+  root.querySelector('#btn-download').addEventListener('click', saveDetailImage);
 
   if (item.canDelete) {
     root.querySelector('#btn-delete').addEventListener('click', async () => {

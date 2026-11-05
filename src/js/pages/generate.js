@@ -19,6 +19,7 @@ import { navigate } from '../router.js';
 import { getPaginatedQuickHistory } from '../history-data.js';
 import { openImagePreview } from '../image-preview.js';
 import { buildImageDetailRoute } from '../image-detail-data.js';
+import { openImageContextMenu } from '../image-context-menu.js';
 import { createPromptOptimizationManager, createPromptFragmentOverlay } from '../prompt-optimization.js';
 import { getQuickQueueViewState } from '../queue-view-state.js';
 import { getGenerationErrorHelp } from '../generation-error-help.js';
@@ -26,6 +27,7 @@ import { createRunningTaskTicker, formatGenerationDuration } from '../generation
 import { getImageParameterOptions, getReferenceImageOptions, normalizeImageParameters } from '../image-model-capabilities.js';
 import { mergeReferenceImages, normalizeReferenceImages } from '../reference-images.js';
 import { createComposerDraftStore } from '../composer-drafts.js';
+import { getImageModelDescription } from '../model-catalog.js';
 
 const promptOptimizationManager = createPromptOptimizationManager({
   optimize: (prompt) => optimizePrompt(prompt),
@@ -182,17 +184,22 @@ export function renderGenerate(container) {
   const composerDraft = composerDrafts.read('quick', {
     prompt: (last && last.prompt) || '',
     sourceImages: [],
+    providerId: (last && last.providerId) || '',
+    modelId: (last && last.modelId) || '',
+    ratio: (last && last.ratio) || '',
+    quality: (last && last.quality) || '',
+    quantity: 1,
   });
 
   const initialPrompt = composerDraft.prompt;
-  const initialProviderId = (last && last.providerId) || defaults.defaultImageProvider || (providers[0] && providers[0].id) || '';
-  const initialModelId = (last && last.modelId) || defaults.defaultImageModel || '';
-  const initialRatio = (last && last.ratio) || '1:1';
-  const initialQuality = (last && last.quality) || '高清';
+  const initialProviderId = composerDraft.providerId || defaults.defaultImageProvider || (providers[0] && providers[0].id) || '';
+  const initialModelId = composerDraft.modelId || defaults.defaultImageModel || '';
+  const initialRatio = composerDraft.ratio || '1:1';
+  const initialQuality = composerDraft.quality || '高清';
 
   let currentProviderId = initialProviderId;
   let currentModelId = initialModelId;
-  let currentQuantity = 1;
+  let currentQuantity = QUANTITIES.includes(Number(composerDraft.quantity)) ? Number(composerDraft.quantity) : 1;
   let sourceImages = normalizeReferenceImages(composerDraft.sourceImages);
   const getProviderType = (providerId) => providers.find((provider) => provider.id === providerId)?.type || '';
   let parameterOptions = getImageParameterOptions(getProviderType(initialProviderId), initialModelId);
@@ -219,32 +226,36 @@ export function renderGenerate(container) {
           <textarea class="composer-textarea" id="prompt-input" placeholder="描述你想生成的画面，例如：清晨的湖边，薄雾缭绕，极简风格…">${escapeHtml(initialPrompt)}</textarea>
         </div>
         <div class="composer-toolbar" id="composer-toolbar">
-          <button class="composer-tool-btn" type="button" id="btn-upload-image" title="上传图片（图生图）">${icon('plus', 16)}</button>
-          <button class="composer-tool-btn" type="button" id="btn-upload-file" title="上传文件（长文本提示词）">${icon('file-text', 16)}</button>
+          <button class="composer-tool-btn" type="button" id="btn-upload-image" title="上传参考图（图生图）" data-tooltip="上传本地图片作为图生图参考，也可以直接把图片粘贴到输入区。可添加数量取决于当前模型。">${icon('plus', 16)}<span class="composer-tool-label">参考图</span></button>
+          <button class="composer-tool-btn" type="button" id="btn-upload-file" title="导入长文本提示词" data-tooltip="从 .txt 或 .md 文件读取长提示词，并覆盖当前输入框内容。">${icon('file-text', 16)}<span class="composer-tool-label">导入文本</span></button>
           <div class="composer-chip composer-chip--model" id="model-chip">
             <span class="chip-icon">${icon('cpu', 13)}</span>
+            <span class="chip-label">模型</span>
             <span class="chip-value" id="model-chip-value" title="选择模型">选择模型</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
-          <div class="composer-chip" id="ratio-chip">
+          <div class="composer-chip" id="ratio-chip" title="选择画面比例" data-tooltip="设置生成图片的画幅比例。可选项会随当前模型变化。">
             <span class="chip-icon">${icon('aperture', 13)}</span>
+            <span class="chip-label">比例</span>
             <span class="chip-value" id="ratio-chip-value">${currentRatio}</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
-          <div class="composer-chip" id="quality-chip">
+          <div class="composer-chip" id="quality-chip" title="选择生成清晰度" data-tooltip="设置生成图片的清晰度。部分模型会固定清晰度，不能修改。">
             <span class="chip-icon">${icon('sparkles', 13)}</span>
+            <span class="chip-label">质量</span>
             <span class="chip-value" id="quality-chip-value">${getQualityLabel(currentQuality)}</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
-          <div class="composer-chip" id="quantity-chip">
+          <div class="composer-chip" id="quantity-chip" title="选择生成数量" data-tooltip="一次加入 1–4 个生成任务。每张图片会作为独立任务排队，可分别查看和保存。">
+            <span class="chip-label">数量</span>
             <span class="chip-value" id="quantity-chip-value">${currentQuantity} 张</span>
             <span class="chip-caret">${icon('chevron-down', 13)}</span>
           </div>
-          <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词">${icon('wand', 15)}</button>
-          <button class="composer-tool-btn" type="button" id="btn-random" title="随机提示词">${icon('shuffle', 15)}</button>
+          <button class="composer-tool-btn" type="button" id="btn-optimize" title="优化提示词" data-tooltip="调用系统设置中配置的文本模型，扩写并润色当前提示词，让画面描述更完整。">${icon('wand', 15)}<span class="composer-tool-label">优化</span></button>
+          <button class="composer-tool-btn" type="button" id="btn-random" title="随机提示词" data-tooltip="用一条内置示例提示词替换当前输入，适合快速开始创作。">${icon('shuffle', 15)}<span class="composer-tool-label">随机</span></button>
           <div class="composer-toolbar-spacer"></div>
-          <button class="composer-generate-round" id="btn-generate" title="开始生成">
-            ${icon('arrow-down', 20)}
+          <button class="composer-generate-round composer-generate-round--labeled" id="btn-generate" title="开始生成（⌘+Enter）" data-tooltip="将当前提示词、模型和参数加入生成队列；也可以按 ⌘+Enter 快速提交。">
+            ${icon('arrow-down', 20)}<span class="composer-generate-label">生成</span>
           </button>
         </div>
       </div>
@@ -266,6 +277,11 @@ export function renderGenerate(container) {
     composerDrafts.write('quick', {
       prompt: promptInput.value,
       sourceImages,
+      providerId: currentProviderId,
+      modelId: currentModelId,
+      ratio: currentRatio,
+      quality: currentQuality,
+      quantity: currentQuantity,
     });
   }
 
@@ -302,8 +318,18 @@ export function renderGenerate(container) {
     const defModelId = getDefaultModelId();
     currentModelId = defModelId;
     const model = models.find((item) => item.id === defModelId);
-    setModelChipLabel(model ? model.name : '选择模型');
+    const modelId = model ? model.id : (defModelId || '选择模型');
+    setModelChipLabel(modelId);
+    const provider = providers.find((item) => item.id === currentProviderId);
+    modelChip.setAttribute(
+      'data-tooltip',
+      model
+        ? `${getImageModelDescription(model.id, model.name, model.description || '')} 参考图：${referenceLimitBadge(getReferenceImageOptions(currentProviderId, currentModelId))}。`
+          + (provider ? ` 供应商：${provider.name}。` : '')
+        : '选择本次生图使用的模型。',
+    );
     updateReferenceControls();
+    saveComposerDraft();
   }
 
   function getCurrentReferenceOptions(providerId = currentProviderId, modelId = currentModelId) {
@@ -311,9 +337,9 @@ export function renderGenerate(container) {
   }
 
   function referenceLimitBadge(options) {
-    if (options.maxImages === 0) return '无参考图';
-    if (options.maxImages === 1) return '单图';
-    return `≤${options.maxImages} 图`;
+    if (options.maxImages === 0) return '不支持参考图';
+    if (options.maxImages === 1) return '仅 1 张参考图';
+    return `最多 ${options.maxImages} 张参考图`;
   }
 
   function renderSourcePreviews() {
@@ -337,11 +363,15 @@ export function renderGenerate(container) {
     const canAdd = options.supported && sourceImages.length < options.maxImages;
     if (btnUploadImage) {
       btnUploadImage.disabled = !canAdd;
-      btnUploadImage.title = !options.supported
+      const uploadHint = !options.supported
         ? options.message
         : canAdd
           ? `上传参考图（${sourceImages.length}/${options.maxImages}）`
           : `已达到当前模型上限（${options.maxImages} 张）`;
+      btnUploadImage.title = uploadHint;
+      btnUploadImage.setAttribute('data-tooltip', options.supported
+        ? `上传本地图片作为图生图参考，也可以直接粘贴图片。当前已选 ${sourceImages.length}/${options.maxImages} 张。`
+        : `${options.message}。可以切换支持参考图的模型后再上传。`);
     }
     if (sourceHint) {
       const promptHint = options.maxImages > 1 && sourceImages.length > 1
@@ -384,6 +414,12 @@ export function renderGenerate(container) {
     qualityChip.title = qualityLocked
       ? `${getQualityLabel(currentQuality)}由当前模型固定`
       : '选择清晰度';
+    qualityChip.setAttribute(
+      'data-tooltip',
+      qualityLocked
+        ? `当前模型固定使用「${getQualityLabel(currentQuality)}」清晰度。`
+        : '设置生成图片的清晰度。可选项会随当前模型变化。',
+    );
   }
 
   function buildModelDropdownHtml() {
@@ -395,8 +431,16 @@ export function renderGenerate(container) {
       for (const m of models) {
         const active = m.id === currentModelId && p.id === currentProviderId;
         const referenceOptions = getReferenceImageOptions(p.type, m.id);
+        const description = [
+          getImageModelDescription(m.id, m.name, m.description || ''),
+          `参考图：${referenceLimitBadge(referenceOptions)}。`,
+        ].join(' ');
         html += `<div class="composer-dropdown-item ${active ? 'is-active' : ''}" data-provider="${p.id}" data-model="${m.id}" data-reference-limit="${referenceOptions.maxImages}">
-          <span class="item-left"><span>${escapeHtml(m.name)}</span><span class="item-provider">${referenceLimitBadge(referenceOptions)}</span></span>
+          <span class="item-left">
+            <span class="item-model-id">${escapeHtml(m.id)}</span>
+            <button type="button" class="model-info-btn" data-model-info="${escapeHtml(m.id)}" data-tooltip="${escapeHtml(description)}" data-tooltip-click aria-label="查看模型 ${escapeHtml(m.id)} 的说明">?</button>
+            <span class="item-provider" title="${escapeHtml(referenceLimitBadge(referenceOptions))}">${escapeHtml(referenceLimitBadge(referenceOptions))}</span>
+          </span>
           <span class="item-right">${active ? icon('check', 14) : ''}</span>
         </div>`;
       }
@@ -534,6 +578,10 @@ export function renderGenerate(container) {
 
   // 下拉项点击处理
   root.addEventListener('click', (e) => {
+    if (e.target.closest('[data-model-info]')) {
+      e.preventDefault();
+      return;
+    }
     const item = e.target.closest('.composer-dropdown-item');
     if (!item) return;
 
@@ -557,12 +605,15 @@ export function renderGenerate(container) {
     } else if (item.hasAttribute('data-ratio')) {
       currentRatio = item.getAttribute('data-ratio');
       ratioChipValue.textContent = currentRatio;
+      saveComposerDraft();
     } else if (item.hasAttribute('data-quality')) {
       currentQuality = item.getAttribute('data-quality');
       qualityChipValue.textContent = getQualityLabel(currentQuality);
+      saveComposerDraft();
     } else if (item.hasAttribute('data-quantity')) {
       currentQuantity = Number(item.getAttribute('data-quantity'));
       quantityChipValue.textContent = `${currentQuantity} 张`;
+      saveComposerDraft();
     }
     closeDropdown();
   });
@@ -836,6 +887,19 @@ export function renderGenerate(container) {
     createNode: (item) => htmlToElement(quickHistoryCardHtml(item)),
     updateNode: (node, item) => updateQuickHistoryCard(node, item),
     afterNode: (node) => renderIcons(node),
+  });
+
+  quickHistoryGrid.addEventListener('contextmenu', (event) => {
+    const image = event.target.closest?.('.quick-history-card img');
+    if (!image) return;
+    const historyId = image.closest('.quick-history-card')?.getAttribute('data-history-id');
+    const record = historyId ? getQuickHistoryRecord(historyId) : null;
+    if (!record) return;
+    openImageContextMenu(event, {
+      imageSource: record.image,
+      prompt: record.prompt || '',
+      suggestedName: `miaos-${record.id}.png`,
+    });
   });
 
   let quickHistoryPage = 1;

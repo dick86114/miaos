@@ -1,5 +1,6 @@
 // 统一图片预览：供历史、快速生图和项目工作台复用。
 import { formatDiagnosticText, getGenerationErrorHelp } from './generation-error-help.js';
+import { closeImageContextMenu, openImageContextMenu } from './image-context-menu.js';
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
@@ -204,6 +205,7 @@ export function openImagePreview(record, options = {}) {
   documentRef.body.appendChild(overlay);
 
   function closeFullscreen() {
+    closeImageContextMenu();
     fullscreen?.remove();
     fullscreen = null;
   }
@@ -231,6 +233,7 @@ export function openImagePreview(record, options = {}) {
     let panX = 0;
     let panY = 0;
     let pointer = null;
+    let dragged = false;
     fullscreen = createElement(documentRef, 'div', 'image-preview-fullscreen');
     fullscreen.setAttribute('data-image-preview-fullscreen', '');
     fullscreen.setAttribute('role', 'dialog');
@@ -242,7 +245,12 @@ export function openImagePreview(record, options = {}) {
     fullscreenImage.alt = record.alt || '生成结果';
     fullscreenImage.setAttribute('data-image-preview-fullscreen-image', '');
     fullscreenImage.draggable = false;
-    fullscreen.appendChild(fullscreenImage);
+    const fullscreenClose = createElement(documentRef, 'button', 'image-preview-close image-preview-fullscreen-close', '×');
+    fullscreenClose.type = 'button';
+    fullscreenClose.setAttribute('data-image-preview-fullscreen-close', '');
+    fullscreenClose.setAttribute('aria-label', '关闭全屏预览');
+    fullscreenClose.title = '关闭全屏预览';
+    fullscreen.append(fullscreenImage, fullscreenClose);
     documentRef.body.appendChild(fullscreen);
 
     const renderTransform = () => {
@@ -258,13 +266,24 @@ export function openImagePreview(record, options = {}) {
     fullscreen.addEventListener('click', (event) => {
       if (event.target === fullscreen) closeFullscreen();
     });
-    fullscreenImage.addEventListener('click', () => closeFullscreen());
+    fullscreenClose.addEventListener('click', closeFullscreen);
+    fullscreenImage.addEventListener('click', () => {
+      if (dragged) {
+        dragged = false;
+        return;
+      }
+      closeFullscreen();
+    });
     fullscreenImage.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
       pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, startX: panX, startY: panY };
+      dragged = false;
       fullscreenImage.setPointerCapture?.(event.pointerId);
     });
     fullscreenImage.addEventListener('pointermove', (event) => {
       if (!pointer || pointer.id !== event.pointerId) return;
+      if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 4) dragged = true;
+      if (!dragged) return;
       panX = pointer.startX + event.clientX - pointer.x;
       panY = pointer.startY + event.clientY - pointer.y;
       renderTransform();
@@ -276,6 +295,16 @@ export function openImagePreview(record, options = {}) {
     };
     fullscreenImage.addEventListener('pointerup', stopDragging);
     fullscreenImage.addEventListener('pointercancel', stopDragging);
+    fullscreenImage.addEventListener('contextmenu', (event) => {
+      openImageContextMenu(event, {
+        imageSource,
+        prompt: record.prompt || '',
+        suggestedName: `miaos-${imageId || 'image'}.png`,
+        onSave: typeof onDownload === 'function' ? () => onDownload(record) : undefined,
+        onCloseFullscreen: closeFullscreen,
+      });
+    });
+    fullscreenImage.title = '点击缩小并关闭；按住拖拽平移，滚轮缩放';
   }
 
   closeButton.addEventListener('click', close);
@@ -283,6 +312,14 @@ export function openImagePreview(record, options = {}) {
     if (event.target === overlay) close();
   });
   image?.addEventListener('click', openFullscreen);
+  image?.addEventListener('contextmenu', (event) => {
+    openImageContextMenu(event, {
+      imageSource,
+      prompt: record.prompt || '',
+      suggestedName: `miaos-${imageId || 'image'}.png`,
+      onSave: typeof onDownload === 'function' ? () => onDownload(record) : undefined,
+    });
+  });
   documentRef.addEventListener('keydown', onKeydown);
   closeButton.focus?.();
 
