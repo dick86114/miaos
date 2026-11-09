@@ -23,23 +23,17 @@ test('Klong 自动从基础地址推导文生图与编辑接口', () => {
   });
 });
 
-test('Klong 文生图使用平台扩展比例与分辨率档位', () => {
+test('Klong 普通模型按画幅和清晰度发送明确像素', () => {
   const body = buildKlongImageRequest({
-    modelId: 'nano-banana2',
+    modelId: 'gpt-image-2.5',
     prompt: '木桌上的红苹果',
-    ratio: '16:9',
-    quality: '高清',
+    ratio: '1:1',
+    quality: '超高清',
   });
 
-  assert.deepEqual(body, {
-    model: 'nano-banana2',
-    prompt: '木桌上的红苹果',
-    n: 1,
-    response_format: 'b64_json',
-    output_format: 'png',
-    aspect_ratio: '16:9',
-    image_size: '2K',
-  });
+  assert.equal(body.size, '4096x4096');
+  assert.equal(body.aspect_ratio, undefined);
+  assert.equal(body.image_size, undefined);
 });
 
 test('Klong 精确尺寸模型按画幅和清晰度发送明确像素', () => {
@@ -66,8 +60,7 @@ test('Klong 图生图使用 edits 并写入 reference_images 数组', () => {
   });
 
   assert.deepEqual(body.reference_images, sourceImages);
-  assert.equal(body.aspect_ratio, '4:3');
-  assert.equal(body.image_size, '1K');
+  assert.equal(body.size, '1280x960');
 });
 
 test('Klong Nano 与 Grok 使用文档示例中的 image 字段', () => {

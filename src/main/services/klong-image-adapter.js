@@ -16,7 +16,7 @@ const KLONG_IMAGE_MODELS = [
 ];
 const KLONG_IMAGE_MODEL_IDS = new Set(KLONG_IMAGE_MODELS.map((model) => model.id));
 
-const KLONG_EXACT_MODELS = new Set(['gpt-image-2-exact', 'gpt-image-2.5-exact']);
+const KLONG_DIRECT_1K_MODELS = new Set(['gpt-image-2-1k', 'gpt-image-2.5-1k']);
 const KLONG_GPT_IMAGE_MODELS = new Set([
   'gpt-image-2', 'gpt-image-2.5', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst',
   'gpt-image-2-exact', 'gpt-image-2.5-exact', 'gpt-image-2-1k', 'gpt-image-2.5-1k',
@@ -125,7 +125,8 @@ function buildKlongImageRequest({
   if (!model) throw new Error('Klong 模型名称不能为空');
 
   const normalizedRatio = KLONG_RATIO_SIZES['2K'][ratio] ? ratio : '1:1';
-  const imageSize = KLONG_IMAGE_SIZE[quality] || '2K';
+  const requestedImageSize = KLONG_IMAGE_SIZE[quality] || '2K';
+  const imageSize = KLONG_DIRECT_1K_MODELS.has(model) ? '1K' : requestedImageSize;
   const body = {
     model,
     prompt,
@@ -134,12 +135,7 @@ function buildKlongImageRequest({
     output_format: 'png',
   };
 
-  if (KLONG_EXACT_MODELS.has(model)) {
-    body.size = KLONG_RATIO_SIZES[imageSize][normalizedRatio];
-  } else {
-    body.aspect_ratio = normalizedRatio;
-    body.image_size = imageSize;
-  }
+  body.size = KLONG_RATIO_SIZES[imageSize][normalizedRatio];
 
   const images = normalizeSourceImages(sourceImages, sourceImage);
   if (images.length > 0) {
@@ -156,7 +152,6 @@ function buildKlongImageRequest({
 }
 
 module.exports = {
-  KLONG_EXACT_MODELS,
   KLONG_GPT_IMAGE_MODELS,
   KLONG_IMAGE_MODELS,
   KLONG_RATIO_SIZES,

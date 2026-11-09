@@ -207,7 +207,7 @@ class ImageRequestFactoryTest {
     }
 
     @Test
-    fun `Klong 文生图使用比例档位与生成接口`() {
+    fun `Klong 文生图使用明确像素与生成接口`() {
         val request = ImageRequestFactory.build(ImageGenerationInput(
             providerType = "klong",
             endpoint = "https://api.klong.lat/v1",
@@ -218,8 +218,7 @@ class ImageRequestFactoryTest {
         ))
 
         assertEquals("https://api.klong.lat/v1/images/generations", request.url)
-        assertEquals("16:9", request.body.getValue("aspect_ratio"))
-        assertEquals("2K", request.body.getValue("image_size"))
+        assertEquals("2048x1152", request.body.getValue("size"))
         assertEquals("b64_json", request.body.getValue("response_format"))
         assertEquals("png", request.body.getValue("output_format"))
     }
@@ -239,7 +238,7 @@ class ImageRequestFactoryTest {
 
         assertEquals("https://api.klong.lat/v1/images/edits", request.url)
         assertEquals(listOf(sourceImage), request.body.getValue("reference_images"))
-        assertEquals("1K", request.body.getValue("image_size"))
+        assertEquals("1280x960", request.body.getValue("size"))
     }
 
     @Test

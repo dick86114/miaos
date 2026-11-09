@@ -46,5 +46,5 @@ test('Android 包含 Klong 类型、尺寸和编辑请求适配', async () => {
   assert.match(requestFactory, /"klong" -> buildKlong/u);
   assert.match(requestFactory, /body\["reference_images"\] = listOf\(sourceImage\)/u);
   assert.match(requestFactory, /body\["image"\] = sourceImage/u);
-  assert.match(requestFactory, /KLONG_EXACT_MODELS/u);
+  assert.match(requestFactory, /body\["size"\]/u);
 });

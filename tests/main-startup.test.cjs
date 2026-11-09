@@ -1714,7 +1714,7 @@ test('Klong 连接测试会警告非生图分组', async () => {
   }
 });
 
-test('Klong 文生图使用比例档位并保存 Base64 结果', async () => {
+test('Klong 文生图使用明确像素并保存 Base64 结果', async () => {
   const homePath = createTempHome('miaos-klong-text-image-');
   try {
     const { calls } = await runMainWithMock({
@@ -1740,8 +1740,7 @@ test('Klong 文生图使用比例档位并保存 Base64 结果', async () => {
       n: 1,
       response_format: 'b64_json',
       output_format: 'png',
-      aspect_ratio: '16:9',
-      image_size: '2K',
+      size: '2048x1152',
     });
   } finally {
     cleanupTempHome(homePath);

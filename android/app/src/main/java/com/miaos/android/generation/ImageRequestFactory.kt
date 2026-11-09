@@ -172,12 +172,13 @@ object ImageRequestFactory {
     }
 
     /**
-     * Klong 的尺寸扩展字段与文档一致：普通模型传比例和档位，
-     * -exact 模型必须传明确像素；GPT Image 使用 reference_images，Nano/Grok 使用 image。
+     * Klong 使用明确像素 size 请求，-1k 直出模型固定 1K；
+     * GPT Image 使用 reference_images，Nano/Grok 使用 image。
      */
     private fun buildKlong(input: ImageGenerationInput): Map<String, Any> {
         val ratio = if (input.ratio in KLONG_RATIO_SIZES.getValue("2K")) input.ratio else "1:1"
-        val imageSize = KLONG_IMAGE_SIZES[input.quality] ?: "2K"
+        val requestedImageSize = KLONG_IMAGE_SIZES[input.quality] ?: "2K"
+        val imageSize = if (input.modelId in klongDirect1KModels) "1K" else requestedImageSize
         val body = linkedMapOf<String, Any>(
             "model" to input.modelId,
             "prompt" to input.prompt,
@@ -185,12 +186,7 @@ object ImageRequestFactory {
             "response_format" to "b64_json",
             "output_format" to "png",
         )
-        if (input.modelId in KLONG_EXACT_MODELS) {
-            body["size"] = KLONG_RATIO_SIZES.getValue(imageSize).getValue(ratio)
-        } else {
-            body["aspect_ratio"] = ratio
-            body["image_size"] = imageSize
-        }
+        body["size"] = KLONG_RATIO_SIZES.getValue(imageSize).getValue(ratio)
         input.sourceImage?.let { sourceImage ->
             if (input.modelId in KLONG_GPT_IMAGE_MODELS) {
                 body["reference_images"] = listOf(sourceImage)
@@ -258,7 +254,7 @@ object ImageRequestFactory {
     private val GLM = mapOf("1:1" to "1280x1280", "4:3" to "1472x1088", "16:9" to "1728x960", "9:16" to "960x1728")
     private val KOLORS = mapOf("1:1" to "1024x1024", "4:3" to "1280x960", "16:9" to "1280x720", "9:16" to "720x1280")
     private val WAN = mapOf("1:1" to "1280*1280", "4:3" to "1280*960", "16:9" to "1280*720", "9:16" to "720*1280")
-    private val KLONG_EXACT_MODELS = setOf("gpt-image-2-exact", "gpt-image-2.5-exact")
+    private val klongDirect1KModels = setOf("gpt-image-2-1k", "gpt-image-2.5-1k")
     private val KLONG_GPT_IMAGE_MODELS = setOf(
         "gpt-image-2", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
         "gpt-image-2-exact", "gpt-image-2.5-exact", "gpt-image-2-1k", "gpt-image-2.5-1k",
