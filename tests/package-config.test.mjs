@@ -23,6 +23,11 @@ test('pnpm 安装允许官方 Electron 构建脚本', () => {
   assert.deepEqual(pkg.pnpm?.onlyBuiltDependencies, ['electron']);
 });
 
+test('GitHub 构建使用受支持的 Apple Silicon runner', () => {
+  assert.match(workflow, /runs-on:\s*macos-15/u);
+  assert.doesNotMatch(workflow, /runs-on:\s*macos-14/u);
+});
+
 test('Electron 使用受支持稳定版本且不使用自定义 postinstall 兜底', () => {
   assert.equal(pkg.devDependencies.electron, '45.2.3');
   assert.equal('postinstall' in pkg.scripts, false);
